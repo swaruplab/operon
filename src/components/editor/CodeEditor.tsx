@@ -88,7 +88,7 @@ export function CodeEditor({
     <Editor
       height="100%"
       path={filePath}
-      defaultValue={content}
+      value={content}
       language={detectLanguage(filePath)}
       theme="operon-dark"
       onMount={handleMount}

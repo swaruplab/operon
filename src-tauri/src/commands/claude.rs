@@ -1632,13 +1632,15 @@ pub async fn start_claude_session(
     if let Some(m) = &model {
         claude_cmd.push_str(&format!(" --model {}", m));
     }
-    if mode != "plan" {
-        // Plan mode is always single turn
-        if let Some(turns) = max_turns {
-            claude_cmd.push_str(&format!(" --max-turns {}", turns));
-        }
-    } else {
+    if mode == "plan" {
         claude_cmd.push_str(" --max-turns 3");
+    } else if let Some(turns) = max_turns {
+        claude_cmd.push_str(&format!(" --max-turns {}", turns));
+    } else {
+        // Default max-turns for agent mode to prevent infinite loops.
+        // 30 turns is enough for complex multi-step tasks while ensuring
+        // the agent eventually stops if it gets stuck in a polling cycle.
+        claude_cmd.push_str(" --max-turns 30");
     }
     if let Some(resume) = &resume_session {
         claude_cmd.push_str(&format!(" --resume {}", resume));

@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "operon"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
