@@ -39,12 +39,21 @@ use commands::{
     git_version_info, git_tag_version, git_publish,
     // Knowledge Base
     search_pubmed,
+    // Extensions
+    search_extensions, get_extension_details, get_extension_manifest,
+    get_extension_readme, get_namespace_extensions, get_extension_reviews,
+    check_extension_compatibility, browse_extensions_by_category,
+    list_installed_extensions, enable_extension, disable_extension,
+    get_extension_package_json, install_extension_from_registry,
+    uninstall_extension, sideload_vsix, read_extension_theme, read_extension_snippets,
+    start_language_server, send_lsp_message, stop_language_server, list_language_servers,
 };
 
 use commands::terminal::TerminalManager;
 use commands::claude::ClaudeManager;
 use commands::ssh::SSHManager;
 use commands::settings::SettingsManager;
+use commands::extensions::ExtensionManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -54,6 +63,7 @@ pub fn run() {
         .manage(ClaudeManager::new())
         .manage(SSHManager::new())
         .manage(SettingsManager::new())
+        .manage(ExtensionManager::new())
         .setup(|app| {
             // Build custom menu to wire the Help menu to the webview
             let app_submenu = SubmenuBuilder::new(app, "Operon")
@@ -214,6 +224,29 @@ pub fn run() {
             // Knowledge Base
             search_pubmed,
             start_dictation, stop_dictation,
+            // Extensions
+            search_extensions,
+            get_extension_details,
+            get_extension_manifest,
+            get_extension_readme,
+            get_namespace_extensions,
+            get_extension_reviews,
+            check_extension_compatibility,
+            browse_extensions_by_category,
+            list_installed_extensions,
+            enable_extension,
+            disable_extension,
+            get_extension_package_json,
+            install_extension_from_registry,
+            uninstall_extension,
+            sideload_vsix,
+            read_extension_theme,
+            read_extension_snippets,
+            // LSP
+            start_language_server,
+            send_lsp_message,
+            stop_language_server,
+            list_language_servers,
             // Utilities
             open_url,
         ])

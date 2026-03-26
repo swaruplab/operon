@@ -18,6 +18,7 @@ import { SSHView } from './SSHView';
 import { RemoteExplorer } from './RemoteExplorer';
 import { ProtocolsView } from './ProtocolsView';
 import { GitPanel } from './GitPanel';
+import { ExtensionsView } from './ExtensionsView';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
@@ -62,19 +63,24 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
 
   const toggle = async () => {
     if (!entry.is_dir) return;
-    if (!expanded) {
-      setLoading(true);
-      try {
-        const entries = await invoke<FileEntry[]>('list_directory', {
-          path: entry.path,
-        });
-        setChildren(entries);
-      } catch (err) {
-        console.error('Failed to list directory:', err);
-      }
-      setLoading(false);
+    if (expanded) {
+      // Collapsing: clear children so next expand fetches fresh data
+      setExpanded(false);
+      setChildren([]);
+      return;
     }
-    setExpanded((v) => !v);
+    // Expanding: always fetch fresh directory listing
+    setLoading(true);
+    try {
+      const entries = await invoke<FileEntry[]>('list_directory', {
+        path: entry.path,
+      });
+      setChildren(entries);
+    } catch (err) {
+      console.error('Failed to list directory:', err);
+    }
+    setLoading(false);
+    setExpanded(true);
   };
 
   const openLocalFile = async (preview: boolean) => {
@@ -231,6 +237,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>(loadPinnedItems);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const togglePin = useCallback((path: string, name: string, isDir: boolean) => {
     setPinnedItems(prev => {
@@ -300,7 +307,11 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   }, [projectPath, loadDir, setProjectPath]);
 
   const refresh = () => {
-    if (projectPath) loadDir(projectPath);
+    if (projectPath) {
+      loadDir(projectPath);
+      // Bump key to force all TreeNodes to remount with fresh data
+      setRefreshKey((k) => k + 1);
+    }
   };
 
   const navigateTo = (path: string) => {
@@ -465,7 +476,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
         ) : (
           entries.map((entry) => (
             <TreeNode
-              key={entry.path}
+              key={`${entry.path}-${refreshKey}`}
               entry={entry}
               depth={0}
               onNavigateDir={navigateTo}
@@ -675,6 +686,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       {activeView === 'files' && <FileExplorerView sshConnection={sshConnection} localTerminalId={localTerminalId} />}
       {activeView === 'search' && <SearchView />}
       {activeView === 'git' && <GitPanel />}
+      {activeView === 'extensions' && <ExtensionsView />}
       {activeView === 'ssh' && <SSHView onConnectSSH={() => {}} />}
       {activeView === 'protocols' && (
         <ProtocolsView

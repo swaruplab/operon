@@ -5,6 +5,7 @@ pub mod ssh;
 pub mod settings;
 pub mod git;
 pub mod knowledge;
+pub mod extensions;
 
 pub use terminal::{spawn_terminal, write_terminal, resize_terminal, kill_terminal};
 pub use files::{list_directory, read_file, read_file_base64, write_file, save_clipboard_image, get_home_dir, create_file, create_directory, delete_path, rename_path, index_project, index_remote_project, list_protocols, read_protocol, get_protocols_dir, save_protocol, delete_protocol, generate_protocol};
@@ -13,6 +14,7 @@ pub use ssh::{save_ssh_profile, list_ssh_profiles, get_server_config, detect_ser
 pub use settings::{get_settings, update_settings, start_dictation, stop_dictation};
 pub use git::{git_status, git_init, git_commit_all, git_push, gh_check_auth, gh_install, gh_login, gh_create_repo, git_version_info, git_tag_version, git_publish};
 pub use knowledge::search_pubmed;
+pub use extensions::{search_extensions, get_extension_details, get_extension_manifest, get_extension_readme, get_namespace_extensions, get_extension_reviews, check_extension_compatibility, browse_extensions_by_category, list_installed_extensions, enable_extension, disable_extension, get_extension_package_json, install_extension_from_registry, uninstall_extension, sideload_vsix, read_extension_theme, read_extension_snippets, start_language_server, send_lsp_message, stop_language_server, list_language_servers};
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

@@ -12,6 +12,7 @@ import { CommandPalette } from './CommandPalette';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { HelpPanel } from '../help/HelpPanel';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { loadAllExtensionContributions } from '../../lib/extensionLoader';
 
 export function AppShell() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -59,6 +60,17 @@ export function AppShell() {
       },
     },
   ];
+
+  // Set window title with version
+  useEffect(() => {
+    const suffix = __APP_VERSION__ === 'dev' ? ' [DEV]' : ` v${__APP_VERSION__}`;
+    document.title = `Operon${suffix}`;
+  }, []);
+
+  // Load extension contributions (themes, snippets) on startup
+  useEffect(() => {
+    loadAllExtensionContributions();
+  }, []);
 
   // Listen for native macOS Help menu click
   useEffect(() => {
