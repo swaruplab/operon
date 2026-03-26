@@ -36,6 +36,7 @@ src-tauri/gen/
 
 # Planning artifacts
 implementation_plan.md
+GitHub-skills.md
 
 # Screenshots (raw — curated versions are in docs/img/)
 screenshots/
