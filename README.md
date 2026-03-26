@@ -5,7 +5,7 @@
 **AI-powered IDE for bioinformatics — built by biologists, for biologists.**
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.2-purple.svg)](https://github.com/swaruplab/operon/releases/tag/v0.3.2)
+[![Version](https://img.shields.io/github/v/release/swaruplab/operon?color=purple)](https://github.com/swaruplab/operon/releases/latest)
 [![macOS](https://img.shields.io/badge/macOS-12%2B-black.svg?logo=apple)](https://swaruplab.bio.uci.edu/operon)
 [![Tauri](https://img.shields.io/badge/Tauri_2-Rust_%2B_React-orange.svg)](https://tauri.app)
 [![Protocols](https://img.shields.io/badge/protocols-180%2B-green.svg)](#analysis-protocols)
@@ -528,12 +528,16 @@ operon/
 
 We welcome contributions from the bioinformatics community!
 
+**Branch model:**
+- **`dev`** — active development (default branch, PRs go here)
+- **`main`** — stable releases only (merged from `dev` when ready)
+
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
+2. Create a feature branch off `dev` (`git checkout -b feature/my-feature dev`)
 3. Make your changes
 4. Run the dev server to test (`npm run tauri dev`)
 5. Commit and push
-6. Open a Pull Request
+6. Open a Pull Request targeting `dev`
 
 ---
 
