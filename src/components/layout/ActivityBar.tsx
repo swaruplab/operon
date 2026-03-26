@@ -1,4 +1,4 @@
-import { Files, Search, MonitorSmartphone, Settings, BookOpen, HelpCircle, GitBranch } from "lucide-react";
+import { Files, Search, MonitorSmartphone, Settings, BookOpen, HelpCircle, GitBranch, Blocks } from "lucide-react";
 
 interface ActivityBarProps {
   activeView: string;
@@ -10,6 +10,7 @@ const items = [
   { id: "search", icon: Search, label: "Search" },
   { id: "git", icon: GitBranch, label: "Git & GitHub" },
   { id: "ssh", icon: MonitorSmartphone, label: "Remote SSH" },
+  { id: "extensions", icon: Blocks, label: "Extensions" },
   { id: "protocols", icon: BookOpen, label: "Protocols" },
   { id: "help", icon: HelpCircle, label: "Help" },
   { id: "settings", icon: Settings, label: "Settings" },

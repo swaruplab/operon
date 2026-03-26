@@ -17,6 +17,11 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
       <div className="flex items-center gap-2 px-3">
         <Hammer className="w-4 h-4 text-blue-400" />
         <span className="text-sm font-semibold text-zinc-200 tracking-tight">Operon</span>
+        {__APP_VERSION__ === 'dev' ? (
+          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">DEV</span>
+        ) : (
+          <span className="text-[10px] text-zinc-500 font-mono">v{__APP_VERSION__}</span>
+        )}
       </div>
 
       {/* Center: project name */}

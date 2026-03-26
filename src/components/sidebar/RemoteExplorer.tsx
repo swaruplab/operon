@@ -56,21 +56,26 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate }: Rem
 
   const toggle = async () => {
     if (!entry.is_dir) return;
-    if (!expanded) {
-      setLoading(true);
-      try {
-        const entries = await invoke<FileEntry[]>('list_remote_directory', {
-          profileId,
-          path: entry.path,
-          showHidden,
-        });
-        setChildren(entries);
-      } catch (err) {
-        console.error('Failed to list remote directory:', err);
-      }
-      setLoading(false);
+    if (expanded) {
+      // Collapsing: clear children so next expand fetches fresh data
+      setExpanded(false);
+      setChildren([]);
+      return;
     }
-    setExpanded((v) => !v);
+    // Expanding: always fetch fresh directory listing
+    setLoading(true);
+    try {
+      const entries = await invoke<FileEntry[]>('list_remote_directory', {
+        profileId,
+        path: entry.path,
+        showHidden,
+      });
+      setChildren(entries);
+    } catch (err) {
+      console.error('Failed to list remote directory:', err);
+    }
+    setLoading(false);
+    setExpanded(true);
   };
 
   const openRemoteFile = async (preview: boolean) => {
@@ -214,6 +219,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const loadDir = useCallback(
     async (path: string) => {
@@ -263,7 +269,10 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   }, [profileId, loadDir]); // loadDir already depends on showHidden
 
   const refresh = () => {
-    if (remotePath) loadDir(remotePath);
+    if (remotePath) {
+      loadDir(remotePath);
+      setRefreshKey((k) => k + 1);
+    }
   };
 
   const cdToTerminal = () => {
@@ -411,7 +420,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           <div className="px-4 py-8 text-center text-zinc-600 text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
-            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} />
+            <RemoteTreeNode key={`${entry.path}-${refreshKey}`} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} />
           ))
         )}
       </div>
