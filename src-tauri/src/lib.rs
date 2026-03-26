@@ -7,7 +7,7 @@ use commands::{
     // Terminal
     spawn_terminal, write_terminal, resize_terminal, kill_terminal,
     // Files
-    list_directory, read_file, read_file_base64, write_file, get_home_dir,
+    list_directory, read_file, read_file_base64, write_file, save_clipboard_image, get_home_dir,
     create_file, create_directory, delete_path, rename_path,
     index_project, index_remote_project,
     // Protocols
@@ -133,6 +133,7 @@ pub fn run() {
             read_file,
             read_file_base64,
             write_file,
+            save_clipboard_image,
             get_home_dir,
             create_file,
             create_directory,

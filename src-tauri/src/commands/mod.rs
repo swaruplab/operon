@@ -7,7 +7,7 @@ pub mod git;
 pub mod knowledge;
 
 pub use terminal::{spawn_terminal, write_terminal, resize_terminal, kill_terminal};
-pub use files::{list_directory, read_file, read_file_base64, write_file, get_home_dir, create_file, create_directory, delete_path, rename_path, index_project, index_remote_project, list_protocols, read_protocol, get_protocols_dir, save_protocol, delete_protocol, generate_protocol};
+pub use files::{list_directory, read_file, read_file_base64, write_file, save_clipboard_image, get_home_dir, create_file, create_directory, delete_path, rename_path, index_project, index_remote_project, list_protocols, read_protocol, get_protocols_dir, save_protocol, delete_protocol, generate_protocol};
 pub use claude::{check_claude_installed, install_claude, store_api_key, get_api_key, delete_api_key, check_oauth_status, launch_claude_login, check_auth_status, start_claude_session, stop_claude_session, check_existing_plan, save_session_metadata, update_session_claude_id, update_session_status, list_sessions, check_session_files, read_session_output, reconnect_session, delete_session, rename_session, check_local_dependencies, install_xcode_cli, install_node, install_all_dependencies, install_phase_xcode, install_phase_tools, install_phase_claude, check_remote_claude, check_remote_claude_auth, install_remote_claude};
 pub use ssh::{save_ssh_profile, list_ssh_profiles, get_server_config, detect_server_config, delete_ssh_profile, spawn_ssh_terminal, list_remote_directory, get_remote_home, read_remote_file, read_remote_file_base64, setup_ssh_key, test_ssh_connection, check_control_master, stop_control_master};
 pub use settings::{get_settings, update_settings, start_dictation, stop_dictation};

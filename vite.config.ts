@@ -24,4 +24,8 @@ export default defineConfig(async () => ({
   worker: {
     format: "es" as const,
   },
+  // Optimize Monaco editor bundling
+  optimizeDeps: {
+    include: ['monaco-editor'],
+  },
 }));

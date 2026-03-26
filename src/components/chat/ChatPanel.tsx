@@ -33,6 +33,8 @@ import {
   Download,
   AlertTriangle,
   RefreshCw,
+  Paperclip,
+  Image,
 } from 'lucide-react';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -1039,6 +1041,8 @@ export function ChatPanel() {
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionCursorStart, setMentionCursorStart] = useState(0); // position of '@' in input
   const [mentions, setMentions] = useState<MentionRef[]>([]);      // accumulated mentions for current message
+  const [attachments, setAttachments] = useState<Array<{ name: string; path: string; type: 'file' | 'image' }>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mentionDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Cache directory listings to avoid repeated SSH calls (key = dir path, value = entries + timestamp)
   const dirCache = useRef<Map<string, { entries: MentionItem[]; ts: number }>>(new Map());
@@ -1685,8 +1689,18 @@ export function ChatPanel() {
           if ('cost_usd' in data && data.cost_usd) {
             setTotalCost((prev) => prev + data.cost_usd!);
           }
+          // Mark ALL remaining running/pending tool blocks as complete
+          // (some tool result events may have been missed or arrived out of order)
           setMessages((prev) =>
-            prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
+            prev.map((msg) => ({
+              ...msg,
+              isStreaming: false,
+              content: msg.content.map((block) =>
+                block.type === 'tool_use' && (block.status === 'running' || block.status === 'pending')
+                  ? { ...block, status: 'complete' as const }
+                  : block,
+              ),
+            })),
           );
 
           // Plan mode: detect plan file after Claude finishes
@@ -1756,6 +1770,18 @@ export function ChatPanel() {
 
     listen(`claude-done-${sessionId}`, () => {
       setIsStreaming(false);
+      // Mark all remaining running/pending tool blocks as complete
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          isStreaming: false,
+          content: msg.content.map((block) =>
+            block.type === 'tool_use' && (block.status === 'running' || block.status === 'pending')
+              ? { ...block, status: 'complete' as const }
+              : block,
+          ),
+        })),
+      );
       invoke('update_session_status', {
         sessionId,
         status: 'completed',
@@ -1945,10 +1971,17 @@ export function ChatPanel() {
 
     // Layer 4: @-mentions (user-typed, lightweight metadata only)
     const currentMentions = [...mentions];
+    const currentAttachments = [...attachments];
     let mentionPrefix = '';
     if (currentMentions.length > 0) {
       const contextParts = currentMentions.map(ref => resolveMentionContext(ref));
       mentionPrefix = `The user is referencing the following files/folders:\n${contextParts.join('\n')}\n\n`;
+    }
+    if (currentAttachments.length > 0) {
+      const attachParts = currentAttachments.map(a =>
+        `- ${a.type === 'image' ? 'Image' : 'File'}: ${a.path} (use Read tool to view this file)`
+      );
+      mentionPrefix += `The user has attached these files for context:\n${attachParts.join('\n')}\n\n`;
     }
 
     // Layer 5: PubMed literature (auto-search in Ask mode when enabled)
@@ -2037,6 +2070,7 @@ export function ChatPanel() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setMentions([]); // Clear mentions for next message
+    setAttachments([]); // Clear attachments for next message
     setMentionActive(false);
     setIsStreaming(true);
     seenMsgIds.current.clear(); // Reset for new conversation turn
@@ -2604,12 +2638,12 @@ export function ChatPanel() {
             </div>
           )}
 
-          {/* Mention chips: show referenced files/folders */}
-          {mentions.length > 0 && (
+          {/* Mention + Attachment chips */}
+          {(mentions.length > 0 || attachments.length > 0) && (
             <div className="flex flex-wrap gap-1 mb-2">
               {mentions.map((ref, idx) => (
                 <span
-                  key={`${ref.path}-${idx}`}
+                  key={`mention-${ref.path}-${idx}`}
                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-900/30 border border-blue-700/40 rounded-full text-[11px] text-blue-300"
                 >
                   {ref.isDir ? (
@@ -2620,6 +2654,25 @@ export function ChatPanel() {
                   {ref.name}
                   <button
                     onClick={() => setMentions(prev => prev.filter((_, i) => i !== idx))}
+                    className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
+                  >
+                    {'\u2715'}
+                  </button>
+                </span>
+              ))}
+              {attachments.map((att, idx) => (
+                <span
+                  key={`attach-${att.path}-${idx}`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-900/30 border border-emerald-700/40 rounded-full text-[11px] text-emerald-300"
+                >
+                  {att.type === 'image' ? (
+                    <Image className="w-3 h-3 text-emerald-400" />
+                  ) : (
+                    <Paperclip className="w-3 h-3 text-emerald-400" />
+                  )}
+                  {att.name}
+                  <button
+                    onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
                     className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
                   >
                     {'\u2715'}
@@ -2649,6 +2702,42 @@ export function ChatPanel() {
                 >
                   <AtSign className="w-3 h-3" />
                 </button>
+              )}
+              {/* Attach file/screenshot button */}
+              {(projectPath || remoteInfo) && (
+                <>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-zinc-800 transition-colors text-[11px] text-zinc-500 hover:text-zinc-400"
+                    title="Attach a file or screenshot for context"
+                  >
+                    <Paperclip className="w-3 h-3" />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,.txt,.md,.py,.js,.ts,.tsx,.jsx,.rs,.json,.yaml,.yml,.toml,.csv,.log,.sh,.bash,.r,.R,.html,.css,.sql,.xml,.ipynb,.h5ad,.h5,.pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = e.target.files;
+                      if (!files) return;
+                      const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif']);
+                      const newAttachments: typeof attachments = [];
+                      for (const file of Array.from(files)) {
+                        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+                        newAttachments.push({
+                          name: file.name,
+                          path: (file as any).path || file.name,
+                          type: imageExts.has(ext) ? 'image' : 'file',
+                        });
+                      }
+                      setAttachments(prev => [...prev, ...newAttachments]);
+                      // Reset so the same file can be re-selected
+                      e.target.value = '';
+                    }}
+                  />
+                </>
               )}
               {/* PubMed toggle — only in Ask mode */}
               {mode === 'ask' && (
@@ -2691,6 +2780,37 @@ export function ChatPanel() {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              onPaste={async (e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (const item of Array.from(items)) {
+                  if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const blob = item.getAsFile();
+                    if (!blob) continue;
+                    try {
+                      const buffer = await blob.arrayBuffer();
+                      const bytes = new Uint8Array(buffer);
+                      let binary = '';
+                      for (let i = 0; i < bytes.length; i++) {
+                        binary += String.fromCharCode(bytes[i]);
+                      }
+                      const base64 = btoa(binary);
+                      const ext = item.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+                      const savedPath = await invoke<string>('save_clipboard_image', {
+                        data: base64,
+                        extension: ext,
+                      });
+                      const name = savedPath.split('/').pop() || `clipboard.${ext}`;
+                      setAttachments(prev => [...prev, { name, path: savedPath, type: 'image' }]);
+                    } catch (err) {
+                      console.error('Failed to save clipboard image:', err);
+                    }
+                    return; // handled the image, don't also paste text
+                  }
+                }
+                // If no image items, let the default text paste happen
+              }}
               placeholder={
                 mode === 'plan'
                   ? (planReady

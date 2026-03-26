@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import { AppShell } from './components/layout/AppShell';
 import { ProjectProvider } from './context/ProjectContext';
 import { SetupWizard } from './components/setup/SetupWizard';
+
+// Configure Monaco to use the local bundle instead of CDN.
+// This is critical for Tauri because CSP blocks external scripts.
+loader.config({ monaco });
 
 function App() {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Register Monaco theme on mount
-    import('./lib/theme').then((m) => m.registerMonacoTheme()).catch(() => {});
-
     // Check if setup has been completed before
     invoke<{ setup_completed?: boolean }>('get_settings')
       .then((settings) => {

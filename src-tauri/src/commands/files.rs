@@ -73,6 +73,31 @@ pub async fn write_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, &content).map_err(|e| format!("Failed to write {}: {}", path, e))
 }
 
+/// Save base64-encoded image data (from clipboard paste) to a temp file.
+/// Returns the absolute path to the saved file.
+#[tauri::command]
+pub async fn save_clipboard_image(data: String, extension: String) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    let tmp_dir = std::env::temp_dir().join("operon-clipboard");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let filename = format!("clipboard-{}.{}", timestamp, extension);
+    let path = tmp_dir.join(&filename);
+
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("Failed to write clipboard image: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub async fn get_home_dir() -> Result<String, String> {
     dirs::home_dir()
