@@ -1,6 +1,8 @@
 import Editor, { type OnMount, type OnChange, type BeforeMount } from '@monaco-editor/react';
 import { useRef, useCallback } from 'react';
 import type { editor } from 'monaco-editor';
+import { useProject } from '../../context/ProjectContext';
+import { useLspAutoStart } from '../../hooks/useLspAutoStart';
 
 interface CodeEditorProps {
   filePath: string;
@@ -116,6 +118,16 @@ export function CodeEditor({
   onSave,
 }: CodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const { projectPath } = useProject();
+  const languageId = detectLanguage(filePath);
+
+  // Auto-start LSP server for this file's language
+  const { sendDidChange } = useLspAutoStart({
+    filePath,
+    languageId,
+    content,
+    workspacePath: projectPath,
+  });
 
   // Register theme BEFORE Monaco creates the editor — this is synchronous
   // and guarantees the theme exists when the editor instance is created.
@@ -145,9 +157,11 @@ export function CodeEditor({
     (value) => {
       if (value !== undefined) {
         onChange?.(value);
+        // Notify LSP of content change
+        sendDidChange(value);
       }
     },
-    [onChange],
+    [onChange, sendDidChange],
   );
 
   return (

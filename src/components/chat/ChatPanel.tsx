@@ -382,11 +382,69 @@ function MinorToolDisplay({ block }: { block: ToolUseBlock }) {
   );
 }
 
+// Known MCP tool prefixes → display name + color
+const MCP_TOOL_PREFIXES: Array<{ prefix: string; label: string; color: string }> = [
+  { prefix: 'encode_', label: 'ENCODE', color: 'text-teal-400' },
+  { prefix: 'analyze-active-site', label: 'BioMCP', color: 'text-violet-400' },
+  { prefix: 'search-disease-proteins', label: 'BioMCP', color: 'text-violet-400' },
+];
+
+function getMCPInfo(toolName: string): { label: string; color: string } | null {
+  for (const p of MCP_TOOL_PREFIXES) {
+    if (toolName.startsWith(p.prefix)) return { label: p.label, color: p.color };
+  }
+  return null;
+}
+
+// MCP tool display — shows server badge and tool details
+function MCPToolDisplay({ block, mcpInfo }: { block: ToolUseBlock; mcpInfo: { label: string; color: string } }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const statusIcon = block.status === 'complete'
+    ? <CheckCircle className="w-3 h-3 text-green-400/70" />
+    : block.status === 'running'
+    ? <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />
+    : block.status === 'error'
+    ? <AlertCircle className="w-3 h-3 text-red-400" />
+    : <span className="text-zinc-600 text-[10px]">{'\u25CF'}</span>;
+
+  return (
+    <div className="my-1 rounded-lg border border-zinc-700/50 overflow-hidden">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-zinc-900/60 hover:bg-zinc-800/50"
+      >
+        {statusIcon}
+        <Server className="w-3 h-3 text-zinc-500" />
+        <span className={`text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 font-medium ${mcpInfo.color}`}>
+          {mcpInfo.label}
+        </span>
+        <span className="text-[11px] text-zinc-300 font-mono truncate">{block.name}</span>
+        <span className="ml-auto">
+          {expanded ? <ChevronDown className="w-3 h-3 text-zinc-600" /> : <ChevronRight className="w-3 h-3 text-zinc-600" />}
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-2.5 py-1.5 bg-zinc-950/60 border-t border-zinc-800/50 max-h-48 overflow-y-auto space-y-1">
+          {Object.keys(block.input).length > 0 && (
+            <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap font-mono">{JSON.stringify(block.input, null, 2)}</pre>
+          )}
+          {block.result && (
+            <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono mt-1">{block.result.slice(0, 2000)}{block.result.length > 2000 ? '\n... (truncated)' : ''}</pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Route to the right display component
 function ToolUseDisplay({ block }: { block: ToolUseBlock }) {
   if (block.name === 'TodoWrite') return <TodoDisplay block={block} />;
   if (block.name === 'Bash') return <BashDisplay block={block} />;
   if (block.name === 'Write' || block.name === 'Edit') return <FileActionDisplay block={block} />;
+  const mcpInfo = getMCPInfo(block.name);
+  if (mcpInfo) return <MCPToolDisplay block={block} mcpInfo={mcpInfo} />;
   return <MinorToolDisplay block={block} />;
 }
 

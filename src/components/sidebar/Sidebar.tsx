@@ -19,6 +19,8 @@ import { RemoteExplorer } from './RemoteExplorer';
 import { ProtocolsView } from './ProtocolsView';
 import { GitPanel } from './GitPanel';
 import { ExtensionsView } from './ExtensionsView';
+import { dockerExtension } from './DockerPanel';
+import { singularityExtension } from './SingularityPanel';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
@@ -681,6 +683,22 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     return () => { unlisten.then((u) => u()); };
   }, [onViewChange]);
 
+  // Listen for tool panel events from ExtensionsView
+  useEffect(() => {
+    const handleOpenToolPanel = (event: Event) => {
+      const customEvent = event as CustomEvent<{ toolId: string }>;
+      const toolId = customEvent.detail?.toolId;
+      if (toolId) {
+        onViewChange?.(toolId);
+      }
+    };
+
+    window.addEventListener('open-tool-panel', handleOpenToolPanel);
+    return () => {
+      window.removeEventListener('open-tool-panel', handleOpenToolPanel);
+    };
+  }, [onViewChange]);
+
   return (
     <div className="h-full bg-zinc-900 overflow-hidden">
       {activeView === 'files' && <FileExplorerView sshConnection={sshConnection} localTerminalId={localTerminalId} />}
@@ -697,6 +715,8 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           }}
         />
       )}
+      {activeView === 'docker' && <dockerExtension.SidebarPanel />}
+      {activeView === 'singularity' && <singularityExtension.SidebarPanel />}
       {activeView === 'settings' && (
         <div className="flex flex-col h-full">
           <div className="flex items-center px-3 py-2 border-b border-zinc-800">

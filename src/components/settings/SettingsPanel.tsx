@@ -1,10 +1,141 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench } from 'lucide-react';
+import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS } from '../../lib/settings';
+import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
+import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies } from '../../lib/mcp';
+import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
+import type { InstalledExtension } from '../../types/extensions';
+
+// Extracted component to avoid useState inside map()
+function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, onError }: {
+  server: MCPServerStatus;
+  entry: MCPCatalogEntry | null;
+  depCheck?: DependencyStatus;
+  isInstalling: boolean;
+  onToggle: () => void;
+  onError: (msg: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const enabled = server.config.enabled;
+
+  return (
+    <div className={`rounded-lg border transition-colors ${
+      enabled ? 'border-blue-800/40 bg-blue-950/10' : 'border-zinc-800 bg-zinc-900/40'
+    }`}>
+      {/* Main row */}
+      <div className="flex items-start gap-3 px-3.5 py-3">
+        {/* Icon */}
+        <div className={`mt-0.5 p-1.5 rounded-md ${enabled ? 'bg-blue-900/30' : 'bg-zinc-800/60'}`}>
+          <Server className={`w-3.5 h-3.5 ${enabled ? 'text-blue-400' : 'text-zinc-500'}`} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[13px] font-medium text-zinc-200">{entry?.name || server.config.name}</span>
+            <span className={`text-[9px] font-medium uppercase tracking-wide px-1.5 py-[1px] rounded ${
+              entry?.runtime === 'node'
+                ? 'bg-green-900/30 text-green-400 border border-green-800/30'
+                : 'bg-yellow-900/30 text-yellow-400 border border-yellow-800/30'
+            }`}>
+              {entry?.runtime === 'node' ? 'Node.js' : 'Python'}
+            </span>
+            {entry && (
+              <span className="text-[10px] text-zinc-500">{entry.tools_count} tools</span>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed line-clamp-2">
+            {entry?.description || server.config.description}
+          </p>
+        </div>
+
+        {/* Toggle */}
+        <div className="shrink-0 mt-0.5">
+          {isInstalling ? (
+            <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+          ) : (
+            <button
+              onClick={onToggle}
+              className={`relative inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
+                enabled ? 'bg-blue-500' : 'bg-zinc-600'
+              }`}
+              aria-label={enabled ? 'Disable server' : 'Enable server'}
+            >
+              <span
+                className={`inline-block w-3.5 h-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                  enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                }`}
+              />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Details toggle */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 w-full px-3.5 py-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors border-t border-zinc-800/40"
+      >
+        {expanded ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
+        Details
+      </button>
+
+      {/* Expanded details */}
+      {expanded && entry && (
+        <div className="px-3.5 pb-3 space-y-2.5">
+          <div>
+            <span className="text-[10px] text-zinc-400 font-medium">Tools:</span>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {entry.tools_summary.slice(0, 8).map((tool, i) => (
+                <span key={i} className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded font-mono">
+                  {tool}
+                </span>
+              ))}
+              {entry.tools_summary.length > 8 && (
+                <span className="text-[9px] text-zinc-600 px-1.5 py-0.5">+{entry.tools_summary.length - 8} more</span>
+              )}
+            </div>
+          </div>
+          {entry.databases.length > 0 && (
+            <div>
+              <span className="text-[10px] text-zinc-400 font-medium">Databases:</span>
+              <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">{entry.databases.join(' \u00b7 ')}</p>
+            </div>
+          )}
+          <div className="flex items-center gap-3 pt-1">
+            <span className="text-[10px] text-zinc-600">License: {entry.license}</span>
+            {entry.homepage && (
+              <a
+                onClick={(e) => { e.preventDefault(); invoke('open_url', { url: entry.homepage }); }}
+                href="#"
+                className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300"
+              >
+                <ExternalLink className="w-2.5 h-2.5" /> Homepage
+              </a>
+            )}
+          </div>
+          {depCheck && (
+            <div className={`flex items-center gap-2 p-2 rounded-md text-[10px] ${
+              depCheck.satisfied
+                ? 'bg-green-950/20 text-green-400 border border-green-900/20'
+                : 'bg-yellow-950/20 text-yellow-400 border border-yellow-900/20'
+            }`}>
+              {depCheck.satisfied ? (
+                <><CheckCircle className="w-3 h-3 shrink-0" /> {depCheck.runtime} {depCheck.runtime_version}</>
+              ) : (
+                <><AlertTriangle className="w-3 h-3 shrink-0" /> {depCheck.install_hint}</>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface SettingsPanelProps {
   isOpen: boolean;
@@ -16,12 +147,28 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<'editor' | 'terminal' | 'claude' | 'auth' | 'setup'>(
+  const [activeSection, setActiveSection] = useState<'editor' | 'terminal' | 'claude' | 'auth' | 'mcp' | 'extensions' | 'setup'>(
     'editor',
   );
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [authStatus, setAuthStatus] = useState<{ authenticated: boolean; method: string } | null>(null);
   const [oauthChecking, setOauthChecking] = useState(false);
+
+  // MCP state
+  const [mcpServers, setMcpServers] = useState<MCPServerStatus[]>([]);
+  const [mcpCatalog, setMcpCatalog] = useState<MCPCatalogEntry[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpDepChecks, setMcpDepChecks] = useState<Record<string, DependencyStatus>>({});
+  const [mcpInstalling, setMcpInstalling] = useState<string | null>(null);
+  const [mcpError, setMcpError] = useState<string | null>(null);
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customServer, setCustomServer] = useState({ name: '', command: '', args: '' });
+
+  // Extension Settings state
+  const [installedExtensions, setInstalledExtensions] = useState<InstalledExtension[]>([]);
+  const [extensionSettingsForms, setExtensionSettingsForms] = useState<Record<string, Record<string, unknown>>>({});
+  const [extensionConfigSchemas, setExtensionConfigSchemas] = useState<Record<string, Record<string, unknown>>>({});
+  const [extSettingsLoading, setExtSettingsLoading] = useState(false);
 
   const refreshAuthStatus = useCallback(async () => {
     try {
@@ -32,6 +179,48 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     }
   }, []);
 
+  const refreshMCPServers = useCallback(async () => {
+    setMcpLoading(true);
+    try {
+      const [servers, catalog] = await Promise.all([listMCPServers(), getMCPCatalog()]);
+      setMcpServers(servers);
+      setMcpCatalog(catalog);
+    } catch (e) {
+      console.error('Failed to load MCP servers:', e);
+    }
+    setMcpLoading(false);
+  }, []);
+
+  const refreshExtensionSettings = useCallback(async () => {
+    setExtSettingsLoading(true);
+    try {
+      const extensions = await listInstalledExtensions();
+      const extensionsWithConfig = extensions.filter((ext) => ext.contributions.configuration);
+      setInstalledExtensions(extensionsWithConfig);
+
+      // Load config schemas and current settings for each extension
+      const schemas: Record<string, Record<string, unknown>> = {};
+      const forms: Record<string, Record<string, unknown>> = {};
+      for (const ext of extensionsWithConfig) {
+        try {
+          const schema = await getExtensionConfigSchema(ext.id);
+          const settings = await getExtensionSettings(ext.id);
+          if (schema && typeof schema === 'object') {
+            schemas[ext.id] = schema as Record<string, unknown>;
+          }
+          forms[ext.id] = settings || {};
+        } catch (err) {
+          console.warn(`Failed to load settings for extension ${ext.id}:`, err);
+        }
+      }
+      setExtensionConfigSchemas(schemas);
+      setExtensionSettingsForms(forms);
+    } catch (e) {
+      console.error('Failed to load extension settings:', e);
+    }
+    setExtSettingsLoading(false);
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       invoke<AppSettings>('get_settings')
@@ -39,8 +228,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         .catch(() => setSettings(DEFAULT_SETTINGS));
       invoke<string | null>('get_api_key').then((key) => setHasKey(!!key));
       refreshAuthStatus();
+      refreshMCPServers();
+      refreshExtensionSettings();
     }
-  }, [isOpen, refreshAuthStatus]);
+  }, [isOpen, refreshAuthStatus, refreshMCPServers, refreshExtensionSettings]);
 
   const saveSettings = useCallback(async (updated: AppSettings) => {
     setSaving(true);
@@ -72,6 +263,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     { id: 'terminal' as const, label: 'Terminal' },
     { id: 'claude' as const, label: 'Claude' },
     { id: 'auth' as const, label: 'Authentication' },
+    { id: 'mcp' as const, label: 'MCP Servers' },
+    { id: 'extensions' as const, label: 'Extension Settings' },
     { id: 'setup' as const, label: 'Setup Wizard' },
   ];
 
@@ -240,6 +433,351 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
                 />
               </label>
+            </div>
+          )}
+
+          {activeSection === 'mcp' && (
+            <div className="space-y-5">
+              <div>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-zinc-200">MCP Servers</h3>
+                  {mcpLoading && <Loader2 className="w-3.5 h-3.5 text-zinc-500 animate-spin" />}
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                  MCP servers give Claude access to external tools and databases.
+                  Enabled servers are automatically available in all Claude sessions.
+                </p>
+              </div>
+
+              {mcpError && (
+                <div className="flex items-center gap-2 p-2.5 bg-red-950/20 border border-red-900/30 rounded-lg">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span className="text-[11px] text-red-300">{mcpError}</span>
+                  <button onClick={() => setMcpError(null)} className="ml-auto text-zinc-600 hover:text-zinc-400">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              {/* Catalog Servers */}
+              <div className="space-y-2.5">
+                <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Research Tools Catalog</h4>
+                {mcpServers.filter(s => s.from_catalog).map((server) => (
+                  <CatalogServerCard
+                    key={server.config.name}
+                    server={server}
+                    entry={server.catalog_entry}
+                    depCheck={mcpDepChecks[server.config.name]}
+                    isInstalling={mcpInstalling === server.config.name}
+                    onError={setMcpError}
+                    onToggle={async () => {
+                      setMcpError(null);
+                      if (server.config.enabled) {
+                        try {
+                          await disableMCPServer(server.config.name);
+                          await refreshMCPServers();
+                        } catch (e) {
+                          setMcpError(String(e));
+                        }
+                      } else {
+                        setMcpInstalling(server.config.name);
+                        try {
+                          const dep = await checkMCPDependencies(server.config.name);
+                          setMcpDepChecks(prev => ({ ...prev, [server.config.name]: dep }));
+                          if (dep.satisfied && server.catalog_entry) {
+                            await installMCPServer(server.catalog_entry.id);
+                            await refreshMCPServers();
+                          } else {
+                            setMcpError(`${server.catalog_entry?.runtime || 'Runtime'} not found. ${dep.install_hint}`);
+                          }
+                        } catch (e) {
+                          setMcpError(String(e));
+                        }
+                        setMcpInstalling(null);
+                      }
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Custom Servers */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Custom Servers</h4>
+                  <button
+                    onClick={() => setShowCustomForm(!showCustomForm)}
+                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </div>
+
+                {showCustomForm && (
+                  <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg space-y-2">
+                    <input
+                      type="text"
+                      value={customServer.name}
+                      onChange={(e) => setCustomServer(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Server name"
+                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={customServer.command}
+                      onChange={(e) => setCustomServer(prev => ({ ...prev, command: e.target.value }))}
+                      placeholder="Command (e.g. npx, uvx, node)"
+                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={customServer.args}
+                      onChange={(e) => setCustomServer(prev => ({ ...prev, args: e.target.value }))}
+                      placeholder="Arguments (space-separated)"
+                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={async () => {
+                          if (!customServer.name.trim() || !customServer.command.trim()) return;
+                          try {
+                            await addMCPServer({
+                              name: customServer.name.trim(),
+                              enabled: true,
+                              command: customServer.command.trim(),
+                              args: customServer.args.trim().split(/\s+/).filter(Boolean),
+                              env: {},
+                              catalog_id: null,
+                              description: null,
+                            });
+                            setCustomServer({ name: '', command: '', args: '' });
+                            setShowCustomForm(false);
+                            await refreshMCPServers();
+                          } catch (e) {
+                            setMcpError(String(e));
+                          }
+                        }}
+                        disabled={!customServer.name.trim() || !customServer.command.trim()}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 rounded text-xs text-white"
+                      >
+                        Add Server
+                      </button>
+                      <button
+                        onClick={() => { setShowCustomForm(false); setCustomServer({ name: '', command: '', args: '' }); }}
+                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-400"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {mcpServers.filter(s => !s.from_catalog).map((server) => (
+                  <div key={server.config.name} className="flex items-center gap-3 px-3 py-2 bg-zinc-800/30 border border-zinc-800 rounded-lg">
+                    <Server className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-zinc-300">{server.config.name}</span>
+                      <p className="text-[10px] text-zinc-600 font-mono truncate">{server.config.command} {server.config.args.join(' ')}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (server.config.enabled) {
+                          await disableMCPServer(server.config.name);
+                        } else {
+                          await enableMCPServer(server.config.name);
+                        }
+                        await refreshMCPServers();
+                      }}
+                      className={`relative w-9 h-5 rounded-full transition-colors ${
+                        server.config.enabled ? 'bg-blue-600' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        server.config.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                      }`} />
+                    </button>
+                    <button
+                      onClick={async () => {
+                        await removeMCPServer(server.config.name);
+                        await refreshMCPServers();
+                      }}
+                      className="text-zinc-600 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+
+                {mcpServers.filter(s => !s.from_catalog).length === 0 && !showCustomForm && (
+                  <p className="text-[11px] text-zinc-600 italic">No custom servers configured</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeSection === 'extensions' && (
+            <div className="space-y-5">
+              <div>
+                <h3 className="text-sm font-medium text-zinc-200">Extension Settings</h3>
+                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                  Configure settings for installed extensions. Changes are saved automatically.
+                </p>
+              </div>
+
+              {extSettingsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                </div>
+              ) : installedExtensions.length === 0 ? (
+                <p className="text-[11px] text-zinc-500 italic">No installed extensions with configuration options.</p>
+              ) : (
+                <div className="space-y-4">
+                  {installedExtensions.map((ext) => {
+                    const schema = extensionConfigSchemas[ext.id] as any;
+                    const currentSettings = extensionSettingsForms[ext.id] || {};
+                    const properties = schema?.properties || {};
+
+                    return (
+                      <div key={ext.id} className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
+                        {/* Extension header */}
+                        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-zinc-800/60 bg-zinc-800/20">
+                          <div className="p-1.5 rounded-md bg-zinc-800/60">
+                            <Settings className="w-3.5 h-3.5 text-zinc-400" />
+                          </div>
+                          <span className="text-[13px] font-medium text-zinc-200">{ext.display_name}</span>
+                          <span className="text-[10px] text-zinc-600 ml-auto">{Object.keys(properties).length} settings</span>
+                        </div>
+
+                        {/* Settings list */}
+                        <div className="divide-y divide-zinc-800/40">
+                          {Object.entries(properties).map(([key, prop]: [string, any]) => {
+                            const currentValue = currentSettings[key];
+                            const type = prop.type;
+                            const description = prop.description;
+                            // Format the key: take last segment and convert camelCase to readable
+                            const shortKey = key.includes('.') ? key.split('.').pop()! : key;
+                            const displayName = shortKey.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim();
+
+                            const handleChange = (value: unknown) => {
+                              setExtensionSettingsForms((prev) => ({
+                                ...prev,
+                                [ext.id]: { ...prev[ext.id], [key]: value },
+                              }));
+                            };
+
+                            const saveField = async () => {
+                              try {
+                                const updated = { ...currentSettings, [key]: currentSettings[key] };
+                                await updateExtensionSettings(ext.id, updated);
+                              } catch (err) {
+                                console.error(`Failed to save extension setting ${key}:`, err);
+                              }
+                            };
+
+                            return (
+                              <div key={key} className="px-3.5 py-2.5">
+                                {type === 'boolean' ? (
+                                  /* Boolean: toggle row */
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[12px] text-zinc-300">{displayName}</div>
+                                      {description && (
+                                        <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed line-clamp-2">{description}</p>
+                                      )}
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        const newVal = !Boolean(currentValue);
+                                        setExtensionSettingsForms((prev) => ({
+                                          ...prev,
+                                          [ext.id]: { ...prev[ext.id], [key]: newVal },
+                                        }));
+                                        updateExtensionSettings(ext.id, {
+                                          ...currentSettings,
+                                          [key]: newVal,
+                                        }).catch(() => {});
+                                      }}
+                                      className={`relative shrink-0 inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
+                                        Boolean(currentValue) ? 'bg-blue-500' : 'bg-zinc-600'
+                                      }`}
+                                      aria-label={`Toggle ${displayName}`}
+                                    >
+                                      <span className={`inline-block w-3.5 h-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                                        Boolean(currentValue) ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                                      }`} />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  /* Non-boolean: stacked layout */
+                                  <div className="space-y-1.5">
+                                    <div>
+                                      <div className="text-[12px] text-zinc-300">{displayName}</div>
+                                      {description && (
+                                        <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed line-clamp-2">{description}</p>
+                                      )}
+                                    </div>
+                                    {type === 'number' ? (
+                                      <input
+                                        type="number"
+                                        value={currentValue != null ? String(currentValue) : ''}
+                                        onChange={(e) => {
+                                          const num = e.target.value ? Number(e.target.value) : 0;
+                                          handleChange(num);
+                                        }}
+                                        onBlur={() =>
+                                          updateExtensionSettings(ext.id, {
+                                            ...currentSettings,
+                                            [key]: currentSettings[key],
+                                          }).catch(() => {})
+                                        }
+                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+                                      />
+                                    ) : prop.enum ? (
+                                      <select
+                                        value={String(currentValue ?? '')}
+                                        onChange={(e) => {
+                                          const value = e.target.value;
+                                          handleChange(value);
+                                          updateExtensionSettings(ext.id, {
+                                            ...currentSettings,
+                                            [key]: value,
+                                          }).catch(() => {});
+                                        }}
+                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
+                                      >
+                                        {prop.enum.map((opt: any) => (
+                                          <option key={opt} value={opt}>
+                                            {opt}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <input
+                                        type="text"
+                                        value={String(currentValue ?? '')}
+                                        onChange={(e) => handleChange(e.target.value)}
+                                        onBlur={() =>
+                                          updateExtensionSettings(ext.id, {
+                                            ...currentSettings,
+                                            [key]: currentSettings[key],
+                                          }).catch(() => {})
+                                        }
+                                        className="w-full max-w-[300px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+                                        placeholder={prop.default != null ? String(prop.default) : ''}
+                                      />
+                                    )}
+                                  </div>
+                                )}
+                                {/* Show full key as subtle reference */}
+                                <div className="text-[9px] text-zinc-700 mt-1 font-mono truncate">{key}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

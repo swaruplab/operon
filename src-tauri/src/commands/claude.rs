@@ -1500,6 +1500,7 @@ pub async fn start_claude_session(
     state: tauri::State<'_, ClaudeManager>,
     terminal_state: tauri::State<'_, super::terminal::TerminalManager>,
     ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    settings_state: tauri::State<'_, super::settings::SettingsManager>,
     app: tauri::AppHandle,
     session_id: String,
     prompt: String,
@@ -1563,15 +1564,81 @@ pub async fn start_claude_session(
         String::new()
     };
 
+    // Generate a human-readable timestamp for plan sections
+    let now_timestamp = {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        // Format as YYYY-MM-DD HH:MM (UTC)
+        let days = secs / 86400;
+        let time_of_day = secs % 86400;
+        let hours = time_of_day / 3600;
+        let minutes = (time_of_day % 3600) / 60;
+        // Compute year/month/day from epoch days
+        let mut y = 1970i64;
+        let mut remaining = days as i64;
+        loop {
+            let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+            if remaining < days_in_year { break; }
+            remaining -= days_in_year;
+            y += 1;
+        }
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let mut m = 0usize;
+        for &md in &month_days {
+            if remaining < md as i64 { break; }
+            remaining -= md as i64;
+            m += 1;
+        }
+        format!("{:04}-{:02}-{:02} {:02}:{:02} UTC", y, m + 1, remaining + 1, hours, minutes)
+    };
+    // Also compute a filename-safe version for archiving
+    let now_filename = now_timestamp.replace(' ', "_").replace(':', "");
+
+    // --- Plan mode: archive existing plan before writing a new one ---
+    // This keeps implementation_plan.md clean (always ONE active plan) while
+    // preserving full history in .operon/plan_history/ for reference.
+    if mode == "plan" && !existing_plan.is_empty() {
+        if let Some(ref ctx) = remote {
+            // Remote: archive via SSH
+            let profile = {
+                let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+                profiles.iter().find(|p| p.id == ctx.profile_id).cloned()
+            };
+            if let Some(prof) = profile {
+                let archive_cmd = format!(
+                    "mkdir -p '{base}/.operon/plan_history' && \
+                     cp '{base}/implementation_plan.md' '{base}/.operon/plan_history/plan_{ts}.md' 2>/dev/null || true",
+                    base = ctx.remote_path.replace('\'', "'\\''"),
+                    ts = now_filename
+                );
+                let _ = super::ssh::ssh_exec(&prof, &archive_cmd);
+            }
+        } else {
+            // Local: archive to .operon/plan_history/
+            let history_dir = std::path::Path::new(&project_path).join(".operon").join("plan_history");
+            let _ = std::fs::create_dir_all(&history_dir);
+            let archive_name = format!("plan_{}.md", now_filename);
+            let plan_path = std::path::Path::new(&project_path).join("implementation_plan.md");
+            let _ = std::fs::copy(&plan_path, history_dir.join(&archive_name));
+        }
+    }
+
     let mut claude_cmd = match mode.as_str() {
         "plan" => {
-            // Plan mode: wrap the prompt to produce a plan.md file
-            let existing_plan_note = if !existing_plan.is_empty() {
+            // Plan mode: write a FRESH implementation_plan.md
+            // The previous plan (if any) was just archived to .operon/plan_history/
+            // Give Claude the old plan as read-only context so it can build on it,
+            // but instruct it to write a completely new file.
+            let existing_plan_context = if !existing_plan.is_empty() {
                 format!(
-                    "\n\nNOTE: There is an existing implementation_plan.md in this directory. \
-                     Read it first. If the user's new request builds on the existing plan, \
-                     UPDATE the file (don't create a new one). If it's a completely different task, \
-                     replace it. Here is the current plan content:\n\n---\n{}\n---",
+                    "\n\nCONTEXT: The previous implementation plan (now archived) is shown below for reference. \
+                     Use it to understand what has already been planned or completed. \
+                     You may reference, build upon, or supersede it — but write your plan as a \
+                     fresh, self-contained document.\n\n\
+                     <previous_plan>\n{}\n</previous_plan>",
                     existing_plan
                 )
             } else {
@@ -1582,13 +1649,21 @@ pub async fn start_claude_session(
                 "You are in PLAN mode. Do NOT execute any code or make any changes. \
                  Instead, analyze the request and create a detailed implementation plan. \
                  Write the plan to a file called 'implementation_plan.md' in the current directory. \
-                 The plan should include: 1) Overview of the task, 2) Step-by-step implementation steps, \
+                 This should be a FRESH, self-contained plan (the previous plan, if any, has been \
+                 automatically archived to .operon/plan_history/).\
+                 \n\nFORMATTING RULES:\
+                 \n- Start with: # Implementation Plan: <short title>\
+                 \n- Add: **Date:** {}\
+                 \n- Then include: 1) Overview of the task, 2) Step-by-step implementation steps, \
                  3) Files to create or modify, 4) Dependencies needed, 5) Testing strategy, \
-                 6) Potential risks or considerations. \
-                 Include a '## Status' section at the top with each step marked as [ ] (pending) \
-                 so that Agent mode can track progress.{}\
+                 6) Potential risks or considerations.\
+                 \n- Include a '## Status' section with each step marked as [ ] (pending) \
+                 so that Agent mode can track progress.\
+                 \n- If the previous plan had steps marked [x] (completed), you may note those as \
+                 already done in your new plan so Agent mode knows not to redo them.{}\
                  \n\nThe user's request: {}",
-                existing_plan_note,
+                now_timestamp,
+                existing_plan_context,
                 escaped_prompt
             );
             format!("claude --dangerously-skip-permissions -p '{}' --verbose --output-format stream-json", plan_prompt.replace('\'', "'\\''"))
@@ -1646,6 +1721,16 @@ pub async fn start_claude_session(
         claude_cmd.push_str(&format!(" --resume {}", resume));
     }
 
+    // Inject --mcp-config if any MCP servers are enabled
+    let mcp_servers = {
+        let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.mcp_servers.clone()
+    };
+    if let Some(config_path) = super::mcp::generate_mcp_config(&mcp_servers)? {
+        // Shell-escape the path in case it contains spaces
+        claude_cmd.push_str(&format!(" --mcp-config '{}'", config_path.replace('\'', "'\\''")));
+    }
+
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
 
     let use_terminal = use_terminal.unwrap_or(false);
@@ -1694,6 +1779,26 @@ pub async fn start_claude_session(
                     .cloned()
                     .ok_or_else(|| format!("SSH profile {} not found", ctx.profile_id))?
             };
+
+            // For HPC terminal mode, write MCP config to the remote shared filesystem
+            // so the claude process on the compute node can access it.
+            if let Some(mcp_json) = super::mcp::generate_mcp_config_json(&mcp_servers)? {
+                let mcp_config_remote = format!("{}/.operon-mcp-config.json", ctx.remote_path);
+                let encoded_json = base64::engine::general_purpose::STANDARD.encode(mcp_json.as_bytes());
+                let write_cmd = format!(
+                    "echo '{}' | base64 -d > '{}'",
+                    encoded_json,
+                    mcp_config_remote.replace('\'', "'\\''")
+                );
+                let _ = super::ssh::ssh_exec(&profile, &write_cmd);
+                // Replace the local config path in claude_cmd with the remote path
+                if let Some(local_path) = super::mcp::generate_mcp_config(&mcp_servers)? {
+                    claude_cmd = claude_cmd.replace(
+                        &format!("--mcp-config '{}'", local_path),
+                        &format!("--mcp-config '{}'", mcp_config_remote.replace('\'', "'\\''")),
+                    );
+                }
+            }
 
             // Create a unique output file path on the SHARED filesystem (not /tmp which is node-local).
             // On HPC systems, /tmp is local to each node — the compute node writes the file but

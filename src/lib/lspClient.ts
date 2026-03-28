@@ -17,8 +17,11 @@ export class OperonLanguageClient {
   private requestId = 0;
   private pendingRequests = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
   private unlistenMessage: (() => void) | null = null;
+  private unlistenExit: (() => void) | null = null;
   private disposables: monaco.IDisposable[] = [];
   private running = false;
+  private restartCount = 0;
+  private maxRestarts = 3;
 
   constructor(
     private extensionId: string,
@@ -45,6 +48,13 @@ export class OperonLanguageClient {
       this.handleServerMessage(event.payload);
     });
     this.unlistenMessage = unlisten;
+
+    // Listen for LSP server exit events (crash detection)
+    const sid = this.serverId;
+    const unlistenExit = await listen<string>(`lsp-server-exit-${sid}`, () => {
+      this.handleCrash();
+    });
+    this.unlistenExit = unlistenExit;
 
     // Send initialize request
     await this.initialize();
@@ -81,6 +91,10 @@ export class OperonLanguageClient {
       this.unlistenMessage();
       this.unlistenMessage = null;
     }
+    if (this.unlistenExit) {
+      this.unlistenExit();
+      this.unlistenExit = null;
+    }
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.pendingRequests.clear();
@@ -97,6 +111,38 @@ export class OperonLanguageClient {
 
   getLanguages(): string[] {
     return this.languages;
+  }
+
+  // ── Crash Recovery ──────────────────────────────────────────────────
+
+  private async handleCrash(): Promise<void> {
+    if (this.restartCount >= this.maxRestarts) {
+      console.error(`[LSP ${this.extensionId}] Server crashed ${this.maxRestarts} times, giving up`);
+      this.running = false;
+      return;
+    }
+    this.restartCount++;
+    console.warn(`[LSP ${this.extensionId}] Server crashed, restarting (attempt ${this.restartCount}/${this.maxRestarts})`);
+
+    // Clean up old listeners
+    if (this.unlistenMessage) {
+      this.unlistenMessage();
+      this.unlistenMessage = null;
+    }
+    if (this.unlistenExit) {
+      this.unlistenExit();
+      this.unlistenExit = null;
+    }
+    this.disposables.forEach(d => d.dispose());
+    this.disposables = [];
+    this.pendingRequests.clear();
+
+    // Restart
+    try {
+      await this.start();
+    } catch (err) {
+      console.error(`[LSP ${this.extensionId}] Restart failed:`, err);
+    }
   }
 
   // ── LSP Protocol ─────────────────────────────────────────────────────
@@ -169,6 +215,10 @@ export class OperonLanguageClient {
     await this.sendNotification('textDocument/didClose', {
       textDocument: { uri },
     });
+  }
+
+  async didChangeConfiguration(settings: Record<string, unknown>): Promise<void> {
+    await this.sendNotification('workspace/didChangeConfiguration', { settings });
   }
 
   // ── Message Handling ─────────────────────────────────────────────────

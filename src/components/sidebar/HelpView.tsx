@@ -20,6 +20,8 @@ import {
   Mic,
   BookMarked,
   Settings2,
+  Plug,
+  Puzzle,
 } from 'lucide-react';
 
 interface HelpSection {
@@ -322,6 +324,87 @@ export function HelpView({ onViewChange }: HelpViewProps) {
         {
           title: 'Example use cases',
           content: 'Protocols are great for standardized workflows: RNA-seq analysis pipelines, variant calling procedures, quality control checklists, paper writing templates, or lab notebook formatting. Any workflow you repeat regularly can become a protocol.',
+        },
+      ],
+    },
+    {
+      id: 'mcp-servers',
+      title: 'MCP Servers',
+      icon: Plug,
+      iconColor: 'text-rose-400',
+      items: [
+        {
+          title: 'What are MCP servers?',
+          content: 'MCP (Model Context Protocol) servers are plugins that give Claude access to external tools and databases during chat. When enabled, Claude can automatically call tools to search databases, fetch data, and perform analyses within the conversation.',
+          tip: 'Think of MCP servers as superpowers for Claude — with them, Claude can query ENCODE, PubMed, protein databases, and more.',
+        },
+        {
+          title: 'Built-in research catalog',
+          content: 'Operon ships with curated research MCP servers:\n\n• ENCODE Toolkit — 14 genomics databases (ENCODE, GTEx, ClinVar, GWAS Catalog, JASPAR, CellxGene, gnomAD, Ensembl, UCSC, GEO, PubMed, bioRxiv, ClinicalTrials.gov, Open Targets) with 20 tools.\n\n• BioMCP — Protein structure analysis via PDB.',
+        },
+        {
+          title: 'Enabling an MCP server',
+          content: 'Go to Settings → MCP Servers. Toggle a server on in the Research Tools Catalog. Operon checks your runtime (Python or Node.js), installs the package, and configures it. Available in your next chat session.',
+          action: onViewChange ? { label: 'Open Settings', handler: () => onViewChange('settings') } : undefined,
+        },
+        {
+          title: 'Using MCP tools in chat',
+          content: 'Just ask naturally — Claude calls the right tools automatically:\n\n• "Search ENCODE for ATAC-seq in human brain"\n• "Find ClinVar variants for BRCA1"\n• "Analyze the active site of PDB 1A2B"\n\nTool calls show as labeled badges with expandable input/output.',
+        },
+        {
+          title: 'Adding custom servers',
+          content: 'In Settings → MCP Servers → Custom Servers, enter a name, command, and args for any MCP-compatible server.',
+          tip: 'Any server that speaks MCP over stdio will work.',
+        },
+        {
+          title: 'Remote MCP servers',
+          content: 'MCP servers work on remote machines too. When running Claude on your HPC cluster via SSH, Operon writes the MCP config remotely so tools like ENCODE Toolkit are available there.',
+        },
+        {
+          title: 'Runtime requirements',
+          content: 'ENCODE Toolkit needs Python 3.10+ (pip install encode-toolkit). BioMCP needs Node.js 20+ (npm install -g @anthropic-ai/bio-mcp). Operon checks these before enabling.',
+        },
+      ],
+    },
+    {
+      id: 'extensions',
+      title: 'Extensions',
+      icon: Puzzle,
+      iconColor: 'text-violet-400',
+      items: [
+        {
+          title: 'What are extensions?',
+          content: 'Extensions add language support, themes, snippets, and code intelligence to the editor. Operon uses the Open VSX registry — thousands of extensions for syntax highlighting, LSP, and more.',
+        },
+        {
+          title: 'Browsing and installing',
+          content: 'Open Extensions from the Activity Bar (puzzle icon). Search or browse by category. Click "Install" to download and activate. Extensions persist in ~/.config/operon/extensions/.',
+        },
+        {
+          title: 'Language servers (LSP)',
+          content: 'Many extensions include a language server for autocompletion, hover docs, diagnostics, and go-to-definition. Operon auto-starts the matching server when you open a file.',
+          tip: 'If no LSP is installed for a language, Operon recommends an extension.',
+        },
+        {
+          title: 'Themes and snippets',
+          content: 'Install theme extensions and select them in Settings. Snippets activate automatically — type a prefix in the editor to see completions.',
+        },
+        {
+          title: 'Extension settings',
+          content: 'Per-extension settings are in Settings → Extensions. These are parsed from the extension\'s package.json and rendered as interactive forms.',
+          action: onViewChange ? { label: 'Open Settings', handler: () => onViewChange('settings') } : undefined,
+        },
+        {
+          title: 'Sideloading a VSIX',
+          content: 'Have a .vsix file? Use the sideload option in the Extensions view to install directly without the registry.',
+        },
+        {
+          title: 'Remote extensions',
+          content: 'When working via SSH, Operon can install extensions and run language servers on the remote machine for full code intelligence on remote projects.',
+        },
+        {
+          title: 'Docker & Singularity tools',
+          content: 'Built-in tool extensions for container management:\n\n• Docker — List, start, stop, remove containers. View images/volumes. Read logs.\n\n• Singularity/Apptainer — Manage .sif images and instances for HPC.',
         },
       ],
     },

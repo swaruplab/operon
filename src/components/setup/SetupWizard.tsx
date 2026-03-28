@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { MCPCatalogEntry } from '../../types/mcp';
+import { getMCPCatalog, installMCPServer, checkMCPDependencies } from '../../lib/mcp';
 
 interface DependencyStatus {
   xcode_cli: boolean;
@@ -52,7 +54,113 @@ interface SetupWizardProps {
   mode?: 'fullscreen' | 'modal';
 }
 
-type Step = 'welcome' | 'checking' | 'install-xcode' | 'install-tools' | 'install-claude' | 'installing' | 'dependencies' | 'auth' | 'tour-overview' | 'tour-modes' | 'tour-remote' | 'tour-features' | 'tour-shortcuts' | 'complete';
+type Step = 'welcome' | 'checking' | 'install-xcode' | 'install-tools' | 'install-claude' | 'installing' | 'dependencies' | 'auth' | 'research-tools' | 'tour-overview' | 'tour-modes' | 'tour-remote' | 'tour-features' | 'tour-shortcuts' | 'complete';
+
+function ResearchToolsStep({ onContinue }: { onContinue: () => void }) {
+  const [catalog, setCatalog] = useState<MCPCatalogEntry[]>([]);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [installing, setInstalling] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getMCPCatalog().then(setCatalog).catch(console.error);
+  }, []);
+
+  const handleToggle = async (entry: MCPCatalogEntry) => {
+    if (enabled[entry.id]) {
+      setEnabled(prev => ({ ...prev, [entry.id]: false }));
+      return;
+    }
+    setInstalling(entry.id);
+    setError(null);
+    try {
+      const dep = await checkMCPDependencies(entry.config.name);
+      if (dep.satisfied) {
+        await installMCPServer(entry.id);
+        setEnabled(prev => ({ ...prev, [entry.id]: true }));
+      } else {
+        setError(`${entry.runtime === 'node' ? 'Node.js' : 'Python'} not found. ${dep.install_hint}`);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+    setInstalling(null);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center">
+        <div className="w-12 h-12 rounded-xl bg-teal-900/30 flex items-center justify-center mx-auto mb-3">
+          <Server className="w-6 h-6 text-teal-400" />
+        </div>
+        <h2 className="text-lg font-semibold text-zinc-100">Research Tools</h2>
+        <p className="text-zinc-500 text-sm mt-1">
+          Enable MCP servers to give Claude access to scientific databases. This is optional — you can change it later in Settings.
+        </p>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 p-2.5 bg-yellow-950/20 border border-yellow-800/30 rounded-lg">
+          <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+          <span className="text-[11px] text-yellow-300">{error}</span>
+        </div>
+      )}
+
+      <div className="space-y-2.5">
+        {catalog.map((entry) => (
+          <div key={entry.id} className="p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
+            <div className="flex items-start gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                entry.runtime === 'node' ? 'bg-violet-900/30' : 'bg-teal-900/30'
+              }`}>
+                <Server className={`w-4 h-4 ${entry.runtime === 'node' ? 'text-violet-400' : 'text-teal-400'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-zinc-200">{entry.name}</span>
+                  <span className="text-[10px] text-zinc-600 bg-zinc-800 px-1.5 py-0.5 rounded">
+                    {entry.runtime === 'node' ? 'Node.js' : 'Python'}
+                  </span>
+                  <span className="text-[10px] text-zinc-600">{entry.tools_count} tools</span>
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{entry.description}</p>
+                {entry.databases.length > 0 && (
+                  <p className="text-[10px] text-zinc-600 mt-1">
+                    Databases: {entry.databases.slice(0, 5).join(', ')}{entry.databases.length > 5 ? ` +${entry.databases.length - 5} more` : ''}
+                  </p>
+                )}
+              </div>
+              <div className="shrink-0">
+                {installing === entry.id ? (
+                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                ) : (
+                  <button
+                    onClick={() => handleToggle(entry)}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${
+                      enabled[entry.id] ? 'bg-blue-600' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      enabled[entry.id] ? 'translate-x-4' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={onContinue}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors"
+      >
+        Continue
+        <ArrowRight className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
 
 export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProps) {
   const [step, setStep] = useState<Step>('welcome');
@@ -83,6 +191,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     { key: 'install-tools', label: 'Tools' },
     { key: 'install-claude', label: 'Claude' },
     { key: 'auth', label: 'Auth' },
+    { key: 'research-tools', label: 'Research' },
     { key: 'tour-overview', label: 'Tour' },
     { key: 'complete', label: 'Ready' },
   ];
@@ -93,8 +202,9 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     if (step === 'install-tools' || step === 'installing') return 2;
     if (step === 'install-claude') return 3;
     if (step === 'auth') return 4;
-    if (step === 'tour-overview' || step === 'tour-modes' || step === 'tour-remote' || step === 'tour-features' || step === 'tour-shortcuts') return 5;
-    if (step === 'complete') return 6;
+    if (step === 'research-tools') return 5;
+    if (step === 'tour-overview' || step === 'tour-modes' || step === 'tour-remote' || step === 'tour-features' || step === 'tour-shortcuts') return 6;
+    if (step === 'complete') return 7;
     return 0;
   })();
 
@@ -254,7 +364,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
       const ok = await invoke<boolean>('check_oauth_status');
       if (ok) {
         setOauthState('success');
-        setTimeout(() => setStep('tour-overview'), 600);
+        setTimeout(() => setStep('research-tools'), 600);
       } else {
         setOauthState('failed');
         setError('No OAuth credentials found yet. Complete the login in Terminal, then try again.');
@@ -265,7 +375,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     }
   };
 
-  // Save API key and proceed to tour
+  // Save API key and proceed to research tools
   const completeAuth = async (skipAuth = false) => {
     if (!skipAuth && apiKey.trim()) {
       try {
@@ -275,7 +385,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         return;
       }
     }
-    setStep('tour-overview');
+    setStep('research-tools');
   };
 
   // Final completion
@@ -1096,6 +1206,11 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </button>
             )}
           </div>
+        )}
+
+        {/* ========== RESEARCH TOOLS (MCP) ========== */}
+        {step === 'research-tools' && (
+          <ResearchToolsStep onContinue={() => setStep('tour-overview')} />
         )}
 
         {/* ========== TOUR: OVERVIEW ========== */}

@@ -135,27 +135,22 @@ export function AppShell() {
             minSize={30}
             order={2}
           >
-            <PanelGroup direction="vertical" autoSaveId="center-v">
+            <div className="flex flex-col h-full">
               {/* Editor Area */}
-              <Panel
-                id="editor"
-                defaultSize={terminalVisible ? 65 : 100}
-                minSize={20}
-                order={1}
-              >
+              <div className={terminalVisible ? 'flex-[65_1_0%] min-h-0 overflow-hidden' : 'flex-1 min-h-0 overflow-hidden'}>
                 <EditorArea />
-              </Panel>
+              </div>
 
-              {/* Terminal Area */}
-              {terminalVisible && (
-                <>
-                  <PanelResizeHandle className="h-[3px] bg-zinc-900 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150" />
-                  <Panel id="terminal" defaultSize={35} minSize={10} order={2}>
-                    <TerminalArea />
-                  </Panel>
-                </>
-              )}
-            </PanelGroup>
+              {/* Terminal Area — always mounted so processes survive panel toggle */}
+              <div
+                className={terminalVisible
+                  ? 'flex-[35_1_0%] min-h-[80px] border-t border-zinc-800'
+                  : 'h-0 overflow-hidden'
+                }
+              >
+                <TerminalArea />
+              </div>
+            </div>
           </Panel>
 
           {/* Right Chat Panel */}

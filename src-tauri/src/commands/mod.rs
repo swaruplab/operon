@@ -2,6 +2,7 @@ pub mod terminal;
 pub mod files;
 pub mod claude;
 pub mod ssh;
+pub mod mcp;
 pub mod settings;
 pub mod git;
 pub mod knowledge;
@@ -14,7 +15,8 @@ pub use ssh::{save_ssh_profile, list_ssh_profiles, get_server_config, detect_ser
 pub use settings::{get_settings, update_settings, start_dictation, stop_dictation};
 pub use git::{git_status, git_init, git_commit_all, git_push, gh_check_auth, gh_install, gh_login, gh_create_repo, git_version_info, git_tag_version, git_publish};
 pub use knowledge::search_pubmed;
-pub use extensions::{search_extensions, get_extension_details, get_extension_manifest, get_extension_readme, get_namespace_extensions, get_extension_reviews, check_extension_compatibility, browse_extensions_by_category, list_installed_extensions, enable_extension, disable_extension, get_extension_package_json, install_extension_from_registry, uninstall_extension, sideload_vsix, read_extension_theme, read_extension_snippets, start_language_server, send_lsp_message, stop_language_server, list_language_servers};
+pub use extensions::{search_extensions, get_extension_details, get_extension_manifest, get_extension_readme, get_namespace_extensions, get_extension_reviews, check_extension_compatibility, browse_extensions_by_category, list_installed_extensions, enable_extension, disable_extension, get_extension_package_json, install_extension_from_registry, uninstall_extension, sideload_vsix, read_extension_theme, read_extension_snippets, start_language_server, send_lsp_message, stop_language_server, list_language_servers, get_extension_config_schema, get_extension_settings, update_extension_settings, check_extension_updates, get_extension_recommendations, validate_extension_install, docker_list_containers, docker_list_images, docker_list_volumes, docker_container_action, singularity_list_images, singularity_list_instances, singularity_action, start_remote_language_server, install_remote_extension};
+pub use mcp::{get_mcp_catalog, list_mcp_servers, add_mcp_server, remove_mcp_server, enable_mcp_server, disable_mcp_server, install_mcp_server, check_mcp_dependencies, check_remote_mcp_dependencies, install_remote_mcp_server};
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

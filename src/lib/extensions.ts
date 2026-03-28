@@ -178,3 +178,81 @@ export async function stopLanguageServer(serverId: string): Promise<void> {
 export async function listLanguageServers(): Promise<LspServerInfo[]> {
   return invoke('list_language_servers');
 }
+
+// ── Extension Settings ───────────────────────────────────────────────────
+
+export async function getExtensionConfigSchema(id: string): Promise<Record<string, unknown> | null> {
+  return invoke('get_extension_config_schema', { id });
+}
+
+export async function getExtensionSettings(id: string): Promise<Record<string, unknown>> {
+  return invoke('get_extension_settings', { id });
+}
+
+export async function updateExtensionSettings(id: string, values: Record<string, unknown>): Promise<void> {
+  return invoke('update_extension_settings', { id, values });
+}
+
+// ── Phase 9: Polish & Reliability ────────────────────────────────────────
+
+export interface UpdateAvailable {
+  extension_id: string;
+  current_version: string;
+  latest_version: string;
+  display_name: string;
+}
+
+export async function checkExtensionUpdates(): Promise<UpdateAvailable[]> {
+  return invoke('check_extension_updates');
+}
+
+export interface ExtensionRecommendation {
+  language_id: string;
+  namespace: string;
+  name: string;
+  display_name: string;
+  description: string;
+}
+
+export async function getExtensionRecommendations(
+  languageId: string
+): Promise<ExtensionRecommendation[]> {
+  return invoke('get_extension_recommendations', { language_id: languageId });
+}
+
+export async function validateExtensionInstall(
+  namespace: string,
+  name: string
+): Promise<{ can_install: boolean; warnings: string[] }> {
+  return invoke('validate_extension_install', { namespace, name });
+}
+
+// ── Remote LSP Server Management ─────────────────────────────────────
+
+export async function startRemoteLanguageServer(
+  extensionId: string,
+  serverCommand: string,
+  serverArgs: string[],
+  workspacePath: string,
+  languages: string[],
+  sshProfileId: string,
+): Promise<LspServerInfo> {
+  return invoke('start_remote_language_server', {
+    extensionId,
+    serverCommand,
+    serverArgs,
+    workspacePath,
+    languages,
+    sshProfileId,
+  });
+}
+
+// ── Remote Extension Installation ───────────────────────────────────
+
+export async function installRemoteExtension(
+  sshProfileId: string,
+  namespace: string,
+  name: string,
+): Promise<void> {
+  return invoke('install_remote_extension', { sshProfileId, namespace, name });
+}

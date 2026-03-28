@@ -1117,7 +1117,11 @@ pub async fn start_language_server(
                 let mut byte = [0u8; 1];
                 match reader.read_exact(&mut byte) {
                     Ok(_) => header_buf.push(byte[0] as char),
-                    Err(_) => return, // Server exited
+                    Err(_) => {
+                        // Server exited — emit exit event for crash detection
+                        let _ = app.emit(&format!("lsp-server-exit-{}", sid), "crashed");
+                        return;
+                    }
                 }
                 if header_buf.ends_with("\r\n\r\n") {
                     break;
@@ -1143,6 +1147,7 @@ pub async fn start_language_server(
             // Read the JSON body
             let mut body = vec![0u8; content_length];
             if reader.read_exact(&mut body).is_err() {
+                let _ = app.emit(&format!("lsp-server-exit-{}", sid), "crashed");
                 return;
             }
 
@@ -1235,4 +1240,690 @@ pub async fn list_language_servers(
             languages: h.languages.clone(),
         })
         .collect())
+}
+
+/// Get configuration schema for an installed extension.
+/// Parses contributes.configuration from the extension's package.json.
+#[tauri::command]
+pub async fn get_extension_config_schema(
+    id: String,
+    state: tauri::State<'_, ExtensionManager>,
+) -> Result<serde_json::Value, String> {
+    let registry = state.registry.lock().map_err(|e| e.to_string())?;
+    let ext = registry.values().find(|e| e.id == id)
+        .ok_or(format!("Extension '{}' not found", id))?;
+
+    Ok(ext.contributions.configuration.clone().unwrap_or(serde_json::Value::Null))
+}
+
+/// Get settings for a specific extension.
+#[tauri::command]
+pub async fn get_extension_settings(
+    id: String,
+    settings_state: tauri::State<'_, super::settings::SettingsManager>,
+) -> Result<serde_json::Value, String> {
+    let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(settings.extension_settings.get(&id).cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new())))
+}
+
+/// Update settings for a specific extension.
+#[tauri::command]
+pub async fn update_extension_settings(
+    id: String,
+    values: serde_json::Value,
+    settings_state: tauri::State<'_, super::settings::SettingsManager>,
+) -> Result<(), String> {
+    let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    settings.extension_settings.insert(id, values);
+    // Save to disk
+    drop(settings);
+    // Re-acquire to save
+    let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    let path = super::settings::SettingsManager::config_path()
+        .ok_or("Cannot determine config path")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string_pretty(&*s).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Phase 9: Polish & Reliability ────────────────────────────────────────
+
+/// Phase 9.1 — Extension update checking
+/// Fetches update information for all installed extensions from Open VSX.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAvailable {
+    pub extension_id: String,
+    pub current_version: String,
+    pub latest_version: String,
+    pub display_name: String,
+}
+
+#[tauri::command]
+pub async fn check_extension_updates(
+    state: tauri::State<'_, ExtensionManager>,
+) -> Result<Vec<UpdateAvailable>, String> {
+    let installed: Vec<_> = {
+        let registry = state.registry.lock().map_err(|e| e.to_string())?;
+        registry.values().cloned().collect()
+    };
+
+    let client = reqwest::Client::new();
+    let mut updates = Vec::new();
+
+    for ext in &installed {
+        // ext.id is "namespace.name"
+        let parts: Vec<&str> = ext.id.splitn(2, '.').collect();
+        if parts.len() != 2 { continue; }
+        let (namespace, name) = (parts[0], parts[1]);
+
+        let url = format!("{}/{}/{}", "https://open-vsx.org/api", namespace, name);
+        if let Ok(resp) = client.get(&url).send().await {
+            if let Ok(detail) = resp.json::<serde_json::Value>().await {
+                if let Some(latest) = detail["version"].as_str() {
+                    if latest != ext.version {
+                        updates.push(UpdateAvailable {
+                            extension_id: ext.id.clone(),
+                            current_version: ext.version.clone(),
+                            latest_version: latest.to_string(),
+                            display_name: ext.display_name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(updates)
+}
+
+/// Phase 9.2 — Extension recommendations
+/// Returns recommended extensions for a given language based on curated mappings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtensionRecommendation {
+    pub language_id: String,
+    pub namespace: String,
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+}
+
+#[tauri::command]
+pub async fn get_extension_recommendations(
+    language_id: String,
+    state: tauri::State<'_, ExtensionManager>,
+) -> Result<Vec<ExtensionRecommendation>, String> {
+    // Curated mapping of language to recommended extensions
+    let recommendations: Vec<(&str, &str, &str, &str, &str)> = vec![
+        ("python", "ms-python", "python", "Python", "Python language support with IntelliSense"),
+        ("rust", "rust-lang", "rust-analyzer", "rust-analyzer", "Rust language support"),
+        ("go", "golang", "go", "Go", "Go language support"),
+        ("yaml", "redhat", "vscode-yaml", "YAML", "YAML language support"),
+        ("r", "REditorSupport", "r", "R", "R language support"),
+        ("java", "redhat", "java", "Java", "Java language support"),
+        ("typescript", "denoland", "vscode-deno", "Deno", "Deno/TypeScript support"),
+        ("typescriptreact", "denoland", "vscode-deno", "Deno", "Deno/TypeScript React support"),
+        ("json", "vscode", "json-language-features", "JSON", "JSON language features"),
+        ("html", "nicolo-ribaudo", "vscode-html", "HTML", "HTML language support"),
+        ("css", "nicolo-ribaudo", "vscode-css", "CSS", "CSS language support"),
+        ("toml", "tamasfe", "even-better-toml", "Even Better TOML", "TOML language support"),
+        ("markdown", "yzhang", "markdown-all-in-one", "Markdown All in One", "Markdown tools"),
+        ("sql", "mtxr", "sqltools", "SQLTools", "SQL development tools"),
+        ("dockerfile", "exiasr", "hadolint", "hadolint", "Dockerfile linting"),
+        ("shell", "timonwong", "shellcheck", "ShellCheck", "Shell script analysis"),
+    ];
+
+    // Filter: only return recommendations for the requested language
+    // AND that are not already installed
+    let registry = state.registry.lock().map_err(|e| e.to_string())?;
+    let installed_ids: std::collections::HashSet<String> = registry.values().map(|e| e.id.clone()).collect();
+    drop(registry);
+
+    let results: Vec<ExtensionRecommendation> = recommendations.iter()
+        .filter(|(lang, ns, name, _, _)| {
+            *lang == language_id && !installed_ids.contains(&format!("{}.{}", ns, name))
+        })
+        .map(|(lang, ns, name, display, desc)| ExtensionRecommendation {
+            language_id: lang.to_string(),
+            namespace: ns.to_string(),
+            name: name.to_string(),
+            display_name: display.to_string(),
+            description: desc.to_string(),
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Phase 9.3 — Compatibility validation
+/// Validates if an extension can be installed, checking engine compatibility,
+/// extension kind, and platform support.
+#[tauri::command]
+pub async fn validate_extension_install(
+    namespace: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/{}/{}", "https://open-vsx.org/api", namespace, name);
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let detail: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let mut warnings: Vec<String> = Vec::new();
+    let mut can_install = true;
+
+    // Check engine compatibility
+    if let Some(engines) = detail.get("engines") {
+        if let Some(vscode_ver) = engines.get("vscode").and_then(|v| v.as_str()) {
+            // We support up to ~1.85 level API
+            if vscode_ver.contains("1.9") || vscode_ver.contains("2.") {
+                warnings.push(format!("Requires VS Code {}, which may be newer than Operon supports", vscode_ver));
+            }
+        }
+    }
+
+    // Check for unsupported extension kinds
+    if let Some(kinds) = detail.get("extensionKind").and_then(|k| k.as_array()) {
+        let kind_strs: Vec<&str> = kinds.iter().filter_map(|k| k.as_str()).collect();
+        if kind_strs.contains(&"ui") && !kind_strs.contains(&"workspace") {
+            warnings.push("This extension is UI-only and may not work in Operon".to_string());
+            can_install = false;
+        }
+    }
+
+    // Check platform
+    if let Some(target) = detail.get("targetPlatform").and_then(|t| t.as_str()) {
+        if target != "universal" && target != "web" {
+            let current_platform = if cfg!(target_os = "macos") { "darwin" }
+                else if cfg!(target_os = "linux") { "linux" }
+                else { "unknown" };
+            if !target.contains(current_platform) {
+                warnings.push(format!("Extension targets {}, but you're on {}", target, current_platform));
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "can_install": can_install,
+        "warnings": warnings,
+    }))
+}
+
+// ── Docker CLI Integration ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerContainer {
+    pub id: String,
+    pub names: String,
+    pub image: String,
+    pub status: String,
+    pub state: String,
+    pub ports: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerImage {
+    pub id: String,
+    pub repository: String,
+    pub tag: String,
+    pub size: String,
+    pub created: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerVolume {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+}
+
+#[tauri::command]
+pub async fn docker_list_containers() -> Result<Vec<DockerContainer>, String> {
+    let output = std::process::Command::new("docker")
+        .args(["ps", "-a", "--format", "{{json .}}"])
+        .output()
+        .map_err(|e| format!("Docker not available: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut containers = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            containers.push(DockerContainer {
+                id: val["ID"].as_str().unwrap_or("").to_string(),
+                names: val["Names"].as_str().unwrap_or("").to_string(),
+                image: val["Image"].as_str().unwrap_or("").to_string(),
+                status: val["Status"].as_str().unwrap_or("").to_string(),
+                state: val["State"].as_str().unwrap_or("").to_string(),
+                ports: val["Ports"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    Ok(containers)
+}
+
+#[tauri::command]
+pub async fn docker_list_images() -> Result<Vec<DockerImage>, String> {
+    let output = std::process::Command::new("docker")
+        .args(["images", "--format", "{{json .}}"])
+        .output()
+        .map_err(|e| format!("Docker not available: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut images = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            images.push(DockerImage {
+                id: val["ID"].as_str().unwrap_or("").to_string(),
+                repository: val["Repository"].as_str().unwrap_or("").to_string(),
+                tag: val["Tag"].as_str().unwrap_or("").to_string(),
+                size: val["Size"].as_str().unwrap_or("").to_string(),
+                created: val["CreatedSince"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    Ok(images)
+}
+
+#[tauri::command]
+pub async fn docker_list_volumes() -> Result<Vec<DockerVolume>, String> {
+    let output = std::process::Command::new("docker")
+        .args(["volume", "ls", "--format", "{{json .}}"])
+        .output()
+        .map_err(|e| format!("Docker not available: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut volumes = Vec::new();
+    for line in stdout.lines() {
+        if line.trim().is_empty() { continue; }
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            volumes.push(DockerVolume {
+                name: val["Name"].as_str().unwrap_or("").to_string(),
+                driver: val["Driver"].as_str().unwrap_or("").to_string(),
+                mountpoint: val["Mountpoint"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    Ok(volumes)
+}
+
+#[tauri::command]
+pub async fn docker_container_action(container_id: String, action: String) -> Result<String, String> {
+    let args = match action.as_str() {
+        "start" => vec!["start", &container_id],
+        "stop" => vec!["stop", &container_id],
+        "remove" => vec!["rm", "-f", &container_id],
+        "logs" => vec!["logs", "--tail", "100", &container_id],
+        "restart" => vec!["restart", &container_id],
+        _ => return Err(format!("Unknown action: {}", action)),
+    };
+
+    let output = std::process::Command::new("docker")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("Docker command failed: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// ── Singularity / Apptainer CLI Integration ─────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SingularityImage {
+    pub name: String,
+    pub path: String,
+    pub size: String,
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SingularityInstance {
+    pub name: String,
+    pub pid: String,
+    pub image: String,
+}
+
+#[tauri::command]
+pub async fn singularity_list_images(search_dir: String) -> Result<Vec<SingularityImage>, String> {
+    // Find .sif files in the search directory
+    let output = std::process::Command::new("find")
+        .args([&search_dir, "-maxdepth", "3", "-name", "*.sif", "-type", "f"])
+        .output()
+        .map_err(|e| format!("Failed to search for images: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut images = Vec::new();
+    for line in stdout.lines() {
+        let path = line.trim();
+        if path.is_empty() { continue; }
+        let name = std::path::Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let meta = std::fs::metadata(path);
+        let (size, modified) = match meta {
+            Ok(m) => {
+                let size_mb = m.len() as f64 / 1_048_576.0;
+                let size_str = if size_mb > 1024.0 {
+                    format!("{:.1} GB", size_mb / 1024.0)
+                } else {
+                    format!("{:.0} MB", size_mb)
+                };
+                let mod_time = m.modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| {
+                        let secs = d.as_secs();
+                        let days_ago = (std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() - secs) / 86400;
+                        if days_ago == 0 { "today".to_string() }
+                        else if days_ago == 1 { "yesterday".to_string() }
+                        else { format!("{} days ago", days_ago) }
+                    })
+                    .unwrap_or_default();
+                (size_str, mod_time)
+            }
+            Err(_) => ("unknown".to_string(), "unknown".to_string()),
+        };
+        images.push(SingularityImage { name, path: path.to_string(), size, modified });
+    }
+    Ok(images)
+}
+
+#[tauri::command]
+pub async fn singularity_list_instances() -> Result<Vec<SingularityInstance>, String> {
+    // Try apptainer first, then singularity
+    let cmd = if std::process::Command::new("apptainer").arg("--version").output().is_ok() {
+        "apptainer"
+    } else {
+        "singularity"
+    };
+
+    let output = std::process::Command::new(cmd)
+        .args(["instance", "list", "--json"])
+        .output()
+        .map_err(|e| format!("{} not available: {}", cmd, e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut instances = Vec::new();
+
+    // Parse JSON output
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        if let Some(list) = val["instances"].as_array() {
+            for inst in list {
+                instances.push(SingularityInstance {
+                    name: inst["instance"].as_str().unwrap_or("").to_string(),
+                    pid: inst["pid"].as_u64().map(|p| p.to_string()).unwrap_or_default(),
+                    image: inst["img"].as_str().unwrap_or("").to_string(),
+                });
+            }
+        }
+    }
+    Ok(instances)
+}
+
+#[tauri::command]
+pub async fn singularity_action(action: String, image_path: String, instance_name: Option<String>) -> Result<String, String> {
+    let cmd = if std::process::Command::new("apptainer").arg("--version").output().is_ok() {
+        "apptainer"
+    } else {
+        "singularity"
+    };
+
+    let mut args: Vec<String> = Vec::new();
+    match action.as_str() {
+        "shell" | "exec" | "run" => {
+            args.push(action.clone());
+            args.push(image_path);
+        }
+        "instance_start" => {
+            args.push("instance".to_string());
+            args.push("start".to_string());
+            args.push(image_path);
+            args.push(instance_name.unwrap_or_else(|| "default".to_string()));
+        }
+        "instance_stop" => {
+            args.push("instance".to_string());
+            args.push("stop".to_string());
+            args.push(instance_name.unwrap_or_else(|| "default".to_string()));
+        }
+        "pull" => {
+            args.push("pull".to_string());
+            args.push(image_path); // This is the URI for pull
+        }
+        _ => return Err(format!("Unknown singularity action: {}", action)),
+    }
+
+    let output = std::process::Command::new(cmd)
+        .args(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        .output()
+        .map_err(|e| format!("{} command failed: {}", cmd, e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+            return Err(stderr.to_string());
+        }
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Start a language server on a remote machine via SSH.
+/// The LSP server runs on the remote and messages are relayed through SSH.
+#[tauri::command]
+pub async fn start_remote_language_server(
+    extension_id: String,
+    server_command: String,
+    server_args: Vec<String>,
+    workspace_path: String,
+    languages: Vec<String>,
+    ssh_profile_id: String,
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, ExtensionManager>,
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+) -> Result<LspServerInfo, String> {
+    // Build the remote command: start the language server via SSH
+    let args_str = server_args.join(" ");
+    let remote_cmd = format!("cd {} && {} {} 2>/dev/null", workspace_path, server_command, args_str);
+
+    // Get SSH profile
+    let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+    let profile = profiles.iter().find(|p| p.id == ssh_profile_id)
+        .ok_or(format!("SSH profile '{}' not found", ssh_profile_id))?
+        .clone();
+    drop(profiles);
+
+    let server_id = uuid::Uuid::new_v4().to_string();
+
+    // Spawn SSH process with the language server command
+    // The SSH session acts as a pipe: stdin → remote server stdin, remote server stdout → our stdout
+    let mut ssh_args = vec![
+        "-o".to_string(), "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(), "BatchMode=yes".to_string(),
+    ];
+
+    // Add port if non-default
+    if profile.port != 22 {
+        ssh_args.push("-p".to_string());
+        ssh_args.push(profile.port.to_string());
+    }
+
+    // Add identity file if specified
+    if let Some(ref key) = profile.key_file {
+        if !key.is_empty() {
+            ssh_args.push("-i".to_string());
+            ssh_args.push(key.clone());
+        }
+    }
+
+    let host_str = format!("{}@{}", profile.user, profile.host);
+    ssh_args.push(host_str);
+    ssh_args.push(remote_cmd);
+
+    let mut child = std::process::Command::new("ssh")
+        .args(&ssh_args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to start remote language server via SSH: {}", e))?;
+
+    let stdout = child.stdout.take().ok_or("Failed to capture SSH stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture SSH stderr")?;
+
+    let handle = LanguageServerHandle {
+        extension_id: extension_id.clone(),
+        server_id: server_id.clone(),
+        child: Mutex::new(child),
+        languages: languages.clone(),
+    };
+
+    {
+        let mut servers = state.running_servers.lock().map_err(|e| e.to_string())?;
+        servers.insert(server_id.clone(), handle);
+    }
+
+    // Stdout relay thread (same as local — reads LSP Content-Length framed messages)
+    let sid = server_id.clone();
+    let app = app_handle.clone();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut header_buf = String::new();
+        loop {
+            header_buf.clear();
+            loop {
+                let mut byte = [0u8; 1];
+                match reader.read_exact(&mut byte) {
+                    Ok(_) => header_buf.push(byte[0] as char),
+                    Err(_) => return,
+                }
+                if header_buf.ends_with("\r\n\r\n") { break; }
+            }
+            let content_length: usize = header_buf.lines()
+                .find_map(|line| {
+                    if line.to_lowercase().starts_with("content-length:") {
+                        line.split(':').nth(1)?.trim().parse().ok()
+                    } else { None }
+                })
+                .unwrap_or(0);
+            if content_length == 0 { continue; }
+            let mut body = vec![0u8; content_length];
+            if reader.read_exact(&mut body).is_err() { return; }
+            if let Ok(body_str) = String::from_utf8(body) {
+                let _ = app.emit(&format!("lsp-message-{}", sid), &body_str);
+            }
+        }
+    });
+
+    // Stderr relay thread
+    let sid2 = server_id.clone();
+    let app2 = app_handle;
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(line) = line {
+                let _ = app2.emit(&format!("lsp-stderr-{}", sid2), &line);
+            }
+        }
+    });
+
+    Ok(LspServerInfo { server_id, extension_id, languages })
+}
+
+/// Install an extension on a remote machine.
+/// Downloads the VSIX locally, copies to remote, and extracts.
+#[tauri::command]
+pub async fn install_remote_extension(
+    ssh_profile_id: String,
+    namespace: String,
+    name: String,
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles.iter().find(|p| p.id == ssh_profile_id)
+            .ok_or(format!("SSH profile '{}' not found", ssh_profile_id))?
+            .clone()
+    };
+
+    // Download extension metadata to get VSIX URL
+    let url = format!("{}/{}/{}", "https://open-vsx.org/api", namespace, name);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url).send().await.map_err(|e| e.to_string())?;
+    let detail: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let download_url = detail["files"]["download"]
+        .as_str()
+        .ok_or("No download URL found")?
+        .to_string();
+
+    // Download VSIX to temp
+    let tmp_path = std::env::temp_dir().join(format!("{}.{}.vsix", namespace, name));
+    let resp = client.get(&download_url).send().await.map_err(|e| e.to_string())?;
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    std::fs::write(&tmp_path, &bytes).map_err(|e| e.to_string())?;
+
+    // SCP to remote
+    let remote_dir = "~/.operon/extensions";
+    let ext_id = format!("{}.{}", namespace, name);
+    let remote_ext_dir = format!("{}/{}", remote_dir, ext_id);
+
+    // Create remote directory and copy
+    let mkdir_cmd = format!("mkdir -p {}", remote_ext_dir);
+    super::ssh::ssh_exec(&profile, &mkdir_cmd)
+        .map_err(|e| format!("Failed to create remote dir: {}", e))?;
+
+    // SCP the VSIX file
+    let mut scp_args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
+    if profile.port != 22 {
+        scp_args.push("-P".to_string());
+        scp_args.push(profile.port.to_string());
+    }
+    if let Some(ref key) = profile.key_file {
+        if !key.is_empty() {
+            scp_args.push("-i".to_string());
+            scp_args.push(key.clone());
+        }
+    }
+    let host_str = format!("{}@{}", profile.user, profile.host);
+    scp_args.push(tmp_path.to_string_lossy().to_string());
+    scp_args.push(format!("{}:{}/{}.vsix", host_str, remote_ext_dir, ext_id));
+
+    std::process::Command::new("scp")
+        .args(&scp_args)
+        .output()
+        .map_err(|e| format!("SCP failed: {}", e))?;
+
+    // Extract on remote
+    let extract_cmd = format!(
+        "cd {} && unzip -o {}.vsix -d . 2>/dev/null || python3 -c \"import zipfile; zipfile.ZipFile('{}.vsix').extractall('.')\" 2>/dev/null; rm -f {}.vsix",
+        remote_ext_dir, ext_id, ext_id, ext_id
+    );
+    super::ssh::ssh_exec(&profile, &extract_cmd)
+        .map_err(|e| format!("Remote extraction failed: {}", e))?;
+
+    // Clean up local temp
+    let _ = std::fs::remove_file(&tmp_path);
+
+    Ok(())
 }

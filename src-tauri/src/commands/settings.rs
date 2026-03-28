@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
+
+use super::mcp::MCPServerConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -16,6 +19,10 @@ pub struct AppSettings {
     pub terminal_font_size: u32,
     #[serde(default)]
     pub setup_completed: bool,
+    #[serde(default)]
+    pub mcp_servers: Vec<MCPServerConfig>,
+    #[serde(default)]
+    pub extension_settings: HashMap<String, serde_json::Value>,
 }
 
 impl Default for AppSettings {
@@ -33,6 +40,8 @@ impl Default for AppSettings {
             show_hidden_files: false,
             terminal_font_size: 13,
             setup_completed: false,
+            mcp_servers: Vec::new(),
+            extension_settings: HashMap::new(),
         }
     }
 }
@@ -50,7 +59,7 @@ impl SettingsManager {
         }
     }
 
-    fn config_path() -> Option<std::path::PathBuf> {
+    pub(crate) fn config_path() -> Option<std::path::PathBuf> {
         dirs::config_dir().map(|p| p.join("operon").join("settings.json"))
     }
 
@@ -60,7 +69,7 @@ impl SettingsManager {
         serde_json::from_str(&data).ok()
     }
 
-    fn save_to_disk(settings: &AppSettings) -> Result<(), String> {
+    pub fn save_to_disk(settings: &AppSettings) -> Result<(), String> {
         if let Some(path) = Self::config_path() {
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

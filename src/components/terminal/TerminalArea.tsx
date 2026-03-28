@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Plus, X, Terminal as TerminalIcon } from 'lucide-react';
 import { listen, emit } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { TerminalInstance } from './TerminalInstance';
 
 interface TerminalTab {
@@ -77,6 +78,8 @@ export function TerminalArea() {
 
   const closeTab = useCallback(
     (id: string) => {
+      // Explicitly kill the backend terminal process when user closes the tab
+      invoke('kill_terminal', { terminalId: id }).catch(console.error);
       setTabs((prev) => {
         const filtered = prev.filter((t) => t.id !== id);
         if (activeTab === id && filtered.length > 0) {

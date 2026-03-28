@@ -58,10 +58,21 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const existing = prev.find((t) => t.filePath === filePath);
         if (existing) {
           setActiveTabId(existing.id);
-          // Promote from preview if opening permanently
-          if (!preview && existing.isPreview) {
+          // Refresh content from disk if the tab isn't dirty (user-modified)
+          // This ensures externally changed files (e.g. plan mode edits) are shown
+          const shouldRefresh = !existing.isModified && content !== existing.content;
+          const shouldPromote = !preview && existing.isPreview;
+          if (shouldRefresh || shouldPromote) {
             return prev.map((t) =>
-              t.id === existing.id ? { ...t, isPreview: false } : t,
+              t.id === existing.id
+                ? {
+                    ...t,
+                    isPreview: shouldPromote ? false : t.isPreview,
+                    ...(shouldRefresh
+                      ? { content, originalContent: content, isModified: false }
+                      : {}),
+                  }
+                : t,
             );
           }
           return prev;
@@ -104,9 +115,19 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         const existing = prev.find((t) => t.filePath === filePath);
         if (existing) {
           setActiveTabId(existing.id);
-          if (!preview && existing.isPreview) {
+          const shouldRefresh = !existing.isModified && base64Content !== existing.content;
+          const shouldPromote = !preview && existing.isPreview;
+          if (shouldRefresh || shouldPromote) {
             return prev.map((t) =>
-              t.id === existing.id ? { ...t, isPreview: false } : t,
+              t.id === existing.id
+                ? {
+                    ...t,
+                    isPreview: shouldPromote ? false : t.isPreview,
+                    ...(shouldRefresh
+                      ? { content: base64Content, originalContent: base64Content, isModified: false }
+                      : {}),
+                  }
+                : t,
             );
           }
           return prev;

@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { MCPServerConfig } from '../types/mcp';
 
 export interface AppSettings {
   theme: string;
@@ -12,6 +13,8 @@ export interface AppSettings {
   max_budget_usd: number;
   show_hidden_files: boolean;
   terminal_font_size: number;
+  mcp_servers: MCPServerConfig[];
+  extension_settings: Record<string, Record<string, unknown>>;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -26,6 +29,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   max_budget_usd: 5.0,
   show_hidden_files: false,
   terminal_font_size: 13,
+  mcp_servers: [],
+  extension_settings: {},
 };
 
 export async function getSettings(): Promise<AppSettings> {

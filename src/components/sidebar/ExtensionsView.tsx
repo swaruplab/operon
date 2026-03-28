@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   FileUp,
   ExternalLink,
+  Play,
 } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -26,6 +27,7 @@ import {
   checkExtensionCompatibility,
   getExtensionReadme,
 } from '../../lib/extensions';
+import { getToolExtensions } from '../../lib/toolExtensions';
 import type {
   ExtensionInfo,
   InstalledExtension,
@@ -33,6 +35,7 @@ import type {
   InstallProgress,
   SearchResult,
 } from '../../types/extensions';
+import type { ToolExtension } from '../../types/toolExtension';
 
 type Tab = 'marketplace' | 'installed';
 
@@ -40,6 +43,10 @@ interface DetailView {
   namespace: string;
   name: string;
   displayName: string;
+}
+
+interface ExtensionsViewState {
+  openToolId?: string;
 }
 
 export function ExtensionsView() {
@@ -54,12 +61,16 @@ export function ExtensionsView() {
   const [detailView, setDetailView] = useState<DetailView | null>(null);
   const [readme, setReadme] = useState<string | null>(null);
   const [compatibility, setCompatibility] = useState<Record<string, CompatibilityReport>>({});
+  const [toolExtensions, setToolExtensions] = useState<ToolExtension[]>([]);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const installedIds = new Set(installed.map((e) => e.id));
 
-  // Load installed extensions on mount
+  // Load installed extensions and tool extensions on mount
   useEffect(() => {
     loadInstalled();
+    // Load available tool extensions
+    const allTools = getToolExtensions();
+    setToolExtensions(allTools);
   }, []);
 
   // Load popular extensions on first mount
@@ -183,6 +194,12 @@ export function ExtensionsView() {
     } catch {
       setReadme('*No README available.*');
     }
+  };
+
+  const openToolPanel = (toolId: string) => {
+    // Emit event to switch to the tool panel in the sidebar
+    const event = new CustomEvent('open-tool-panel', { detail: { toolId } });
+    window.dispatchEvent(event);
   };
 
   // ── Detail View ──────────────────────────────────────────────────────
@@ -335,12 +352,20 @@ export function ExtensionsView() {
             onOpenDetail={openDetail}
           />
         ) : (
-          <InstalledList
-            extensions={installed}
-            onUninstall={handleUninstall}
-            onToggle={handleToggle}
-            onOpenDetail={openDetail}
-          />
+          <>
+            <InstalledList
+              extensions={installed}
+              onUninstall={handleUninstall}
+              onToggle={handleToggle}
+              onOpenDetail={openDetail}
+            />
+            {toolExtensions.length > 0 && (
+              <IntegratedToolsList
+                tools={toolExtensions}
+                onOpenTool={openToolPanel}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
@@ -621,5 +646,86 @@ function InstalledList({ extensions, onUninstall, onToggle, onOpenDetail }: Inst
         );
       })}
     </div>
+  );
+}
+
+// ── Integrated Tools List ──────────────────────────────────────────────
+
+interface IntegratedToolsListProps {
+  tools: ToolExtension[];
+  onOpenTool: (toolId: string) => void;
+}
+
+function IntegratedToolsList({ tools, onOpenTool }: IntegratedToolsListProps) {
+  const [installedStatus, setInstalledStatus] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check which tools are installed
+    const checkTools = async () => {
+      const status: Record<string, boolean> = {};
+      for (const tool of tools) {
+        try {
+          status[tool.id] = await tool.checkInstalled();
+        } catch {
+          status[tool.id] = false;
+        }
+      }
+      setInstalledStatus(status);
+      setLoading(false);
+    };
+    checkTools();
+  }, [tools]);
+
+  if (loading) {
+    return null;
+  }
+
+  // Filter to only show installed tools
+  const installedTools = tools.filter((t) => installedStatus[t.id]);
+  if (installedTools.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <div className="border-t border-zinc-800/50 mt-2 pt-2">
+        <div className="px-3 py-1.5">
+          <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">
+            Integrated Tools
+          </div>
+          <div className="space-y-1">
+            {installedTools.map((tool) => {
+              const Icon = tool.icon;
+              return (
+                <div
+                  key={tool.id}
+                  className="flex items-start gap-2 px-2 py-1.5 rounded bg-zinc-800/40 hover:bg-zinc-800/60 transition-colors cursor-pointer group"
+                  onClick={() => onOpenTool(tool.id)}
+                >
+                  <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center shrink-0 mt-0">
+                    <Icon className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-zinc-200">{tool.name}</div>
+                    <p className="text-[10px] text-zinc-500">{tool.description}</p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenTool(tool.id);
+                    }}
+                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Open"
+                  >
+                    <Play className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

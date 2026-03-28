@@ -301,13 +301,14 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
         term.write(`\x1b[31mFailed to spawn terminal: ${err}\x1b[0m\r\n`);
       });
 
-    // Cleanup
+    // Cleanup — only dispose the xterm UI; do NOT kill the backend process.
+    // The terminal process should survive panel hide/show toggles.
+    // kill_terminal is called explicitly from TerminalArea.closeTab instead.
     return () => {
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       unlistenOutputRef.current?.();
       unlistenExitRef.current?.();
-      invoke('kill_terminal', { terminalId }).catch(console.error);
       term.dispose();
       oauthBuffer = '';
     };

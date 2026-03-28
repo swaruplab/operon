@@ -47,6 +47,17 @@ use commands::{
     get_extension_package_json, install_extension_from_registry,
     uninstall_extension, sideload_vsix, read_extension_theme, read_extension_snippets,
     start_language_server, send_lsp_message, stop_language_server, list_language_servers,
+    get_extension_config_schema, get_extension_settings, update_extension_settings,
+    start_remote_language_server, install_remote_extension,
+    // Phase 9: Polish & Reliability
+    check_extension_updates, get_extension_recommendations, validate_extension_install,
+    // Docker & Singularity/Apptainer
+    docker_list_containers, docker_list_images, docker_list_volumes, docker_container_action,
+    singularity_list_images, singularity_list_instances, singularity_action,
+    // MCP
+    get_mcp_catalog, list_mcp_servers, add_mcp_server, remove_mcp_server,
+    enable_mcp_server, disable_mcp_server, install_mcp_server,
+    check_mcp_dependencies, check_remote_mcp_dependencies, install_remote_mcp_server,
 };
 
 use commands::terminal::TerminalManager;
@@ -247,6 +258,37 @@ pub fn run() {
             send_lsp_message,
             stop_language_server,
             list_language_servers,
+            // Remote LSP
+            start_remote_language_server,
+            // Remote Extensions
+            install_remote_extension,
+            // Extension Settings
+            get_extension_config_schema,
+            get_extension_settings,
+            update_extension_settings,
+            // Phase 9: Polish & Reliability
+            check_extension_updates,
+            get_extension_recommendations,
+            validate_extension_install,
+            // Docker & Singularity/Apptainer
+            docker_list_containers,
+            docker_list_images,
+            docker_list_volumes,
+            docker_container_action,
+            singularity_list_images,
+            singularity_list_instances,
+            singularity_action,
+            // MCP
+            get_mcp_catalog,
+            list_mcp_servers,
+            add_mcp_server,
+            remove_mcp_server,
+            enable_mcp_server,
+            disable_mcp_server,
+            install_mcp_server,
+            check_mcp_dependencies,
+            check_remote_mcp_dependencies,
+            install_remote_mcp_server,
             // Utilities
             open_url,
         ])
