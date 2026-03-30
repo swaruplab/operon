@@ -98,6 +98,33 @@ pub async fn save_clipboard_image(data: String, extension: String) -> Result<Str
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Save any file attachment (from file picker) to a temp directory.
+/// Accepts base64-encoded file data and the original filename.
+/// Returns the absolute path to the saved file.
+#[tauri::command]
+pub async fn save_attachment_file(data: String, filename: String) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    let tmp_dir = std::env::temp_dir().join("operon-attachments");
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    // Preserve original filename but prefix with timestamp to avoid collisions
+    let safe_name = format!("{}-{}", timestamp, filename.replace('/', "_").replace('\\', "_"));
+    let path = tmp_dir.join(&safe_name);
+
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("Failed to write attachment file: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub async fn get_home_dir() -> Result<String, String> {
     dirs::home_dir()

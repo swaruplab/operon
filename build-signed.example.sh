@@ -24,7 +24,7 @@ npm run tauri build -- --bundles app 2>&1 || true
 APP_DIR="$(pwd)/src-tauri/target/release/bundle/macos"
 APP_PATH="$APP_DIR/Operon.app"
 DMG_DIR="$(pwd)/src-tauri/target/release/bundle/dmg"
-VERSION="0.3.2"
+VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
 DMG_PATH="$DMG_DIR/Operon_${VERSION}_aarch64.dmg"
 
 if [ ! -d "$APP_PATH" ]; then

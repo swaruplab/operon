@@ -25,6 +25,10 @@ export async function disableMCPServer(name: string): Promise<void> {
   return invoke('disable_mcp_server', { name });
 }
 
+export async function updateMCPServerEnv(name: string, env: Record<string, string>): Promise<void> {
+  return invoke('update_mcp_server_env', { name, env });
+}
+
 export async function installMCPServer(catalogId: string): Promise<void> {
   return invoke('install_mcp_server', { catalogId });
 }

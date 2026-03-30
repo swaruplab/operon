@@ -12,8 +12,11 @@
 
 set -e
 
+# Read version from tauri.conf.json (single source of truth)
+VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+
 echo "═══════════════════════════════════════════════"
-echo "  Operon Universal Build (ARM64 + x86_64)"
+echo "  Operon Universal Build (ARM64 + x86_64) v${VERSION}"
 echo "═══════════════════════════════════════════════"
 
 export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY}"
@@ -122,7 +125,7 @@ codesign --verify --verbose=2 "$UNIVERSAL_APP" 2>&1 && echo "  ✓ Signature val
 echo ""
 echo "▸ Creating universal DMG..."
 DMG_DIR="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
-DMG_PATH="$DMG_DIR/Operon_universal.dmg"
+DMG_PATH="$DMG_DIR/Operon_${VERSION}_universal.dmg"
 mkdir -p "$DMG_DIR"
 rm -f "$DMG_PATH"
 
@@ -177,7 +180,7 @@ else
 fi
 
 # Step 9: Copy to Desktop
-DESKTOP_DMG="$HOME/Desktop/Operon_universal.dmg"
+DESKTOP_DMG="$HOME/Desktop/Operon_${VERSION}_universal.dmg"
 cp "$DMG_PATH" "$DESKTOP_DMG" 2>/dev/null || true
 
 # Clear quarantine on local copy
