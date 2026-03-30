@@ -120,6 +120,7 @@ export function CodeEditor({
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const { projectPath } = useProject();
   const languageId = detectLanguage(filePath);
+  const isMarkdown = languageId === 'markdown';
 
   // Auto-start LSP server for this file's language
   const { sendDidChange } = useLspAutoStart({
@@ -181,24 +182,32 @@ export function CodeEditor({
       }
       options={{
         readOnly,
-        minimap: { enabled: true, maxColumn: 80 },
+        minimap: { enabled: !isMarkdown },
         scrollBeyondLastLine: false,
         fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace",
-        fontLigatures: true,
-        lineHeight: 20,
+        fontFamily: isMarkdown
+          ? "'Inter', 'SF Pro Text', -apple-system, sans-serif"
+          : "'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace",
+        fontLigatures: !isMarkdown,
+        lineHeight: isMarkdown ? 24 : 20,
         tabSize: 2,
         insertSpaces: true,
-        wordWrap: 'off',
+        wordWrap: isMarkdown ? 'on' : 'off',
         automaticLayout: true,
-        bracketPairColorization: { enabled: true },
-        guides: { bracketPairs: true, indentation: true },
+        bracketPairColorization: { enabled: !isMarkdown },
+        guides: { bracketPairs: !isMarkdown, indentation: !isMarkdown },
         smoothScrolling: true,
         cursorSmoothCaretAnimation: 'on',
         cursorBlinking: 'smooth',
-        renderLineHighlight: 'line',
-        renderWhitespace: 'selection',
-        padding: { top: 8 },
+        renderLineHighlight: isMarkdown ? 'none' : 'line',
+        renderWhitespace: isMarkdown ? 'none' : 'selection',
+        lineNumbers: isMarkdown ? 'off' : 'on',
+        padding: { top: isMarkdown ? 16 : 8 },
+        scrollbar: {
+          horizontal: 'auto',
+          vertical: 'auto',
+          useShadows: false,
+        },
       }}
     />
   );

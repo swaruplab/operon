@@ -11,6 +11,10 @@ import {
   Eye,
   EyeOff,
   CornerDownRight,
+  Star,
+  Pin,
+  PinOff,
+  FolderPlus,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
@@ -46,12 +50,15 @@ interface RemoteTreeNodeProps {
   profileId: string;
   showHidden: boolean;
   onNavigate: (path: string) => void;
+  isPinned?: boolean;
+  onTogglePin?: (path: string, name: string, isDir: boolean) => void;
 }
 
-function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate }: RemoteTreeNodeProps) {
+function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPinned, onTogglePin }: RemoteTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const { openFile, openBinaryFile } = useProject();
 
   const toggle = async () => {
@@ -163,52 +170,107 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate }: Rem
 
   return (
     <div>
-      <button
-        className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors group"
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
+      <div
+        className="relative"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
       >
-        {entry.is_dir ? (
-          expanded ? (
-            <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <button
+          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors group"
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+        >
+          {entry.is_dir ? (
+            expanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            )
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-          )
-        ) : (
-          <span className="w-3.5 shrink-0" />
-        )}
+            <span className="w-3.5 shrink-0" />
+          )}
 
-        {entry.is_dir ? (
-          expanded ? (
-            <FolderOpen className="w-4 h-4 text-blue-400 shrink-0" />
+          {entry.is_dir ? (
+            expanded ? (
+              <FolderOpen className="w-4 h-4 text-blue-400 shrink-0" />
+            ) : (
+              <Folder className="w-4 h-4 text-zinc-500 shrink-0" />
+            )
           ) : (
-            <Folder className="w-4 h-4 text-zinc-500 shrink-0" />
-          )
-        ) : (
-          <File className={`w-4 h-4 shrink-0 ${getFileColor(entry.extension)}`} />
-        )}
+            <File className={`w-4 h-4 shrink-0 ${getFileColor(entry.extension)}`} />
+          )}
 
-        <span className="truncate ml-1">{entry.name}</span>
+          <span className="truncate ml-1">{entry.name}</span>
 
-        {!entry.is_dir && entry.size > 0 && (
-          <span className="ml-auto text-[10px] text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            {formatSize(entry.size)}
-          </span>
-        )}
+          {isPinned && !hovered && (
+            <Star className="w-3 h-3 text-amber-400 ml-auto shrink-0 fill-amber-400" />
+          )}
 
-        {loading && (
-          <Loader2 className="ml-auto w-3 h-3 text-zinc-600 animate-spin shrink-0" />
+          {!entry.is_dir && entry.size > 0 && !isPinned && (
+            <span className="ml-auto text-[10px] text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              {formatSize(entry.size)}
+            </span>
+          )}
+
+          {loading && (
+            <Loader2 className="ml-auto w-3 h-3 text-zinc-600 animate-spin shrink-0" />
+          )}
+        </button>
+
+        {/* Pin button on hover */}
+        {hovered && onTogglePin && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin(entry.path, entry.name, entry.is_dir);
+            }}
+            className={`absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-zinc-700 transition-colors ${
+              isPinned ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-400'
+            }`}
+            title={isPinned ? 'Unpin' : 'Pin to favorites'}
+          >
+            {isPinned ? (
+              <PinOff className="w-3 h-3" />
+            ) : (
+              <Pin className="w-3 h-3" />
+            )}
+          </button>
         )}
-      </button>
+      </div>
 
       {entry.is_dir &&
         expanded &&
         children.map((child) => (
-          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} />
+          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} />
         ))}
     </div>
   );
+}
+
+// --- Remote Pinned Items ---
+
+interface RemotePinnedItem {
+  path: string;
+  name: string;
+  isDir: boolean;
+}
+
+function getRemotePinnedKey(profileId: string) {
+  return `operon-remote-pinned-${profileId}`;
+}
+
+function loadRemotePinnedItems(profileId: string): RemotePinnedItem[] {
+  try {
+    const stored = localStorage.getItem(getRemotePinnedKey(profileId));
+    return stored ? JSON.parse(stored) : [];
+  } catch { return []; }
+}
+
+function saveRemotePinnedItems(profileId: string, items: RemotePinnedItem[]) {
+  try {
+    localStorage.setItem(getRemotePinnedKey(profileId), JSON.stringify(items));
+  } catch { /* ignore */ }
 }
 
 // --- Main Remote Explorer View ---
@@ -220,6 +282,50 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pinnedItems, setPinnedItems] = useState<RemotePinnedItem[]>(() => loadRemotePinnedItems(profileId));
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const newFolderRef = useRef<HTMLInputElement>(null);
+  const { openFile, openBinaryFile } = useProject();
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || !remotePath) {
+      setCreatingFolder(false);
+      setNewFolderName('');
+      return;
+    }
+    try {
+      await invoke('create_remote_directory', {
+        profileId,
+        path: `${remotePath}/${name}`,
+      });
+      setCreatingFolder(false);
+      setNewFolderName('');
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      console.error('Failed to create remote folder:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (creatingFolder && newFolderRef.current) {
+      newFolderRef.current.focus();
+    }
+  }, [creatingFolder]);
+
+  const togglePin = useCallback((path: string, name: string, isDir: boolean) => {
+    setPinnedItems(prev => {
+      const exists = prev.some(p => p.path === path);
+      const next = exists ? prev.filter(p => p.path !== path) : [...prev, { path, name, isDir }];
+      saveRemotePinnedItems(profileId, next);
+      return next;
+    });
+  }, [profileId]);
+
+  const isPinned = useCallback((path: string) => {
+    return pinnedItems.some(p => p.path === path);
+  }, [pinnedItems]);
 
   const loadDir = useCallback(
     async (path: string) => {
@@ -251,6 +357,26 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     },
     [loadDir],
   );
+
+  const openPinnedItem = async (item: RemotePinnedItem) => {
+    if (item.isDir) {
+      navigateTo(item.path);
+    } else {
+      try {
+        const ext = item.name.split('.').pop()?.toLowerCase() || '';
+        const binaryInfo = BINARY_EXTENSIONS[ext];
+        if (binaryInfo) {
+          const base64Content = await invoke<string>('read_remote_file_base64', { profileId, path: item.path });
+          openBinaryFile(item.path, base64Content, binaryInfo.mimeType, binaryInfo.binaryType, false);
+        } else {
+          const content = await invoke<string>('read_remote_file', { profileId, path: item.path });
+          openFile(item.path, content, false);
+        }
+      } catch (err) {
+        console.error('Failed to open pinned remote file:', err);
+      }
+    }
+  };
 
   // On mount, fetch remote home directory and list it
   useEffect(() => {
@@ -344,11 +470,25 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
           </button>
           <button
+            onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            title="New Folder"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={refresh}
             className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
             title="Refresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={cdToTerminal}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            title="cd to this directory in terminal"
+          >
+            <CornerDownRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -388,17 +528,67 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             {remotePath || '~'}
           </button>
         )}
-        <button
-          onClick={cdToTerminal}
-          className="p-0.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
-          title="cd to this directory in terminal"
-        >
-          <CornerDownRight className="w-3.5 h-3.5" />
-        </button>
       </div>
 
       {/* File tree */}
       <div className="flex-1 overflow-y-auto py-1">
+        {/* Inline new folder input */}
+        {creatingFolder && (
+          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-zinc-800/80 rounded border border-green-600/40">
+            <FolderPlus className="w-3.5 h-3.5 text-green-400 shrink-0" />
+            <input
+              ref={newFolderRef}
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateFolder();
+                if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
+              }}
+              onBlur={handleCreateFolder}
+              className="flex-1 bg-transparent text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 min-w-0"
+              placeholder="folder name"
+              spellCheck={false}
+            />
+          </div>
+        )}
+
+        {/* Pinned/Favorites section */}
+        {pinnedItems.length > 0 && (
+          <div className="mb-2 border-b border-zinc-600/40 pb-2">
+            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-400/70 font-medium uppercase tracking-wider">
+              <Star className="w-3 h-3 fill-amber-400/50" />
+              Favorites
+            </div>
+            {pinnedItems.map((item) => (
+              <div key={item.path} className="relative group">
+                <button
+                  className="w-full flex items-center gap-1.5 h-[26px] px-3 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+                  onClick={() => openPinnedItem(item)}
+                  title={item.path}
+                >
+                  {item.isDir ? (
+                    <Folder className="w-4 h-4 text-amber-400/70 shrink-0" />
+                  ) : (
+                    <File className="w-4 h-4 text-amber-400/70 shrink-0" />
+                  )}
+                  <span className="truncate">{item.name}</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePin(item.path, item.name, item.isDir);
+                  }}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Unpin"
+                >
+                  <PinOff className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <div className="flex flex-col items-center justify-center py-8 gap-2">
             <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
@@ -420,7 +610,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           <div className="px-4 py-8 text-center text-zinc-600 text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
-            <RemoteTreeNode key={`${entry.path}-${refreshKey}`} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} />
+            <RemoteTreeNode key={`${entry.path}-${refreshKey}`} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} />
           ))
         )}
       </div>

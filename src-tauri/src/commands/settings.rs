@@ -4,6 +4,10 @@ use std::sync::Mutex;
 
 use super::mcp::MCPServerConfig;
 
+fn default_permission_mode() -> String {
+    "full_auto".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -15,6 +19,9 @@ pub struct AppSettings {
     pub model: String,
     pub max_turns: u32,
     pub max_budget_usd: f64,
+    /// Permission level: "full_auto", "safe_mode", or "supervised"
+    #[serde(default = "default_permission_mode")]
+    pub permission_mode: String,
     pub show_hidden_files: bool,
     pub terminal_font_size: u32,
     #[serde(default)]
@@ -37,6 +44,7 @@ impl Default for AppSettings {
             model: "claude-sonnet-4-20250514".to_string(),
             max_turns: 25,
             max_budget_usd: 5.0,
+            permission_mode: "full_auto".to_string(),
             show_hidden_files: false,
             terminal_font_size: 13,
             setup_completed: false,

@@ -20,6 +20,10 @@ import {
   Settings2,
   Plug,
   Puzzle,
+  FileText,
+  FolderOpen,
+  Paperclip,
+  MousePointerClick,
 } from 'lucide-react';
 
 interface HelpPanelProps {
@@ -66,6 +70,10 @@ const sections: HelpSection[] = [
         content: 'Operon has four main areas: the Activity Bar (far left icons), the Sidebar (file explorer, SSH, etc.), the Editor (center, for code), and the Chat Panel (right side). The Terminal lives in a bottom panel you can toggle. All panels are resizable by dragging their borders.',
       },
       {
+        title: 'Quick start suggestions',
+        content: 'When you start a new conversation, the empty chat shows clickable suggestion cards like "Analyze data", "Write a pipeline", "Search PubMed", and "Debug an error". Click any suggestion to pre-fill the chat input with a relevant prompt — a fast way to get going without typing from scratch.',
+      },
+      {
         title: 'Relaunch setup wizard',
         content: 'If you need to reconfigure authentication or review the onboarding tour, you can relaunch the setup wizard from settings.',
         action: { label: 'Open Settings', view: 'settings' },
@@ -94,9 +102,48 @@ const sections: HelpSection[] = [
         tip: 'Great for onboarding onto a new codebase — ask "Walk me through how the authentication flow works".',
       },
       {
+        title: 'Report Mode',
+        content: 'Generates a structured scientific report (PDF and Markdown) from your project files. Operon scans your project directory, lets you select up to 40 files, asks a few context questions (biological question, key findings, audience), then sends everything to Claude in a single turn to produce a polished report with figures, tables, and references.',
+        tip: 'Works with both local and remote/HPC projects. Avoid selecting files over 1 MB — stick to CSVs, scripts, logs, and small PDFs for best results.',
+      },
+      {
         title: 'Switching modes',
-        content: 'Click the mode selector above the chat input to switch between Agent, Plan, and Ask modes. You can switch modes mid-conversation. The mode affects what Claude is allowed to do — it doesn\'t lose context when you switch.',
+        content: 'Click the mode selector above the chat input to switch between Agent, Plan, Ask, and Report modes. You can switch modes mid-conversation. The mode affects what Claude is allowed to do — it doesn\'t lose context when you switch.',
         shortcut: 'Click the mode selector above the chat input',
+      },
+    ],
+  },
+  {
+    id: 'report',
+    title: 'Report Generation',
+    icon: FileText,
+    iconColor: 'text-pink-400',
+    items: [
+      {
+        title: 'What is Report mode?',
+        content: 'Report mode creates a publication-ready scientific report from your project files. It scans your project directory (local or remote), lets you pick the relevant files, asks context questions, and generates a formatted PDF and Markdown report — all in one workflow.',
+        tip: 'Ideal for summarizing bioinformatics analyses, QC results, or pipeline outputs into a shareable document.',
+      },
+      {
+        title: 'Step 1: Scan your project',
+        content: 'Switch to Report mode using the mode selector. Operon scans your project directory and displays a file tree showing all available files grouped by folder, with file sizes and counts. For remote/HPC projects, the scan runs over SSH automatically.',
+      },
+      {
+        title: 'Step 2: Select files',
+        content: 'Pick the files you want included in the report — up to 40 files. Check folders to select all files inside them, or pick individual files. Files over 1 MB are flagged with an amber warning icon. Avoid selecting very large files as they slow down report generation.',
+        tip: 'Select CSVs, log files, small PDFs, scripts, and QC reports. Operon pre-reads file contents so Claude doesn\'t need to fetch them during generation.',
+      },
+      {
+        title: 'Step 3: Provide context',
+        content: 'After selecting files, Claude asks a few clarifying questions: What biological question were you investigating? What are the key findings? Who is the audience? Answer as many as you can, then type "generate report" to proceed. The more context you give, the better the report.',
+      },
+      {
+        title: 'Step 4: Report output',
+        content: 'Claude generates a comprehensive report including an introduction, methods, results with figures and tables, discussion, and references. The output is saved as both a PDF and a Markdown file in your project directory with a timestamped filename (e.g., report_2026-03-29_1757.pdf).',
+      },
+      {
+        title: 'Tips for best results',
+        content: 'Keep your file selection focused — 10–30 files covering the key outputs is better than 40 random files. Include QC reports, summary CSVs, and pipeline logs. Avoid raw data files (FASTQs, BAMs) as they\'re too large and binary. Providing a clear biological question in the context step dramatically improves the report quality.',
       },
     ],
   },
@@ -182,6 +229,67 @@ const sections: HelpSection[] = [
       {
         title: 'Auto-versioning',
         content: 'Enable "Auto Version" in the Git panel to automatically bump the patch version (e.g., 0.1.0 → 0.1.1) each time you publish. Operon uses semantic versioning (semver) and creates git tags for each release.',
+      },
+    ],
+  },
+  {
+    id: 'chat-features',
+    title: 'Chat Features',
+    icon: Paperclip,
+    iconColor: 'text-sky-400',
+    items: [
+      {
+        title: 'File attachments',
+        content: 'Click the paperclip icon in the chat input to attach files and images to your message. You can also drag and drop files directly onto the chat area. Supported types include images (PNG, JPG, GIF), text files, code files, CSV, PDF, JSON, and YAML.',
+        tip: 'Attach a screenshot of an error to let Claude see exactly what you see, or attach a CSV so Claude can analyze its contents.',
+      },
+      {
+        title: 'Clipboard image paste',
+        content: 'Copy an image or take a screenshot, then paste directly into the chat input with Cmd+V. Operon automatically saves the clipboard image and attaches it to your message — no need to save a file first.',
+        shortcut: 'Cmd+V to paste image',
+      },
+      {
+        title: 'File references with @',
+        content: 'Type @ in the chat input to search and reference specific files from your project. This focuses Claude on exactly the files you care about instead of searching the entire project. Multiple files can be referenced in a single message.',
+        tip: 'Try "@main.py has a bug on line 45" to point Claude directly at the file.',
+      },
+      {
+        title: 'Copy messages',
+        content: 'Right-click on any message in the chat to open a context menu with a "Copy message" option. This copies the full message text to your clipboard — useful for saving Claude\'s explanations, code snippets, or analysis results.',
+      },
+    ],
+  },
+  {
+    id: 'file-explorer',
+    title: 'File Explorer',
+    icon: FolderOpen,
+    iconColor: 'text-yellow-400',
+    items: [
+      {
+        title: 'Navigating folders',
+        content: 'Single-click a folder to expand or collapse it in the tree view. Double-click a folder to navigate into it, making it the current root directory. This is useful for focusing on a specific subfolder in a large project.',
+        action: { label: 'Open Explorer', view: 'files' },
+      },
+      {
+        title: 'Go-to-folder path bar',
+        content: 'Click the path bar at the top of the file explorer to type any path directly. Press Enter to navigate to that directory. This lets you jump to deep paths instantly without clicking through the tree.',
+      },
+      {
+        title: 'Favorites & pinned items',
+        content: 'Hover over any file or folder in the explorer and click the pin icon to add it to your Favorites section at the top. Pinned items persist across sessions and provide quick access to frequently used files. Click the pin icon again to unpin.',
+      },
+      {
+        title: 'Creating files and folders',
+        content: 'Use the toolbar icons at the top of the file explorer to create new files or folders. A text input appears inline — type a name and press Enter. The new item is created in the currently viewed directory.',
+      },
+      {
+        title: 'cd to terminal',
+        content: 'Click the terminal-arrow icon on any folder to automatically run a cd command in the integrated terminal, navigating to that directory. Saves you from typing long paths manually.',
+      },
+      {
+        title: 'Search across files',
+        content: 'Click the magnifying glass icon in the Activity Bar to open the Search view. Type a query to search across all files in your project. Results show the file path and matching lines with context. Click any result to jump directly to that line in the editor.',
+        action: { label: 'Open Search', view: 'search' },
       },
     ],
   },

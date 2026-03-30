@@ -1,26 +1,41 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS } from '../../lib/settings';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
-import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies } from '../../lib/mcp';
+import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
 import type { InstalledExtension } from '../../types/extensions';
 
 // Extracted component to avoid useState inside map()
-function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, onError }: {
+function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, onError, onRefresh }: {
   server: MCPServerStatus;
   entry: MCPCatalogEntry | null;
   depCheck?: DependencyStatus;
   isInstalling: boolean;
   onToggle: () => void;
   onError: (msg: string) => void;
+  onRefresh: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const enabled = server.config.enabled;
+
+  // Env var editing — merge catalog defaults with saved values
+  const catalogEnv = entry?.config.env || {};
+  const savedEnv = server.config.env || {};
+  const envKeys = Object.keys({ ...catalogEnv, ...savedEnv });
+  const [envValues, setEnvValues] = useState<Record<string, string>>(() => {
+    const merged: Record<string, string> = {};
+    for (const k of envKeys) {
+      merged[k] = savedEnv[k] || catalogEnv[k] || '';
+    }
+    return merged;
+  });
+  const [envSaving, setEnvSaving] = useState(false);
+  const [envSaved, setEnvSaved] = useState(false);
 
   return (
     <div className={`rounded-lg border transition-colors ${
@@ -118,6 +133,57 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
               </a>
             )}
           </div>
+          {/* Environment Variables (API keys etc.) */}
+          {envKeys.length > 0 && (
+            <div>
+              <span className="text-[10px] text-zinc-400 font-medium">Environment Variables:</span>
+              <div className="mt-1.5 space-y-1.5">
+                {envKeys.map((key) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-500 font-mono shrink-0 min-w-0 truncate" title={key}>
+                      {key.replace(/_/g, '_\u200B')}
+                    </span>
+                    <input
+                      type="password"
+                      value={envValues[key] || ''}
+                      onChange={(e) => setEnvValues(prev => ({ ...prev, [key]: e.target.value }))}
+                      placeholder="Enter value..."
+                      className="flex-1 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-600/50 font-mono min-w-0"
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={async () => {
+                    setEnvSaving(true);
+                    try {
+                      // Filter out empty values
+                      const filtered: Record<string, string> = {};
+                      for (const [k, v] of Object.entries(envValues)) {
+                        if (v.trim()) filtered[k] = v.trim();
+                      }
+                      await updateMCPServerEnv(server.config.name, filtered);
+                      onRefresh();
+                      setEnvSaved(true);
+                      setTimeout(() => setEnvSaved(false), 6000);
+                    } catch (e) {
+                      onError(String(e));
+                    }
+                    setEnvSaving(false);
+                  }}
+                  disabled={envSaving}
+                  className="text-[10px] px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded transition-colors font-medium"
+                >
+                  {envSaving ? 'Saving...' : 'Save Keys'}
+                </button>
+                {envSaved && (
+                  <p className="text-[10px] text-emerald-400 mt-1">
+                    Keys saved. Start a <strong>new chat session</strong> for changes to take effect.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {depCheck && (
             <div className={`flex items-center gap-2 p-2 rounded-md text-[10px] ${
               depCheck.satisfied
@@ -433,6 +499,72 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
                 />
               </label>
+
+              {/* Permission Level */}
+              <div className="pt-3 border-t border-zinc-800">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield className="w-4 h-4 text-zinc-400" />
+                  <span className="text-sm font-medium text-zinc-200">Permission Level</span>
+                </div>
+                <div className="space-y-2">
+                  {([
+                    {
+                      value: 'full_auto',
+                      label: 'Full Auto',
+                      desc: 'Claude reads, writes, and executes commands without asking. Fastest workflow.',
+                      icon: ShieldOff,
+                      color: 'text-amber-400',
+                      border: settings.permission_mode === 'full_auto' ? 'border-amber-500/60 bg-amber-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                    },
+                    {
+                      value: 'safe_mode',
+                      label: 'Safe Mode',
+                      desc: 'Claude can read and search freely, but writes, edits, and bash commands require approval.',
+                      icon: ShieldCheck,
+                      color: 'text-blue-400',
+                      border: settings.permission_mode === 'safe_mode' ? 'border-blue-500/60 bg-blue-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                    },
+                    {
+                      value: 'supervised',
+                      label: 'Supervised',
+                      desc: 'Claude asks permission for every action. Maximum control, slower workflow.',
+                      icon: Shield,
+                      color: 'text-green-400',
+                      border: settings.permission_mode === 'supervised' ? 'border-green-500/60 bg-green-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                    },
+                  ] as const).map((opt) => {
+                    const Icon = opt.icon;
+                    const isActive = settings.permission_mode === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => saveSettings({ ...settings, permission_mode: opt.value })}
+                        className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-all text-left ${opt.border}`}
+                      >
+                        <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${isActive ? opt.color : 'text-zinc-500'}`} />
+                        <div className="min-w-0">
+                          <div className={`text-xs font-medium ${isActive ? 'text-zinc-100' : 'text-zinc-400'}`}>
+                            {opt.label}
+                            {opt.value === 'full_auto' && (
+                              <span className="ml-1.5 text-[10px] text-zinc-600 font-normal">default</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">{opt.desc}</div>
+                        </div>
+                        {isActive && (
+                          <CheckCircle className={`w-3.5 h-3.5 mt-0.5 shrink-0 ml-auto ${opt.color}`} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {settings.permission_mode === 'supervised' && (
+                  <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-yellow-950/20 border border-yellow-800/30 rounded text-[11px] text-yellow-400/80">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>Supervised mode requires Claude Code to be authenticated interactively. Each action will prompt in the terminal.</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -470,6 +602,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     depCheck={mcpDepChecks[server.config.name]}
                     isInstalling={mcpInstalling === server.config.name}
                     onError={setMcpError}
+                    onRefresh={refreshMCPServers}
                     onToggle={async () => {
                       setMcpError(null);
                       if (server.config.enabled) {
@@ -798,7 +931,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </button>
 
                 <p className="text-xs text-zinc-600">
-                  The wizard checks for Xcode CLI Tools and Claude Code, and can install any missing dependencies.
+                  The wizard checks for Xcode CLI Tools, Homebrew, Node.js, GitHub CLI, Claude Code, and the PDF report library (reportlab), and can install any missing dependencies.
                 </p>
               </div>
 
@@ -807,9 +940,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 <p className="text-sm text-zinc-400 mb-3">
                   To install Claude Code on a remote HPC server, connect to the server via SSH first (using the SSH panel in the sidebar), then run:
                 </p>
-                <div className="bg-zinc-950 rounded-lg p-3 font-mono text-xs text-zinc-300">
-                  <p className="text-zinc-500"># Install Claude Code (no Node.js required)</p>
-                  <p>curl -fsSL https://claude.ai/install.sh | bash</p>
+                <div className="bg-zinc-950 rounded-lg p-3 font-mono text-xs text-zinc-300 space-y-2">
+                  <div>
+                    <p className="text-zinc-500"># Install Claude Code (no Node.js required)</p>
+                    <p>curl -fsSL https://claude.ai/install.sh | bash</p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500"># Install PDF report library</p>
+                    <p>pip3 install reportlab --user</p>
+                  </div>
                 </div>
               </div>
             </div>

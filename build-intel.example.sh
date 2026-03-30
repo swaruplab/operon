@@ -11,12 +11,15 @@
 #   APPLE_TEAM_ID           — Your 10-character Team ID
 #
 # Produces a signed, notarized DMG at:
-#   src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Operon_intel.dmg
+#   src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/Operon_<version>_x64.dmg
 
 set -e
 
+# Read version from tauri.conf.json (single source of truth)
+VERSION=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+
 echo "═══════════════════════════════════════════════"
-echo "  Operon Intel Build (x86_64)"
+echo "  Operon Intel Build (x86_64) v${VERSION}"
 echo "═══════════════════════════════════════════════"
 
 export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:?Set APPLE_SIGNING_IDENTITY}"
@@ -84,7 +87,7 @@ codesign --verify --verbose=2 "$X86_APP" 2>&1 && echo "  ✓ Signature valid" ||
 echo ""
 echo "▸ Creating Intel DMG..."
 DMG_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg"
-DMG_PATH="$DMG_DIR/Operon_intel.dmg"
+DMG_PATH="$DMG_DIR/Operon_${VERSION}_x64.dmg"
 mkdir -p "$DMG_DIR"
 rm -f "$DMG_PATH"
 
@@ -125,7 +128,7 @@ else
 fi
 
 # Copy to Desktop
-DESKTOP_DMG="$HOME/Desktop/Operon_intel.dmg"
+DESKTOP_DMG="$HOME/Desktop/Operon_${VERSION}_x64.dmg"
 cp "$DMG_PATH" "$DESKTOP_DMG" 2>/dev/null || true
 
 # Clear quarantine

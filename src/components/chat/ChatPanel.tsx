@@ -35,6 +35,10 @@ import {
   RefreshCw,
   Paperclip,
   Image,
+  FlaskConical,
+  History,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -49,8 +53,14 @@ import type {
   SessionMetadata,
   SessionFileStatus,
 } from '../../types/chat';
+import type { ReportPhase, ProjectScan, MethodsInfo, FilePreview } from '../../types/report';
+import { scanProjectFiles, scanRemoteProjectFiles, extractMethodsInfo, generateReportPdf, generateReportFilename, batchReadFilePreviews, batchReadRemoteFilePreviews } from '../../lib/report';
+import { ReportPhasePanel } from '../report/ReportPhasePanel';
+import type { ReportScope } from '../report/ReportPhasePanel';
+import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
+import type { PlanHistoryEntry } from '../../lib/plans';
 
-type ClaudeMode = 'agent' | 'plan' | 'ask';
+type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
 interface PubMedArticle {
   pmid: string;
@@ -612,20 +622,107 @@ function WorkingSection({ thinkingText, tools, isActive }: {
   );
 }
 
+// --- Message Context Menu ---
+
+function MessageContextMenu({
+  x,
+  y,
+  onCopy,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [onClose]);
+
+  // Adjust position so menu doesn't overflow viewport
+  const adjustedStyle: React.CSSProperties = {
+    position: 'fixed',
+    top: y,
+    left: x,
+    zIndex: 9999,
+  };
+
+  return (
+    <div ref={menuRef} style={adjustedStyle}
+      className="min-w-[140px] py-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/40 backdrop-blur-sm"
+    >
+      <button
+        onClick={() => {
+          onCopy();
+          setCopied(true);
+          setTimeout(() => onClose(), 600);
+        }}
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? 'Copied!' : 'Copy message'}
+      </button>
+    </div>
+  );
+}
+
 // --- Message Bubble ---
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
-  const isError = message.role === 'system';
+  const isSystem = message.role === 'system';
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
-  if (isUser || isError) {
+  // Extract all text content from the message for copying
+  const getMessageText = useCallback(() => {
+    return message.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as TextBlock).text)
+      .join('\n\n');
+  }, [message.content]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleCopy = useCallback(() => {
+    const text = getMessageText();
+    if (text) navigator.clipboard.writeText(text).catch(() => {});
+  }, [getMessageText]);
+
+  if (isUser || isSystem) {
+    // System message styling based on variant
+    const systemStyles = message.variant === 'success'
+      ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-800'
+      : message.variant === 'info'
+        ? 'bg-blue-900/30 text-blue-300 border border-blue-800'
+        : 'bg-red-900/30 text-red-300 border border-red-800';
+
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
         <div
-          className={`max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed ${
+          onContextMenu={handleContextMenu}
+          className={`max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed cursor-default ${
             isUser
               ? 'bg-blue-600/90 text-white'
-              : 'bg-red-900/30 text-red-300 border border-red-800'
+              : systemStyles
           }`}
         >
           {message.content.map((block, i) => (
@@ -634,6 +731,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             ) : null
           ))}
         </div>
+        {ctxMenu && (
+          <MessageContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            onCopy={handleCopy}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
       </div>
     );
   }
@@ -659,7 +764,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-zinc-800/80 text-zinc-200">
+      <div
+        onContextMenu={handleContextMenu}
+        className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-zinc-800/80 text-zinc-200 cursor-default"
+      >
         {/* Working section: collapsed by default */}
         {hasWorkingContent && (
           <WorkingSection
@@ -674,6 +782,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <div key={idx} className="whitespace-pre-wrap">{text}</div>
         ))}
       </div>
+      {ctxMenu && (
+        <MessageContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onCopy={handleCopy}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 }
@@ -936,6 +1052,7 @@ const MODE_CONFIG: Record<ClaudeMode, { label: string; icon: typeof Bot; color: 
   agent: { label: 'Agent', icon: Bot, color: 'text-blue-400', desc: 'Full tool use — reads, writes, runs commands' },
   plan: { label: 'Plan', icon: ClipboardList, color: 'text-amber-400', desc: 'Creates implementation_plan.md — no execution' },
   ask: { label: 'Ask', icon: MessageCircle, color: 'text-green-400', desc: 'Answer questions with PubMed-grounded literature' },
+  report: { label: 'Report', icon: FlaskConical, color: 'text-purple-400', desc: 'Generate PDF report from analysis files with PubMed citations' },
 };
 
 function ModeSelector({ mode, onChange }: { mode: ClaudeMode; onChange: (m: ClaudeMode) => void }) {
@@ -1056,14 +1173,32 @@ export function ChatPanel() {
   const [mode, setMode] = useState<ClaudeMode>('agent');
   const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
   const [existingPlan, setExistingPlan] = useState<string | null>(null);
+  // Report mode state
+  const [reportPhase, setReportPhase] = useState<ReportPhase>('idle');
+  const [reportScan, setReportScan] = useState<ProjectScan | null>(null);
+  const [reportSelectedFiles, setReportSelectedFiles] = useState<string[]>([]);
+  const [reportFilePreviews, setReportFilePreviews] = useState<FilePreview[]>([]);
+  const [reportMethodsInfo, setReportMethodsInfo] = useState<MethodsInfo | null>(null);
+  const [reportOutputPath, setReportOutputPath] = useState<string | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportScope, setReportScope] = useState<'comprehensive' | 'focused'>('comprehensive');
+  const [reportSelectedPlan, setReportSelectedPlan] = useState<string | undefined>(undefined);
   const [planReady, setPlanReady] = useState(false); // true when plan is written and awaiting approval
+  const [planHistory, setPlanHistory] = useState<PlanHistoryEntry[]>([]);
+  const [showPlanHistory, setShowPlanHistory] = useState(false);
+  // Plan conflict resolution: when user requests a new plan while one exists
+  const [planConflict, setPlanConflict] = useState<{ pendingRequest: string } | null>(null);
   const [activeProtocol, setActiveProtocol] = useState<{ id: string; name: string } | null>(null);
   const [protocolContent, setProtocolContent] = useState<string | null>(null);
   const [useTerminal, setUseTerminal] = useState(true); // Default ON for HPC use
   const [sshTerminalId, setSshTerminalId] = useState<string | null>(null);
   const [previousSessions, setPreviousSessions] = useState<SessionMetadata[]>([]);
   const [showResumeModal, setShowResumeModal] = useState(false);
-  const [resumeChecked, setResumeChecked] = useState(false);
+  // Session resume is disabled — it consistently fails for both local and remote modes.
+  // The output files are often missing, stale, or the SSH connection times out.
+  // TODO: Re-enable once session persistence is reliable.
+  const [resumeChecked, setResumeChecked] = useState(true);
   // Remote Claude Code status
   const [remoteDeps, setRemoteDeps] = useState<{
     checked: boolean;
@@ -1091,6 +1226,16 @@ export function ChatPanel() {
   remoteInfoRef.current = remoteInfo;
   const projectPathRef = useRef(projectPath);
   projectPathRef.current = projectPath;
+  const reportPhaseRef = useRef<ReportPhase>(reportPhase);
+  reportPhaseRef.current = reportPhase;
+  const reportSelectedFilesRef = useRef(reportSelectedFiles);
+  reportSelectedFilesRef.current = reportSelectedFiles;
+  const reportFilePreviewsRef = useRef(reportFilePreviews);
+  reportFilePreviewsRef.current = reportFilePreviews;
+  const reportMethodsInfoRef = useRef(reportMethodsInfo);
+  reportMethodsInfoRef.current = reportMethodsInfo;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   // @-mention state
   const [mentionActive, setMentionActive] = useState(false);
@@ -1429,6 +1574,11 @@ export function ChatPanel() {
           remote: remote ?? null,
         });
         setExistingPlan(plan || null);
+        // Also load plan history (local only for now)
+        if (!remoteInfo && projectPath) {
+          const history = await listPlanHistory(projectPath);
+          setPlanHistory(history);
+        }
       } catch {
         setExistingPlan(null);
       }
@@ -1872,28 +2022,239 @@ export function ChatPanel() {
             }
           } catch {
             // Plan file not found — Claude may have output it as text instead
-            // Fall back to extracting from messages
-            setMessages((prev) => {
-              const planText = prev
-                .filter(m => m.role === 'assistant')
-                .flatMap(m => m.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text))
-                .join('\n\n');
-              if (planText.trim()) {
-                setExistingPlan(planText);
-                setPlanReady(true);
-                // Write the plan locally if not remote
-                if (!remoteInfoRef.current) {
-                  invoke('write_file', { path: planPath, content: planText }).then(() => {
-                    emit('open-file', { path: planPath });
-                  }).catch(() => {});
-                }
+            // Fall back to extracting from messages via ref (avoids React 18 batching issues)
+            const planText = messagesRef.current
+              .filter(m => m.role === 'assistant')
+              .flatMap(m => m.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text))
+              .join('\n\n');
+            if (planText.trim()) {
+              setExistingPlan(planText);
+              setPlanReady(true);
+              // Write the plan locally if not remote
+              if (!remoteInfoRef.current) {
+                invoke('write_file', { path: planPath, content: planText }).then(() => {
+                  emit('open-file', { path: planPath });
+                }).catch(() => {});
               }
-              return prev;
-            });
+            }
           }
         };
         // Small delay to let Claude Code finish writing the file
         setTimeout(tryReadPlan, 500);
+      }
+
+      // Report mode: detect report content and generate output files.
+      // Trigger when phase is 'draft' (user explicitly said "generate report")
+      // OR when phase is 'clarify' but Claude wrote a full report anyway
+      // (detected by checking for ## Abstract or ## Introduction in the response).
+      if (modeRef.current === 'report' && reportPhaseRef.current !== 'render' && reportPhaseRef.current !== 'done') {
+        // Extract the latest CLAUDE-generated assistant message (not system-generated ones
+        // like the scan summary or clarify prompt). This ensures we get Claude's actual
+        // report draft, not the frontend-generated scaffolding messages.
+        let draftText = '';
+        const currentMessages = messagesRef.current;
+        const claudeMsgs = currentMessages.filter(m => m.role === 'assistant' && !m.systemGenerated);
+        if (claudeMsgs.length > 0) {
+          const lastMsg = claudeMsgs[claudeMsgs.length - 1];
+          draftText = lastMsg.content
+            .filter(b => b.type === 'text')
+            .map(b => (b as { type: 'text'; text: string }).text)
+            .join('\n\n');
+        }
+
+        const isReportContent = draftText.length > 500 && (
+          /##?\s*Abstract/i.test(draftText) ||
+          (/##?\s*Introduction/i.test(draftText) && /##?\s*(Results|Methods)/i.test(draftText))
+        );
+
+        const shouldGenerate = reportPhaseRef.current === 'draft' || isReportContent;
+
+        if (shouldGenerate && draftText.trim()) {
+          // Guard against duplicate execution: setReportPhase is async (React batching),
+          // so if the done event fires twice before the state flushes, both calls would
+          // pass the !== 'render' check. Use the ref for an immediate synchronous guard.
+          // Re-check after potential async gap — the ref may have been mutated by a concurrent call.
+          // TypeScript narrows this out due to the check on line 2050, but at runtime the ref can change.
+          const currentPhase = reportPhaseRef.current as ReportPhase;
+          if (currentPhase === 'render' || currentPhase === 'done') return;
+          reportPhaseRef.current = 'render'; // Immediate sync guard
+          setReportPhase('render');
+
+          setTimeout(async () => {
+            try {
+              const remote = remoteInfoRef.current;
+              const basePath = remote?.remotePath || projectPathRef.current || '.';
+              const filename = generateReportFilename();
+
+              // ── Step 1: Always save markdown file as primary output ──
+              const mdFilename = filename.replace(/\.pdf$/i, '.md');
+              const mdPath = `${basePath}/${mdFilename}`;
+              try {
+                if (remote) {
+                  // Remote mode: write via SSH
+                  await invoke('write_remote_file', {
+                    profileId: remote.profileId,
+                    path: mdPath,
+                    content: draftText,
+                  });
+                } else {
+                  await invoke('write_file', { path: mdPath, content: draftText });
+                }
+              } catch (mdErr) {
+                console.error('Failed to save markdown:', mdErr);
+              }
+
+              // Parse Claude's draft into structured sections
+              const parseSection = (text: string, heading: string): string => {
+                const patterns = [
+                  new RegExp(`##?\\s*${heading}[\\s\\S]*?\\n([\\s\\S]*?)(?=\\n##?\\s|$)`, 'i'),
+                  new RegExp(`\\*\\*${heading}\\*\\*[\\s\\S]*?\\n([\\s\\S]*?)(?=\\n\\*\\*|\\n##?\\s|$)`, 'i'),
+                ];
+                for (const pat of patterns) {
+                  const match = text.match(pat);
+                  if (match?.[1]?.trim()) return match[1].trim();
+                }
+                return '';
+              };
+
+              const title = parseSection(draftText, 'Title') || draftText.match(/^#\s+(.+)/m)?.[1] || 'Analysis Report';
+              const abstractText = parseSection(draftText, 'Abstract') || '';
+              const introduction = parseSection(draftText, 'Introduction') || '';
+              const results = parseSection(draftText, 'Results') || draftText.slice(0, 2000);
+              const discussion = parseSection(draftText, 'Discussion') || '';
+              const methodsText = parseSection(draftText, 'Methods') || '';
+
+              // Extract references
+              const refSection = parseSection(draftText, 'References');
+              const references: Array<{ pmid: string; title: string; authors: string; journal: string; year: string; doi: string }> = [];
+              if (refSection) {
+                const refLines = refSection.split('\n').filter(l => l.trim());
+                for (const line of refLines) {
+                  const match = line.match(/^\[?\d+\]?\s*(.+)/);
+                  if (match) {
+                    const pmidMatch = line.match(/PMID:\s*(\d+)/i);
+                    references.push({
+                      pmid: pmidMatch?.[1] || '',
+                      title: match[1].slice(0, 200),
+                      authors: '',
+                      journal: '',
+                      year: '',
+                      doi: '',
+                    });
+                  }
+                }
+              }
+
+              // Build figures list from selected image files
+              const figures = reportSelectedFilesRef.current
+                .filter(p => /\.(png|jpg|jpeg|tiff?|bmp|svg)$/i.test(p))
+                .map((p, i) => ({
+                  path: p,
+                  caption: p.split('/').pop() || `Figure ${i + 1}`,
+                  label: `Figure ${i + 1}`,
+                }));
+
+              const methods = reportMethodsInfoRef.current;
+
+              // For remote mode, generate PDF locally in /tmp, then SCP to remote.
+              // Figures won't embed (they're remote paths), but text content will render.
+              const localTmpDir = remote ? '/tmp/operon-report' : basePath;
+              const config = {
+                filename,
+                output_dir: localTmpDir,
+                title,
+                date: new Date().toISOString().split('T')[0],
+                abstract_text: abstractText,
+                introduction,
+                results,
+                discussion,
+                methods: {
+                  overview: methodsText,
+                  tools: methods?.tools || [],
+                  data_sources: '',
+                },
+                // For remote mode, skip figures (they're remote paths the local Python can't access)
+                figures: remote ? [] : figures,
+                tables: [] as Array<{ title: string; headers: string[]; rows: string[][]; caption?: string }>,
+                references: references.map((r, i) => ({
+                  index: i + 1,
+                  ...r,
+                  url: r.pmid ? `https://pubmed.ncbi.nlm.nih.gov/${r.pmid}/` : '',
+                })),
+              };
+
+              // ── Step 2: Try PDF generation ──
+              try {
+                const localResultPath = await generateReportPdf(config);
+
+                if (remote) {
+                  // Copy the locally generated PDF to the remote server
+                  const remotePdfPath = `${basePath}/${filename}`;
+                  await invoke('scp_to_remote', {
+                    profileId: remote.profileId,
+                    localPath: localResultPath,
+                    remotePath: remotePdfPath,
+                  });
+                  setReportOutputPath(remotePdfPath);
+                  setReportPhase('done');
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: crypto.randomUUID(),
+                      role: 'system' as const,
+                      variant: 'success' as const,
+                      content: [{ type: 'text' as const, text: `Report generated on remote server:\n- **PDF:** ${remotePdfPath}\n- **Markdown:** ${mdPath}` }],
+                      timestamp: Date.now(),
+                    },
+                  ]);
+                } else {
+                  setReportOutputPath(localResultPath);
+                  setReportPhase('done');
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: crypto.randomUUID(),
+                      role: 'system' as const,
+                      variant: 'success' as const,
+                      content: [{ type: 'text' as const, text: `Report generated:\n- **PDF:** ${localResultPath}\n- **Markdown:** ${mdPath}` }],
+                      timestamp: Date.now(),
+                    },
+                  ]);
+                }
+              } catch (pdfErr) {
+                // PDF failed — markdown is still saved
+                setReportOutputPath(mdPath);
+                setReportPhase('done');
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    role: 'system' as const,
+                    variant: 'info' as const,
+                    content: [{
+                      type: 'text' as const,
+                      text: `**Report saved as Markdown:** ${mdPath}\n\nPDF generation failed: ${String(pdfErr)}\nTo enable PDF output, run: \`pip install reportlab\``,
+                    }],
+                    timestamp: Date.now(),
+                  },
+                ]);
+              }
+            } catch (err) {
+              const errMsg = String(err);
+              setReportError(`Report generation failed: ${errMsg}`);
+              setReportPhase('idle');
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: 'system' as const,
+                  content: [{ type: 'text' as const, text: `**Report generation failed:** ${errMsg}` }],
+                  timestamp: Date.now(),
+                },
+              ]);
+            }
+          }, 1000);
+        }
       }
     }).then((u) => unlisteners.push(u));
 
@@ -1988,10 +2349,227 @@ export function ChatPanel() {
     }
   };
 
+  // Report mode: user confirmed file selection → move to clarify phase
+  const reportProceedFromSelect = useCallback(async (scope: 'comprehensive' | 'focused', selectedPlanTitle?: string) => {
+    if (reportPhase !== 'select' || reportSelectedFiles.length === 0) return;
+
+    setReportScope(scope);
+    setReportSelectedPlan(selectedPlanTitle);
+    setReportPhase('clarify');
+
+    // Pre-read file contents in background while user answers questions
+    try {
+      console.log('[Report] Pre-reading', reportSelectedFiles.length, 'file previews...');
+      const previews = remoteInfo
+        ? await batchReadRemoteFilePreviews(remoteInfo.profileId, reportSelectedFiles)
+        : await batchReadFilePreviews(reportSelectedFiles);
+      setReportFilePreviews(previews);
+      console.log('[Report] Pre-read complete:', previews.length, 'previews,',
+        previews.filter(p => p.content.length > 0).length, 'with content');
+    } catch (err) {
+      console.warn('[Report] File preview pre-read failed:', err);
+      // Non-fatal — report will still work, just without inline content
+    }
+
+    const scopeLabel = scope === 'comprehensive'
+      ? 'a **comprehensive** report (full paper with all sections)'
+      : 'a **focused** report (key results summary)';
+
+    const planNote = selectedPlanTitle
+      ? `\n\nI'll base this on the plan: **${selectedPlanTitle}**.`
+      : '';
+
+    const systemMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: [{
+        type: 'text',
+        text: `Great, I'll generate ${scopeLabel} using those ${reportSelectedFiles.length} files.${planNote}\n\nBefore I generate the report, I need some context:\n\n` +
+          `1. **What biological question** were you investigating?\n` +
+          `2. **What are the key findings** from your analysis?\n` +
+          `3. **Who is the audience** for this report (lab meeting, publication, collaborator)?\n` +
+          `4. **Any specific figures or tables** you want highlighted?\n\n` +
+          `Answer as many as you can, then type **"generate report"** when ready.`,
+      }],
+      timestamp: Date.now(),
+      systemGenerated: true,
+    };
+    setMessages((prev) => [...prev, systemMsg]);
+  }, [reportPhase, reportSelectedFiles, remoteInfo]);
+
+  // Report mode: user clicks "Generate Report" button during clarify phase
+  const reportGenerateFromButton = useCallback(() => {
+    if (reportPhase !== 'clarify') return;
+    setInput('Generate report');
+    // Use a short delay to let the input state update, then trigger send
+    setTimeout(() => {
+      const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
+      sendBtn?.click();
+    }, 50);
+  }, [reportPhase]);
+
+  // Report mode: cancel/reset
+  const reportCancel = useCallback(() => {
+    setReportPhase('idle');
+    setReportScan(null);
+    setReportSelectedFiles([]);
+    setReportFilePreviews([]);
+    setReportMethodsInfo(null);
+    setReportOutputPath(null);
+    setReportError(null);
+  }, []);
+
+  const reportRescan = useCallback(async () => {
+    try {
+      setReportSelectedFiles([]);
+      setReportFilePreviews([]);
+      setReportError(null);
+      console.log('[Report] Rescanning. remoteInfo:', remoteInfo, 'projectPath:', projectPath);
+      const scanResult = remoteInfo
+        ? await scanRemoteProjectFiles(remoteInfo.profileId, remoteInfo.remotePath || '.')
+        : await scanProjectFiles(projectPath || '.');
+      console.log('[Report] Rescan result:', JSON.stringify(scanResult).slice(0, 500));
+      setReportScan(scanResult);
+
+      // Re-extract methods info for local
+      if (!remoteInfo && projectPath) {
+        try {
+          const methods = await extractMethodsInfo(projectPath);
+          setReportMethodsInfo(methods);
+        } catch { /* best-effort */ }
+      }
+    } catch (err) {
+      setReportError(`Rescan failed: ${err}`);
+    }
+  }, [remoteInfo, projectPath]);
+
+  // Plan conflict handlers: called when user picks an option from the conflict UI
+  const handlePlanConflictChoice = useCallback(async (choice: 'new' | 'replace', archiveName?: string) => {
+    if (!planConflict) return;
+    const pendingText = planConflict.pendingRequest;
+    setPlanConflict(null);
+
+    if (choice === 'new') {
+      // Archive the old plan with the user-confirmed name, then generate new
+      const basePath = remoteInfo?.remotePath || projectPath || '.';
+      const historyDir = `${basePath}/.operon/plan_history`;
+      const finalName = archiveName || (() => {
+        const dateMatch = existingPlan?.match(/\*\*Date:\*\*\s*(.+)/);
+        if (dateMatch) return `plan_${dateMatch[1].trim().replace(/\s+/g, '_').replace(/:/g, '')}.md`;
+        return `plan_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.md`;
+      })();
+
+      try {
+        await invoke('create_directory', { path: historyDir });
+        await invoke('write_file', { path: `${historyDir}/${finalName}`, content: existingPlan || '' });
+        setMessages((prev) => [...prev, {
+          id: crypto.randomUUID(), role: 'system' as const, variant: 'success' as const,
+          content: [{ type: 'text' as const, text: `Old plan archived → .operon/plan_history/${finalName}` }],
+          timestamp: Date.now(),
+        }]);
+      } catch (err) {
+        console.error('[Plan] Archive failed:', err);
+      }
+
+      // Clear old plan state and generate fresh
+      setExistingPlan(null);
+      setPlanReady(false);
+      setInput(pendingText);
+      setTimeout(() => {
+        const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
+        sendBtn?.click();
+      }, 50);
+    } else {
+      // Replace mode: just overwrite, no archive
+      setExistingPlan(null);
+      setPlanReady(false);
+      setInput(pendingText);
+      setTimeout(() => {
+        const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
+        sendBtn?.click();
+      }, 50);
+    }
+  }, [planConflict, existingPlan, projectPath, remoteInfo]);
+
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isStreaming) return;
 
     const rawText = input.trim();
+
+    // ── Plan mode: if existing plan detected, ask user what to do ──
+    if (mode === 'plan' && existingPlan && existingPlan.trim().length > 0 && !planConflict && !planReady) {
+      // Show the user's message in chat
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(), role: 'user' as const,
+        content: [{ type: 'text' as const, text: rawText }],
+        timestamp: Date.now(),
+      }]);
+      setInput('');
+      // Trigger conflict resolution UI
+      setPlanConflict({ pendingRequest: rawText });
+      return; // Don't send yet — wait for user choice
+    }
+
+    // ── Report mode: handle phase transitions ──
+    if (mode === 'report') {
+      // First message in report mode → trigger scan
+      if (reportPhase === 'idle') {
+        setReportPhase('scan');
+        setReportError(null);
+        setReportOutputPath(null);
+
+        // Show user message
+        const userMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'user',
+          content: [{ type: 'text', text: rawText }],
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, userMsg]);
+        setInput('');
+
+        try {
+          // Scan project files
+          console.log('[Report] Scanning project files. remoteInfo:', remoteInfo, 'projectPath:', projectPath);
+          const scanResult = remoteInfo
+            ? await scanRemoteProjectFiles(remoteInfo.profileId, remoteInfo.remotePath || '.')
+            : await scanProjectFiles(projectPath || '.');
+          console.log('[Report] Scan result:', JSON.stringify(scanResult).slice(0, 500));
+
+          setReportScan(scanResult);
+
+          // Also extract methods info
+          if (!remoteInfo && projectPath) {
+            try {
+              const methods = await extractMethodsInfo(projectPath);
+              setReportMethodsInfo(methods);
+            } catch { /* methods extraction is best-effort */ }
+          }
+
+          setReportPhase('select');
+
+          // Add system message about scan results
+          const scanMsg: ChatMessage = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: [{
+              type: 'text',
+              text: `I scanned your project and found **${scanResult.total_pdfs} PDFs**, **${scanResult.total_images} images**, **${scanResult.total_csvs} CSVs**, **${scanResult.total_docs} documents** (.md, .txt, .json, .html), and **${scanResult.total_code} scripts** (.R, .py, .sh, .nf).\n\nSelect the files you want to include in your report using the picker above, then click **Continue** to proceed.`,
+            }],
+            timestamp: Date.now(),
+            systemGenerated: true,
+          };
+          setMessages((prev) => [...prev, scanMsg]);
+        } catch (err) {
+          setReportError(`Scan failed: ${err}`);
+          setReportPhase('idle');
+        }
+        return;
+      }
+
+      // User confirms file selection → move to clarify phase
+      // (handled by onProceed callback in ReportPhasePanel)
+    }
 
     // Layer 1: Project file index (automatic, always included if available)
     let indexPrefix = '';
@@ -2042,9 +2620,13 @@ export function ChatPanel() {
       mentionPrefix += `The user has attached these files for context:\n${attachParts.join('\n')}\n\n`;
     }
 
-    // Layer 5: PubMed literature (auto-search in Ask mode when enabled)
+    // Layer 5: PubMed literature (auto-search in Ask mode or Report mode when enabled)
+    // Skip PubMed for report-trigger phrases like "Generate report", "make the report", etc.
+    const isReportTriggerPhrase =
+      /\b(generate|create|make|write|produce|build|start)\b.*\breport\b/i.test(rawText) ||
+      /\breport\b.*\b(now|please|go|ready)\b/i.test(rawText);
     let pubmedPrefix = '';
-    if (mode === 'ask' && pubmedEnabled) {
+    if (((mode === 'ask' && pubmedEnabled) || (mode === 'report' && reportPhase === 'clarify')) && !isReportTriggerPhrase) {
       try {
         setPubmedSearching(true);
 
@@ -2108,11 +2690,96 @@ export function ChatPanel() {
     // Assemble: index → protocol → plan → mentions → pubmed → user message
     let finalText = rawText;
 
-    // In plan mode, wrap the user's request to instruct Claude to write a plan file
+    // Plan archival is handled by the conflict resolution UI (handlePlanConflictChoice).
+    // By the time we reach here in plan mode, existingPlan is cleared if user chose "new".
+
+    // Wrap the prompt for plan mode
     if (mode === 'plan' && !planReady) {
       finalText = `Create a detailed implementation plan for the following request and write it to "implementation_plan.md" in the current project directory. Do NOT implement anything yet — only create the plan file.\n\nRequest: ${rawText}`;
     } else if (mode === 'plan' && planReady) {
       finalText = `Update the existing implementation_plan.md based on this feedback. Rewrite the complete plan file with the changes applied. Do NOT implement anything.\n\nFeedback: ${rawText}`;
+    }
+
+    // In report mode, inject file context and methods info
+    if (mode === 'report' && reportPhase === 'clarify') {
+      let reportContext = '';
+
+      // Selected files with pre-read content
+      if (reportSelectedFiles.length > 0) {
+        if (reportFilePreviews.length > 0) {
+          // Include actual file contents — Claude doesn't need to read anything
+          reportContext += `<selected_files>\nThe user selected ${reportSelectedFiles.length} files. Their contents are provided below — do NOT use Read or any tools to access these files.\n\n`;
+          for (const preview of reportFilePreviews) {
+            reportContext += `<file path="${preview.path}" name="${preview.name}"${preview.truncated ? ' truncated="true"' : ''}>\n`;
+            if (preview.error) {
+              reportContext += `[Error reading file: ${preview.error}]\n`;
+            } else {
+              reportContext += preview.content + '\n';
+            }
+            reportContext += '</file>\n\n';
+          }
+          reportContext += '</selected_files>\n\n';
+        } else {
+          // Fallback: just list paths (if pre-read failed)
+          reportContext += `<selected_files>\nThe user selected these ${reportSelectedFiles.length} files for the report:\n`;
+          reportContext += reportSelectedFiles.map(p => `- ${p}`).join('\n');
+          reportContext += '\n</selected_files>\n\n';
+        }
+      }
+
+      // Methods info
+      if (reportMethodsInfo) {
+        reportContext += '<methods_info>\n';
+        if (reportMethodsInfo.r_version) reportContext += `R version: ${reportMethodsInfo.r_version}\n`;
+        if (reportMethodsInfo.python_version) reportContext += `Python version: ${reportMethodsInfo.python_version}\n`;
+        if (reportMethodsInfo.tools.length > 0) {
+          reportContext += 'Detected tools/packages:\n';
+          reportContext += reportMethodsInfo.tools.map(t =>
+            `- ${t.name}${t.version ? ' v' + t.version : ''} (${t.language || 'unknown'})`
+          ).join('\n');
+        }
+        reportContext += '\n</methods_info>\n\n';
+      }
+
+      // Plan context — use selected plan if user picked one, else current
+      if (reportSelectedPlan && reportSelectedPlan !== 'current' && reportSelectedPlan !== existingPlan?.match(/^#\s+(.+)/m)?.[1]) {
+        // User selected an archived plan — load its content
+        // (already loaded into existingPlan via the plan history dropdown)
+        if (existingPlan) {
+          reportContext += `<implementation_plan>\n${existingPlan}\n</implementation_plan>\n\n`;
+        }
+      } else if (existingPlan) {
+        reportContext += `<implementation_plan>\n${existingPlan}\n</implementation_plan>\n\n`;
+      }
+
+      // Check if user wants to generate the report now
+      // Flexible matching: "generate report", "make the report", "create a report", etc.
+      const lowerText = rawText.toLowerCase();
+      const wantsGenerate =
+        /\b(generate|create|make|write|produce|build|start)\b.*\breport\b/i.test(lowerText) ||
+        /\breport\b.*\b(now|please|go|ready)\b/i.test(lowerText);
+
+      if (wantsGenerate) {
+        setReportPhase('draft');
+        const scopeInstr = reportScope === 'focused'
+          ? `Write a FOCUSED summary report — keep it concise with key results, a brief methods overview, and main conclusions. Skip lengthy introductions and exhaustive discussion. Aim for 2-3 pages.\n\n`
+          : `Write a COMPREHENSIVE scientific report suitable for publication. Include all standard sections with thorough, publication-quality prose.\n\n`;
+
+        finalText = reportContext + scopeInstr +
+          `The user wants to generate the final report now. Based on all the context provided (files, methods, previous conversation), ` +
+          `write a ${reportScope === 'focused' ? 'focused' : 'complete'} scientific report with these sections:\n` +
+          `1. **Title** — a descriptive title for this analysis\n` +
+          `2. **Abstract** — ${reportScope === 'focused' ? '100-150' : '150-250'} word summary\n` +
+          `3. **Introduction** — biological context and motivation\n` +
+          `4. **Results** — interpret the analysis outputs biologically, reference the figures/tables\n` +
+          `5. **Discussion** — connect findings to broader literature, cite PubMed references\n` +
+          `6. **Methods** — tools with versions (no SLURM/conda details), data sources\n\n` +
+          `Use the PubMed articles provided to cite references as [1], [2], etc.\n` +
+          `Write thorough, publication-quality prose for each section.\n\n` +
+          `User's instructions: ${rawText}`;
+      } else {
+        finalText = reportContext + rawText;
+      }
     }
 
     const prompt = indexPrefix + protocolPrefix + serverConfigPrefix + planPrefix + mentionPrefix + pubmedPrefix + finalText;
@@ -2134,14 +2801,27 @@ export function ChatPanel() {
     seenMsgIds.current.clear(); // Reset for new conversation turn
 
     try {
+      // For report draft generation, start a FRESH session (don't resume).
+      // The full context is already in the prompt — resuming would duplicate
+      // everything and make Opus extremely slow or hang.
+      const isReportDraft = mode === 'report' && reportPhase === 'draft';
+      // Start a FRESH session (no resume) for:
+      // - Report drafts (full context already in prompt)
+      // - Plan mode (always fresh — existing plan context is injected into the prompt,
+      //   resuming an old agent session causes Claude to ignore the plan prompt)
+      const shouldStartFresh = isReportDraft || mode === 'plan';
       const invokeArgs: Record<string, unknown> = {
         sessionId,
         prompt,
         projectPath: projectPath || '.',
         model,
-        resumeSession: claudeSessionId,
-        // In plan mode, use 'agent' so Claude has Write tool access to create the plan file
-        mode: mode === 'plan' ? 'agent' : mode,
+        resumeSession: shouldStartFresh ? null : claudeSessionId,
+        // Send the actual mode — the backend handles plan/report prompt construction,
+        // archival, and max-turns based on the mode string.
+        mode,
+        // Report draft: all file contents are pre-read and injected into the prompt,
+        // so Claude needs exactly 1 turn to write the report — no tool use needed.
+        ...(isReportDraft ? { maxTurns: 1 } : {}),
       };
 
       // If connected to a remote server, pass SSH context
@@ -2175,7 +2855,7 @@ export function ChatPanel() {
         },
       ]);
     }
-  }, [input, isStreaming, sessionId, projectPath, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocol, protocolContent, existingPlan, pubmedEnabled]);
+  }, [input, isStreaming, sessionId, projectPath, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocol, protocolContent, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // @-mention popup keyboard navigation
@@ -2485,6 +3165,63 @@ export function ChatPanel() {
             <span className="text-[10px] text-zinc-500 truncate">
               implementation_plan.md ({existingPlan.split('\n').length} lines)
             </span>
+            {/* Plan date extracted from content */}
+            {(() => {
+              const dateMatch = existingPlan.match(/\*\*Date:\*\*\s*(.+)/);
+              return dateMatch ? (
+                <>
+                  <span className="text-[10px] text-zinc-600 mx-0.5">{'\u00B7'}</span>
+                  <span className="text-[10px] text-zinc-600">{dateMatch[1].trim()}</span>
+                </>
+              ) : null;
+            })()}
+            {/* History dropdown */}
+            {planHistory.length > 0 && (
+              <div className="relative ml-1">
+                <button
+                  onClick={() => setShowPlanHistory(!showPlanHistory)}
+                  className="flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={`${planHistory.length} archived plan${planHistory.length > 1 ? 's' : ''}`}
+                >
+                  <History className="w-3 h-3" />
+                  <span>{planHistory.length}</span>
+                </button>
+                {showPlanHistory && (
+                  <div className="absolute top-5 left-0 z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+                    <div className="px-3 py-1.5 border-b border-zinc-800 text-[10px] text-zinc-400 font-medium">
+                      Plan History ({planHistory.length} archived)
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {planHistory.map((entry) => (
+                        <button
+                          key={entry.filename}
+                          onClick={async () => {
+                            try {
+                              const content = await readPlanHistoryEntry(entry.path);
+                              setExistingPlan(content);
+                              setPlanReady(false);
+                              setShowPlanHistory(false);
+                              setMessages(prev => [...prev, {
+                                id: crypto.randomUUID(),
+                                role: 'system' as const,
+                                content: [{ type: 'text' as const, text: `Loaded archived plan: **${entry.title}** (${entry.timestamp})` }],
+                                timestamp: Date.now(),
+                              }]);
+                            } catch (e) {
+                              console.error('Failed to load plan:', e);
+                            }
+                          }}
+                          className="w-full px-3 py-1.5 text-left hover:bg-zinc-800 transition-colors border-b border-zinc-800/50 last:border-0"
+                        >
+                          <div className="text-[10px] text-zinc-300 font-medium truncate">{entry.title}</div>
+                          <div className="text-[9px] text-zinc-500">{entry.timestamp} · {entry.lines} lines</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {planReady ? (
               <div className="flex items-center gap-1.5 ml-auto shrink-0">
@@ -2547,6 +3284,28 @@ export function ChatPanel() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Report mode phase panel */}
+      {mode === 'report' && (reportPhase !== 'idle' || reportError) && (
+        <div className="mx-3 mt-2 shrink-0">
+          <ReportPhasePanel
+            phase={reportPhase}
+            scan={reportScan}
+            selectedFiles={reportSelectedFiles}
+            onSelectionChange={setReportSelectedFiles}
+            methodsInfo={reportMethodsInfo}
+            onProceed={reportProceedFromSelect}
+            onRescan={reportRescan}
+            onCancel={reportCancel}
+            onGenerate={reportGenerateFromButton}
+            outputPath={reportOutputPath}
+            error={reportError}
+            isLoading={reportLoading}
+            planHistory={planHistory}
+            currentPlanTitle={existingPlan ? (existingPlan.match(/^#\s+(.+)/m)?.[1] || 'Current Plan') : null}
+          />
         </div>
       )}
 
@@ -2656,6 +3415,59 @@ export function ChatPanel() {
             <span>Claude is thinking...</span>
           </div>
         )}
+        {/* Plan conflict resolution UI */}
+        {planConflict && (
+          <div className="my-3 p-3 rounded-lg bg-amber-950/30 border border-amber-800/40">
+            <p className="text-[12px] text-amber-300 font-medium mb-2">
+              An implementation plan already exists. What would you like to do?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  // Generate archive name from existing plan date
+                  const dateMatch = existingPlan?.match(/\*\*Date:\*\*\s*(.+)/);
+                  const titleMatch = existingPlan?.match(/^#\s+(?:Implementation Plan:\s*)?(.+)/m);
+                  const planDate = dateMatch
+                    ? dateMatch[1].trim().replace(/\s+/g, '_').replace(/:/g, '')
+                    : new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                  const shortTitle = titleMatch
+                    ? '_' + titleMatch[1].trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40)
+                    : '';
+                  const archiveName = `plan_${planDate}${shortTitle}.md`;
+                  handlePlanConflictChoice('new', archiveName);
+                }}
+                className="flex items-center gap-2 px-3 py-2 bg-emerald-700/40 hover:bg-emerald-700/60 border border-emerald-600/40 rounded text-[11px] text-emerald-200 font-medium transition-colors text-left"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <div>
+                  <div>Archive old plan & create new</div>
+                  <div className="text-[9px] text-emerald-400/70 font-normal mt-0.5">
+                    Saves current plan to .operon/plan_history/ then generates a fresh plan
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => handlePlanConflictChoice('replace')}
+                className="flex items-center gap-2 px-3 py-2 bg-zinc-700/40 hover:bg-zinc-700/60 border border-zinc-600/40 rounded text-[11px] text-zinc-300 font-medium transition-colors text-left"
+              >
+                <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                <div>
+                  <div>Replace existing plan</div>
+                  <div className="text-[9px] text-zinc-500 font-normal mt-0.5">
+                    Overwrites implementation_plan.md without saving the old one
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => setPlanConflict(null)}
+                className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors mt-0.5"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -2743,7 +3555,13 @@ export function ChatPanel() {
           {/* Mode selector row — above input for cleaner layout */}
           <div className="flex items-center justify-between mb-2 px-0.5">
             <div className="flex items-center gap-2">
-              <ModeSelector mode={mode} onChange={setMode} />
+              <ModeSelector mode={mode} onChange={(m) => {
+                // Reset report state when leaving report mode
+                if (mode === 'report' && m !== 'report') {
+                  reportCancel();
+                }
+                setMode(m);
+              }} />
               {(projectPath || remoteInfo) && (
                 <button
                   onClick={() => {
@@ -2777,18 +3595,42 @@ export function ChatPanel() {
                     multiple
                     accept="image/*,.txt,.md,.py,.js,.ts,.tsx,.jsx,.rs,.json,.yaml,.yml,.toml,.csv,.log,.sh,.bash,.r,.R,.html,.css,.sql,.xml,.ipynb,.h5ad,.h5,.pdf"
                     className="hidden"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const files = e.target.files;
                       if (!files) return;
                       const imageExts = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg', 'tiff', 'tif']);
                       const newAttachments: typeof attachments = [];
                       for (const file of Array.from(files)) {
                         const ext = file.name.split('.').pop()?.toLowerCase() || '';
-                        newAttachments.push({
-                          name: file.name,
-                          path: (file as any).path || file.name,
-                          type: imageExts.has(ext) ? 'image' : 'file',
-                        });
+                        const isImage = imageExts.has(ext);
+                        // In Tauri 2, File.path is not available like in Electron.
+                        // Read the file content and save it to a temp location so Claude can access it.
+                        try {
+                          const buffer = await file.arrayBuffer();
+                          const bytes = new Uint8Array(buffer);
+                          let binary = '';
+                          for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                          }
+                          const base64 = btoa(binary);
+                          const savedPath = await invoke<string>('save_attachment_file', {
+                            data: base64,
+                            filename: file.name,
+                          });
+                          newAttachments.push({
+                            name: file.name,
+                            path: savedPath,
+                            type: isImage ? 'image' : 'file',
+                          });
+                        } catch (err) {
+                          console.error('Failed to save attachment:', file.name, err);
+                          // Fallback: use filename only (won't be accessible to Claude)
+                          newAttachments.push({
+                            name: file.name,
+                            path: file.name,
+                            type: isImage ? 'image' : 'file',
+                          });
+                        }
                       }
                       setAttachments(prev => [...prev, ...newAttachments]);
                       // Reset so the same file can be re-selected
@@ -2797,7 +3639,7 @@ export function ChatPanel() {
                   />
                 </>
               )}
-              {/* PubMed toggle — only in Ask mode */}
+              {/* PubMed toggle — in Ask mode; always-on indicator in Report mode */}
               {mode === 'ask' && (
                 <button
                   onClick={() => setPubmedEnabled(v => !v)}
@@ -2813,6 +3655,14 @@ export function ChatPanel() {
                   {pubmedSearching && <Loader2 className="w-2.5 h-2.5 animate-spin ml-0.5" />}
                 </button>
               )}
+              {mode === 'report' && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-purple-900/40 border border-purple-700/40 text-purple-400">
+                  <BookMarked className="w-3 h-3" />
+                  <span>PubMed</span>
+                  {pubmedSearching && <Loader2 className="w-2.5 h-2.5 animate-spin ml-0.5" />}
+                  <span className="text-[9px] text-purple-500">auto</span>
+                </span>
+              )}
             </div>
             <span className="text-[10px] text-zinc-600">
               {claudeSessionId ? `Session: ${claudeSessionId.slice(0, 8)}` : 'New session'}
@@ -2820,7 +3670,7 @@ export function ChatPanel() {
           </div>
 
           {/* PubMed results indicator */}
-          {lastPubmedResults && lastPubmedResults.length > 0 && mode === 'ask' && (
+          {lastPubmedResults && lastPubmedResults.length > 0 && (mode === 'ask' || mode === 'report') && (
             <PubMedResultsBar articles={lastPubmedResults} onClear={() => setLastPubmedResults(null)} />
           )}
 
@@ -2870,7 +3720,15 @@ export function ChatPanel() {
                 // If no image items, let the default text paste happen
               }}
               placeholder={
-                mode === 'plan'
+                mode === 'report'
+                  ? (reportPhase === 'idle'
+                    ? 'Describe your analysis — Claude will scan for files and generate a report...'
+                    : reportPhase === 'clarify'
+                    ? 'Answer the questions above, then type "generate report" when ready...'
+                    : reportPhase === 'done'
+                    ? 'Report generated! Start a new report or switch modes...'
+                    : 'Report generation in progress...')
+                  : mode === 'plan'
                   ? (planReady
                     ? 'Give feedback on the plan — Claude will update implementation_plan.md...'
                     : 'Describe what you want to build — Claude will create a plan...')

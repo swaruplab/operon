@@ -26,6 +26,7 @@ import {
   BookMarked,
   Package,
   Settings2,
+  FileText,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -675,6 +676,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <InstallStepRow stepKey="homebrew" label="Homebrew Package Manager" icon={Download} />
                 <InstallStepRow stepKey="node" label="Node.js Runtime" icon={Package} />
                 <InstallStepRow stepKey="gh" label="GitHub CLI" icon={GitBranch} />
+                <InstallStepRow stepKey="reportlab" label="PDF Report Library" icon={FileText} />
               </div>
             )}
 
@@ -729,6 +731,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <p className="text-[9px] text-zinc-500 mb-0.5">Node.js & GitHub CLI:</p>
                     <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
                       brew install node gh
+                    </code>
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-zinc-500 mb-0.5">PDF Report Library:</p>
+                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                      pip3 install reportlab
                     </code>
                   </div>
                 </div>

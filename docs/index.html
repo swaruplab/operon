@@ -448,6 +448,10 @@
     <a href="#protocols">Protocols</a>
     <a href="#pubmed">PubMed Search</a>
 
+    <div class="sidebar-title">Tutorials</div>
+    <a href="#tutorial-local">Local Analysis</a>
+    <a href="#tutorial-remote">Remote Server / HPC</a>
+
     <div class="sidebar-title">Remote & HPC</div>
     <a href="#ssh">SSH Connections</a>
     <a href="#remote-workflows">Remote Workflows</a>
@@ -802,6 +806,187 @@ brew install gh</code></pre>
       <p>Enable the PubMed toggle (available in Ask mode) and ask questions like "What are the latest methods for single-cell ATAC-seq peak calling?" Claude will search PubMed, retrieve relevant papers, and incorporate their findings into its answer with proper citations.</p>
 
       <p>This is powered by the NCBI E-utilities API and requires no additional setup or API keys.</p>
+    </section>
+
+    <!-- ── TUTORIAL: LOCAL ANALYSIS ─────────────────────── -->
+    <section id="tutorial-local">
+      <h2>Tutorial: Running a Local Analysis</h2>
+      <p class="section-lead">A practical, step-by-step walkthrough for first-time users. By the end of this tutorial you will have run a complete analysis on your own machine using Operon.</p>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Install Operon</h4>
+          <p>Download the correct installer for your Mac from the buttons at the top of this page (Apple Silicon or Intel). Open the <code>.dmg</code> and drag Operon into your Applications folder. On first launch the Setup Wizard will install all required dependencies — just follow the prompts.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Authenticate with Claude</h4>
+          <p>When prompted, log in with your Anthropic account or paste your API key. Operon needs this to communicate with Claude. You can change your key later in <a href="#settings">Settings</a>.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Open Your Data Folder</h4>
+          <p>Click <strong>File → Open Folder</strong> (or use <kbd>⌘</kbd> + <kbd>O</kbd>) and navigate to the folder that contains your data — for example, a directory with FASTQ files, a count matrix, or VCF files. This sets the working directory so Claude can see and access your files.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Select a Protocol</h4>
+          <p>Click the <strong>Protocols</strong> icon in the activity bar and browse the library of <span class="protocol-count">180+</span> built-in protocols. Pick the one that matches your analysis — for example, <em>DESeq2 Differential Expression</em> or <em>scRNA-seq (Seurat)</em>. Selecting a protocol gives Claude expert-level context for that specific workflow.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Start in Plan Mode — Iterate Before Executing</h4>
+          <p>Switch the mode dropdown to <strong>Plan</strong> and describe what you want to do — for example, <em>"I have paired-end RNA-seq FASTQs in this folder. Run QC, align to GRCh38, and perform differential expression with DESeq2."</em></p>
+          <p>Claude will produce a detailed, step-by-step plan — the tools it will use, the order of operations, expected outputs, and any assumptions. <strong>Read the plan carefully.</strong> Ask follow-up questions, request changes, or point out things you want done differently. Keep iterating in Plan mode until you are fully confident the plan is correct.</p>
+          <div class="callout tip">
+            <strong>Key practice:</strong> Do not rush to execution. Spending a few extra minutes refining the plan in Plan mode can save hours of debugging later. Treat it as a conversation with a colleague who is outlining their approach before starting.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h4>Execute with Agent Mode</h4>
+          <p>Once you are happy with the plan, switch to <strong>Agent</strong> mode. You can paste or reference the finalized plan and tell Claude to proceed. Agent mode will execute each step autonomously — installing packages, writing scripts, running commands, and handling errors — while you watch the progress in the chat and terminal panels.</p>
+          <div class="callout tip">
+            <strong>Tip:</strong> You can interrupt Agent mode at any time by clicking the <strong>Stop</strong> button. If something goes wrong, switch back to Plan mode, discuss what happened, and revise the approach before trying again.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h4>Use Ask Mode for Quick Questions</h4>
+          <p>At any point during your analysis, switch to <strong>Ask</strong> mode to get explanations without Claude making any changes. This is useful for understanding outputs (<em>"What does this volcano plot tell me?"</em>), clarifying statistics (<em>"Why did DESeq2 shrink these log-fold changes?"</em>), or searching the literature with PubMed toggled on.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <h4>Review Results and Iterate</h4>
+          <p>Check the output files in the File Explorer. If you need to adjust parameters, add a visualization, or run a follow-up analysis, just tell Claude. You can go back and forth between Plan and Agent modes as many times as you need. Each session preserves the full conversation history so Claude remembers what was done previously.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TUTORIAL: REMOTE SERVER / HPC ─────────────────── -->
+    <section id="tutorial-remote">
+      <h2>Tutorial: Running on a Remote Server / HPC</h2>
+      <p class="section-lead">Most bioinformatics workloads run on institutional HPC clusters or cloud servers. This tutorial walks you through using Operon to work on a remote machine, with practical tips for long-running jobs.</p>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Install Operon Locally</h4>
+          <p>Install Operon on your Mac using the same steps from the <a href="#tutorial-local">local tutorial</a> above. Operon runs locally on your laptop and connects to the remote server over SSH — you do not need to install Operon on the server itself.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Connect via SSH</h4>
+          <p>Click the <strong>SSH</strong> icon in the activity bar and set up a new connection with your server's hostname, port, and credentials. Operon supports password, SSH key, and Duo/MFA authentication. Once connected, the file explorer and terminal switch to the remote filesystem.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Start a tmux or screen Session</h4>
+          <p>Before doing anything else, open the terminal panel and start a persistent terminal multiplexer session:</p>
+          <pre><code># Using tmux (recommended)
+tmux new -s operon
+
+# Or using screen
+screen -S operon</code></pre>
+          <p>This is <strong>critical</strong> for remote work. If your SSH connection drops — laptop goes to sleep, Wi-Fi hiccup, VPN reconnect — a bare SSH session would kill any running processes. With tmux or screen, your session survives disconnections and you can reattach later:</p>
+          <pre><code># Reattach to tmux
+tmux attach -t operon
+
+# Reattach to screen
+screen -r operon</code></pre>
+          <div class="callout tip">
+            <strong>Tip:</strong> Always run inside tmux or screen on remote servers. This is a best practice for any long-running bioinformatics work, not just Operon.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Request an Interactive Compute Node</h4>
+          <p>On most HPC clusters the login node is shared and has limited resources. Do not run analyses on the login node. Instead, request an interactive session on a compute node:</p>
+          <pre><code># SLURM (most common)
+srun --pty --mem=16G --cpus-per-task=4 --time=4:00:00 bash
+
+# PBS/Torque
+qsub -I -l nodes=1:ppn=4,mem=16gb,walltime=04:00:00
+
+# SGE
+qlogin -l h_vmem=16G,h_rt=04:00:00</code></pre>
+          <p>Once you land on a compute node, Claude can use it to run tools, process data, and execute scripts with the allocated resources. This is where your actual analysis will happen.</p>
+          <div class="callout">
+            <strong>Why an interactive node?</strong> Claude's Agent mode executes commands in real time and reads their output to decide what to do next. It needs an interactive shell on a node that has enough CPU, memory, and time to run bioinformatics tools. A login node will be too slow and may get your session killed by system administrators.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Navigate to Your Data</h4>
+          <p>Use the file explorer or terminal to <code>cd</code> into the directory where your data lives — for example, <code>/scratch/username/rnaseq_project/</code>. Open this folder in Operon so Claude can see the files.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h4>Select a Protocol and Plan First</h4>
+          <p>Just like the local workflow: pick a protocol, switch to <strong>Plan</strong> mode, and describe your analysis. Iterate on the plan until you are confident. This is even more important on a remote server where resources are limited and mistakes can waste queued compute time.</p>
+          <p>When discussing the plan, tell Claude about your cluster environment — available modules (<code>module avail</code>), conda environments, scratch vs. home directories, and any job submission conventions your lab follows.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h4>Execute in Agent Mode</h4>
+          <p>Switch to <strong>Agent</strong> mode and let Claude run the analysis on the compute node. Claude will write scripts, execute commands, and adapt based on output — all within your tmux/screen session. For very long-running steps (e.g., genome alignment), Claude can write and submit a batch job script instead of running interactively:</p>
+          <pre><code># Claude can generate and submit SLURM scripts like:
+sbatch alignment_job.sh</code></pre>
+          <p>You can then monitor the job with <code>squeue -u $USER</code> or ask Claude to check on it.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <h4>Reconnect If Disconnected</h4>
+          <p>If your connection drops, simply reconnect via SSH in Operon and reattach your tmux/screen session. Your analysis will still be running (or will have completed) and all the output will be intact. Start a new Operon chat session and point Claude to the working directory — it can pick up where things left off by examining the files and logs.</p>
+        </div>
+      </div>
+
+      <div class="callout tip">
+        <strong>Summary of the remote workflow:</strong> SSH in → start tmux/screen → get an interactive compute node → open your data folder → Plan mode to design the analysis → Agent mode to execute → Ask mode for questions along the way. Always keep tmux/screen running so nothing is lost if the connection drops.
+      </div>
     </section>
 
     <!-- ── SSH ─────────────────────────────────────────── -->
