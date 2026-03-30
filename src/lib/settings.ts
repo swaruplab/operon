@@ -11,6 +11,7 @@ export interface AppSettings {
   model: string;
   max_turns: number;
   max_budget_usd: number;
+  permission_mode: string; // 'full_auto' | 'safe_mode' | 'supervised'
   show_hidden_files: boolean;
   terminal_font_size: number;
   mcp_servers: MCPServerConfig[];
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-sonnet-4-20250514',
   max_turns: 25,
   max_budget_usd: 5.0,
+  permission_mode: 'full_auto',
   show_hidden_files: false,
   terminal_font_size: 13,
   mcp_servers: [],

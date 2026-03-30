@@ -127,7 +127,99 @@ pub fn get_research_catalog() -> Vec<MCPCatalogEntry> {
             homepage: "https://github.com/ammawla/encode-toolkit".into(),
             license: "Non-Commercial (free for academic/research)".into(),
         },
+        MCPCatalogEntry {
+            id: "alphagenome".into(),
+            name: "AlphaGenome".into(),
+            description: "DeepMind AlphaGenome API — predict gene expression, splicing, chromatin features, and variant effects from DNA sequences at single base-pair resolution".into(),
+            category: "Variant Analysis".into(),
+            tools_count: 8,
+            tools_summary: vec![
+                "alphagenome_predict_sequence: Generate multimodal predictions for a DNA sequence (up to 1 MB)".into(),
+                "alphagenome_predict_interval: Predict genomic outputs for a chromosomal region".into(),
+                "alphagenome_predict_variant: Predict functional effects of genetic variants (ref vs alt)".into(),
+                "alphagenome_score_variant: Quantify variant effects using multiple scoring methods".into(),
+                "alphagenome_validate_sequence: Validate DNA sequence formatting".into(),
+                "alphagenome_get_metadata: Retrieve organism model information".into(),
+                "alphagenome_get_supported_outputs: List available output types (expression, splicing, etc.)".into(),
+                "alphagenome_get_supported_organisms: List supported organisms".into(),
+            ],
+            databases: vec!["AlphaGenome API".into()],
+            runtime: "python".into(),
+            install_command: "pip install alphagenome-mcp".into(),
+            config: MCPServerConfig {
+                name: "alphagenome".into(),
+                enabled: false,
+                command: "uvx".into(),
+                args: vec!["alphagenome-mcp".into(), "stdio".into()],
+                env: HashMap::from([
+                    ("ALPHA_GENOME_API_KEY".into(), "".into()),
+                ]),
+                catalog_id: Some("alphagenome".into()),
+                description: Some("DeepMind AlphaGenome — variant effects & genomic predictions".into()),
+            },
+            homepage: "https://github.com/longevity-genie/alphagenome-mcp".into(),
+            license: "Open Source".into(),
+        },
     ]
+}
+
+// ─── Sync MCP servers into Claude Code's native config ──────────────────────
+
+/// Register a single MCP server with Claude Code using `claude mcp add-json`.
+/// This makes the server visible to the Claude agent natively (no --mcp-config needed).
+/// If the server already exists, it is removed first so env/config updates take effect.
+fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
+    // Always remove first to handle "already exists" and to pick up env var changes
+    let _ = std::process::Command::new("claude")
+        .args(["mcp", "remove", &server.name, "-s", "user"])
+        .output(); // ignore errors — server may not exist yet
+
+    let mut config_obj = serde_json::Map::new();
+    config_obj.insert("command".into(), serde_json::json!(server.command));
+    config_obj.insert("args".into(), serde_json::json!(server.args));
+    if !server.env.is_empty() {
+        config_obj.insert("env".into(), serde_json::json!(server.env));
+    }
+    let json_str = serde_json::to_string(&serde_json::Value::Object(config_obj))
+        .map_err(|e| format!("Failed to serialize MCP config: {}", e))?;
+
+    let output = std::process::Command::new("claude")
+        .args(["mcp", "add-json", &server.name, &json_str, "-s", "user"])
+        .output()
+        .map_err(|e| format!("Failed to run `claude mcp add-json`: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[operon] claude mcp add-json for '{}' failed: {}", server.name, stderr);
+    }
+    Ok(())
+}
+
+/// Remove an MCP server from Claude Code using `claude mcp remove`.
+fn claude_mcp_remove(name: &str) -> Result<(), String> {
+    let output = std::process::Command::new("claude")
+        .args(["mcp", "remove", name, "-s", "user"])
+        .output()
+        .map_err(|e| format!("Failed to run `claude mcp remove`: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("[operon] claude mcp remove for '{}' failed: {}", name, stderr);
+    }
+    Ok(())
+}
+
+/// Sync all Operon MCP servers into Claude Code's native config.
+/// Enabled servers are added via `claude mcp add-json`, disabled ones are removed.
+pub fn sync_mcp_servers_to_claude(mcp_servers: &[MCPServerConfig]) -> Result<(), String> {
+    for server in mcp_servers {
+        if server.enabled {
+            claude_mcp_add(server)?;
+        } else {
+            claude_mcp_remove(&server.name)?;
+        }
+    }
+    Ok(())
 }
 
 // ─── MCP Config Generation ──────────────────────────────────────────────────
@@ -293,6 +385,8 @@ pub async fn enable_mcp_server(
             config.enabled = true;
             settings.mcp_servers.push(config);
             super::settings::SettingsManager::save_to_disk(&settings)?;
+            let _ = generate_mcp_config(&settings.mcp_servers);
+            let _ = sync_mcp_servers_to_claude(&settings.mcp_servers);
             return Ok(());
         }
         return Err(format!("MCP server '{}' not found", name));
@@ -302,6 +396,8 @@ pub async fn enable_mcp_server(
         server.enabled = true;
     }
     super::settings::SettingsManager::save_to_disk(&settings)?;
+    let _ = generate_mcp_config(&settings.mcp_servers);
+    let _ = sync_mcp_servers_to_claude(&settings.mcp_servers);
     Ok(())
 }
 
@@ -315,7 +411,31 @@ pub async fn disable_mcp_server(
         server.enabled = false;
     }
     super::settings::SettingsManager::save_to_disk(&settings)?;
+    let _ = generate_mcp_config(&settings.mcp_servers);
+    let _ = sync_mcp_servers_to_claude(&settings.mcp_servers);
     Ok(())
+}
+
+/// Update environment variables for an MCP server (e.g. API keys).
+#[tauri::command]
+pub async fn update_mcp_server_env(
+    settings_state: tauri::State<'_, super::settings::SettingsManager>,
+    name: String,
+    env: HashMap<String, String>,
+) -> Result<(), String> {
+    let mut settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+    if let Some(server) = settings.mcp_servers.iter_mut().find(|s| s.name == name) {
+        server.env = env;
+        super::settings::SettingsManager::save_to_disk(&settings)?;
+        // Regenerate MCP config and sync to Claude Code's native config
+        drop(settings);
+        let settings2 = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        let _ = generate_mcp_config(&settings2.mcp_servers);
+        let _ = sync_mcp_servers_to_claude(&settings2.mcp_servers);
+        Ok(())
+    } else {
+        Err(format!("MCP server '{}' not found in settings", name))
+    }
 }
 
 /// Install an MCP server from the catalog: check deps, add to settings, enable.
@@ -348,6 +468,8 @@ pub async fn install_mcp_server(
     settings.mcp_servers.push(config);
 
     super::settings::SettingsManager::save_to_disk(&settings)?;
+    let _ = generate_mcp_config(&settings.mcp_servers);
+    let _ = sync_mcp_servers_to_claude(&settings.mcp_servers);
     Ok(())
 }
 

@@ -13,6 +13,7 @@ import {
   Pin,
   PinOff,
   Star,
+  FolderPlus,
 } from 'lucide-react';
 import { SSHView } from './SSHView';
 import { RemoteExplorer } from './RemoteExplorer';
@@ -240,6 +241,32 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   const [loading, setLoading] = useState(false);
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>(loadPinnedItems);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const newFolderRef = useRef<HTMLInputElement>(null);
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || !projectPath) {
+      setCreatingFolder(false);
+      setNewFolderName('');
+      return;
+    }
+    try {
+      await invoke('create_directory', { path: `${projectPath}/${name}` });
+      setCreatingFolder(false);
+      setNewFolderName('');
+      setRefreshKey(k => k + 1);
+    } catch (err) {
+      console.error('Failed to create folder:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (creatingFolder && newFolderRef.current) {
+      newFolderRef.current.focus();
+    }
+  }, [creatingFolder]);
 
   const togglePin = useCallback((path: string, name: string, isDir: boolean) => {
     setPinnedItems(prev => {
@@ -381,11 +408,25 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             ..
           </button>
           <button
+            onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            title="New Folder"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={refresh}
             className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
             title="Refresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={cdToTerminal}
+            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            title="cd to this directory in terminal"
+          >
+            <CornerDownRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -419,24 +460,33 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             {projectPath || '~'}
           </button>
         )}
-        <button
-          onClick={cdToTerminal}
-          className={`p-0.5 rounded hover:bg-zinc-800 transition-colors shrink-0 ${
-            localTerminalId
-              ? 'text-zinc-600 hover:text-zinc-300'
-              : 'text-zinc-800 cursor-not-allowed'
-          }`}
-          title="cd to this directory in terminal"
-          disabled={!localTerminalId}
-        >
-          <CornerDownRight className="w-3.5 h-3.5" />
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">
+        {/* Inline new folder input */}
+        {creatingFolder && (
+          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-zinc-800/80 rounded border border-blue-600/40">
+            <FolderPlus className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <input
+              ref={newFolderRef}
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCreateFolder();
+                if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
+              }}
+              onBlur={handleCreateFolder}
+              className="flex-1 bg-transparent text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 min-w-0"
+              placeholder="folder name"
+              spellCheck={false}
+            />
+          </div>
+        )}
+
         {/* Pinned/Favorites section */}
         {pinnedItems.length > 0 && (
-          <div className="mb-1 border-b border-zinc-800/50 pb-1">
+          <div className="mb-2 border-b border-zinc-600/40 pb-2">
             <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-400/70 font-medium uppercase tracking-wider">
               <Star className="w-3 h-3 fill-amber-400/50" />
               Favorites

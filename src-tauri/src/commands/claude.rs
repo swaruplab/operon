@@ -938,7 +938,57 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
             all_ok = false;
         }
     } else {
-        emit_install_progress(&app, "gh", "skipped", "GitHub CLI already installed", 100);
+        emit_install_progress(&app, "gh", "skipped", "GitHub CLI already installed", 90);
+    }
+
+    // ── Python reportlab for PDF reports (90-100%) ──
+    let has_reportlab = std::process::Command::new("python3")
+        .args(["-c", "import reportlab"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !has_reportlab {
+        emit_install_progress(&app, "reportlab", "installing", "Installing PDF report library (reportlab)...", 92);
+        let mut installed = false;
+
+        // Strategy 1: --user install (macOS Homebrew Python)
+        if let Ok(o) = std::process::Command::new("python3")
+            .args(["-m", "pip", "install", "reportlab", "--user", "--quiet"])
+            .output()
+        {
+            if o.status.success() { installed = true; }
+        }
+
+        // Strategy 2: --break-system-packages (Linux)
+        if !installed {
+            if let Ok(o) = std::process::Command::new("python3")
+                .args(["-m", "pip", "install", "reportlab", "--quiet", "--break-system-packages"])
+                .output()
+            {
+                if o.status.success() { installed = true; }
+            }
+        }
+
+        // Strategy 3: pip3 directly
+        if !installed {
+            if let Ok(o) = std::process::Command::new("pip3")
+                .args(["install", "reportlab", "--user", "--quiet"])
+                .output()
+            {
+                if o.status.success() { installed = true; }
+            }
+        }
+
+        if installed {
+            emit_install_progress(&app, "reportlab", "complete", "reportlab installed!", 100);
+        } else {
+            emit_install_progress(&app, "reportlab", "error",
+                "reportlab could not be installed (Report mode will install it on first use).", 100);
+            // Don't fail the whole phase — report mode has its own fallback
+        }
+    } else {
+        emit_install_progress(&app, "reportlab", "skipped", "reportlab already installed", 100);
     }
 
     emit_install_progress(&app, "done",
@@ -1131,6 +1181,7 @@ elif [ -f ~/.bashrc ] || [ -f ~/.bash_profile ]; then
   fi
 fi
 echo "CLAUDE:$CLAUDE_VER"
+echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev/null || echo MISSING)"
 "#;
 
     let result = super::ssh::ssh_exec(&profile, check_script)
@@ -1139,6 +1190,9 @@ echo "CLAUDE:$CLAUDE_VER"
     let node_line = result.lines().find(|l| l.starts_with("NODE:")).unwrap_or("NODE:MISSING");
     let npm_line = result.lines().find(|l| l.starts_with("NPM:")).unwrap_or("NPM:MISSING");
     let claude_line = result.lines().find(|l| l.starts_with("CLAUDE:")).unwrap_or("CLAUDE:MISSING");
+    let reportlab_line = result.lines().find(|l| l.starts_with("REPORTLAB:")).unwrap_or("REPORTLAB:MISSING");
+    let _reportlab_ver = reportlab_line.strip_prefix("REPORTLAB:").unwrap_or("MISSING");
+    // reportlab status is logged but not yet surfaced in DependencyStatus
 
     let node_ver = node_line.strip_prefix("NODE:").unwrap_or("MISSING");
     let npm_ver = npm_line.strip_prefix("NPM:").unwrap_or("MISSING");
@@ -1335,6 +1389,29 @@ echo OPERON_INSTALL_FAILED
         .map_err(|e| format!("Remote install failed: {}", e))?;
 
     if result.contains("OPERON_INSTALL_SUCCESS") {
+        // Also install reportlab for PDF report generation on the remote server
+        let reportlab_script = r#"
+if python3 -c 'import reportlab' 2>/dev/null; then
+    echo 'REPORTLAB_OK'
+else
+    echo '>>> Installing reportlab for PDF reports...'
+    python3 -m pip install reportlab --user --quiet 2>/dev/null \
+        || python3 -m pip install reportlab --quiet --break-system-packages 2>/dev/null \
+        || pip3 install reportlab --user --quiet 2>/dev/null \
+        || echo 'REPORTLAB_SKIP'
+    if python3 -c 'import reportlab' 2>/dev/null; then
+        echo 'REPORTLAB_OK'
+    else
+        echo 'REPORTLAB_SKIP'
+    fi
+fi
+"#;
+        // Best-effort: don't fail the whole install if reportlab can't be installed
+        if let Ok(rl_result) = super::ssh::ssh_exec(&profile, reportlab_script) {
+            if rl_result.contains("REPORTLAB_SKIP") {
+                eprintln!("[operon] reportlab could not be installed on remote server — report mode will attempt at runtime");
+            }
+        }
         return Ok(());
     }
 
@@ -1520,6 +1597,7 @@ pub async fn start_claude_session(
     };
 
     let mode = mode.unwrap_or_else(|| "agent".to_string());
+    eprintln!("[operon] start_claude_session: mode='{}', resume={:?}, max_turns={:?}", mode, resume_session, max_turns);
 
     // --- Check for existing plan files in the target directory ---
     // This gives Claude context about previous planning sessions in this folder.
@@ -1551,17 +1629,49 @@ pub async fn start_claude_session(
     // Build the claude command string
     let escaped_prompt = prompt.replace('\'', "'\\''");
 
-    // If there's an existing plan, prepend it as context for agent/ask modes
-    let context_prefix = if !existing_plan.is_empty() && mode != "plan" {
-        format!(
-            "CONTEXT: There is an existing implementation_plan.md in this directory from a previous planning session. \
-             Here is its content:\n\n---\n{}\n---\n\n\
-             Use this plan as context for your work. If the user's request relates to this plan, follow it. \
-             If the request is unrelated, you can ignore the plan.\n\n",
-            existing_plan
-        )
+    // Build permission flag based on settings
+    let permission_mode = {
+        let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
+        settings.permission_mode.clone()
+    };
+    // Permission levels control how Claude Code handles tool approvals:
+    //  full_auto  — skip all permission prompts (fastest, default)
+    //  safe_mode  — allow only read-only tools without prompts; Claude will be instructed
+    //              to avoid destructive operations and ask the user before modifying files
+    //  supervised — no permission skip; Claude runs in standard interactive mode
+    //              and prompts for each tool use (works via terminal passthrough)
+    let permission_flag = match permission_mode.as_str() {
+        "supervised" => "",
+        "safe_mode" => "--dangerously-skip-permissions",
+        _ => "--dangerously-skip-permissions", // full_auto
+    };
+    // For safe_mode, we prepend a safety instruction to every prompt
+    let safety_prefix = if permission_mode == "safe_mode" {
+        "IMPORTANT SAFETY CONSTRAINT: You are in SAFE MODE. You may freely read files, search, \
+         and browse, but you MUST ask the user for explicit confirmation before: \
+         (1) writing or editing any file, (2) running any bash command that modifies state \
+         (installs, deletes, moves, or overwrites), (3) creating new files. \
+         For any such action, describe what you plan to do and wait for the user to say 'yes' or 'go ahead' \
+         before executing. Read-only commands (cat, ls, grep, find, head, etc.) are always safe to run.\n\n"
+            .to_string()
     } else {
         String::new()
+    };
+
+    // If there's an existing plan, prepend it as context for agent/ask modes
+    let context_prefix = {
+        let plan_ctx = if !existing_plan.is_empty() && mode != "plan" {
+            format!(
+                "CONTEXT: There is an existing implementation_plan.md in this directory from a previous planning session. \
+                 Here is its content:\n\n---\n{}\n---\n\n\
+                 Use this plan as context for your work. If the user's request relates to this plan, follow it. \
+                 If the request is unrelated, you can ignore the plan.\n\n",
+                existing_plan
+            )
+        } else {
+            String::new()
+        };
+        format!("{}{}", safety_prefix, plan_ctx)
     };
 
     // Generate a human-readable timestamp for plan sections
@@ -1646,11 +1756,13 @@ pub async fn start_claude_session(
             };
 
             let plan_prompt = format!(
-                "You are in PLAN mode. Do NOT execute any code or make any changes. \
-                 Instead, analyze the request and create a detailed implementation plan. \
-                 Write the plan to a file called 'implementation_plan.md' in the current directory. \
-                 This should be a FRESH, self-contained plan (the previous plan, if any, has been \
-                 automatically archived to .operon/plan_history/).\
+                "{}You are in PLAN mode.\n\n\
+                 CRITICAL INSTRUCTION: Your ONLY action is to write a file called 'implementation_plan.md'. \
+                 Do NOT run bash commands. Do NOT read files. Do NOT search for anything. Do NOT check MCP configurations. \
+                 Do NOT use any tools except the Write tool to create implementation_plan.md. \
+                 You already have all the context you need in this prompt.\n\n\
+                 Write the plan to 'implementation_plan.md' in the current directory. \
+                 This should be a FRESH, self-contained plan.\
                  \n\nFORMATTING RULES:\
                  \n- Start with: # Implementation Plan: <short title>\
                  \n- Add: **Date:** {}\
@@ -1661,12 +1773,59 @@ pub async fn start_claude_session(
                  so that Agent mode can track progress.\
                  \n- If the previous plan had steps marked [x] (completed), you may note those as \
                  already done in your new plan so Agent mode knows not to redo them.{}\
+                 \n\nREMEMBER: Do NOT run any bash/shell commands. Just write the plan file directly.\
                  \n\nThe user's request: {}",
+                safety_prefix,
                 now_timestamp,
                 existing_plan_context,
                 escaped_prompt
             );
-            format!("claude --dangerously-skip-permissions -p '{}' --verbose --output-format stream-json", plan_prompt.replace('\'', "'\\''"))
+            format!("claude {} -p '{}' --verbose --output-format stream-json", permission_flag, plan_prompt.replace('\'', "'\\''"))
+        }
+        "report" => {
+            // Report mode: Claude drafts a scientific report based on project files.
+            // The frontend sends a structured prompt with inline file contents, methods info,
+            // PubMed citations, and user instructions.
+            //
+            // IMPORTANT: The prompt can be 200KB+ (31 files × 8KB each). We CANNOT pass
+            // this via -p '...' because shell argument escaping breaks on file contents
+            // (single quotes, backticks, $variables, heredoc delimiters in CSV/code data).
+            // Instead, write the prompt to a temp file and pipe it to Claude via stdin.
+            let tool_instruction =
+                "CRITICAL: All file contents are already provided inline in this prompt inside <file> tags. \
+                 Do NOT use any tools — no Read, no Bash, no Glob, no Grep, no file operations whatsoever. \
+                 You have exactly 1 turn. Write the entire report directly from the provided file contents and context. \
+                 Any attempt to use tools will fail and waste your only turn.";
+            let report_prompt = format!(
+                "You are in REPORT mode — a scientific report generator for bioinformatics analyses. \
+                 Your task is to produce a professional analysis report based on the project files and context provided.\n\n\
+                 {}\n\n\
+                 RULES:\n\
+                 1. Write in formal scientific prose suitable for a research report.\n\
+                 2. Every factual claim about biology must cite a PubMed reference using [N] notation.\n\
+                 3. The Methods section must list tools with version numbers — omit infrastructure details (SLURM, conda envs, HPC configs).\n\
+                 4. Interpret results biologically — don't just describe what the plots show, explain what they mean.\n\
+                 5. The Discussion should connect findings to the broader literature.\n\
+                 6. Use the implementation_plan.md (if available) to understand what analyses were performed.\n\n\
+                 Output the report NOW as structured markdown sections (# Title, ## Abstract, ## Introduction, \
+                 ## Results, ## Discussion, ## Methods, ## References). \
+                 Write each section thoroughly — this will become a PDF.\n\n\
+                 {}{}",
+                tool_instruction,
+                context_prefix,
+                // Use the raw prompt here — no shell escaping needed since it goes to a file
+                prompt
+            );
+
+            // Write prompt to a local temp file — this bypasses all shell escaping issues
+            let prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+            std::fs::write(&prompt_file, &report_prompt)
+                .map_err(|e| format!("Failed to write report prompt file: {}", e))?;
+            eprintln!("[operon] Report prompt written to {} ({} bytes)", prompt_file, report_prompt.len());
+
+            // Pipe prompt from file via stdin. -p enables print mode (non-interactive),
+            // and the positional prompt argument comes from stdin.
+            format!("cat '{}' | claude {} -p --verbose --output-format stream-json", prompt_file, permission_flag)
         }
         "ask" => {
             // Ask mode: no tool use, answer questions with scientific rigor
@@ -1684,7 +1843,7 @@ pub async fn start_claude_session(
                 context_prefix,
                 escaped_prompt
             );
-            format!("claude --dangerously-skip-permissions -p '{}' --verbose --output-format stream-json --max-turns 1", ask_prompt.replace('\'', "'\\''"))
+            format!("claude {} -p '{}' --verbose --output-format stream-json --max-turns 1", permission_flag, ask_prompt.replace('\'', "'\\''"))
         }
         _ => {
             // Agent mode (default): full tool use
@@ -1700,7 +1859,7 @@ pub async fn start_claude_session(
             } else {
                 format!("{}{}", context_prefix, escaped_prompt)
             };
-            format!("claude --dangerously-skip-permissions -p '{}' --verbose --output-format stream-json", agent_prompt.replace('\'', "'\\''"))
+            format!("claude {} -p '{}' --verbose --output-format stream-json", permission_flag, agent_prompt.replace('\'', "'\\''"))
         }
     };
 
@@ -1709,6 +1868,12 @@ pub async fn start_claude_session(
     }
     if mode == "plan" {
         claude_cmd.push_str(" --max-turns 3");
+    } else if mode == "report" {
+        // Report mode: all file contents are pre-read and injected into the prompt.
+        // 1 turn is all that's needed — block all tools to prevent wasted reads.
+        let report_turns = max_turns.unwrap_or(1);
+        claude_cmd.push_str(&format!(" --max-turns {}", report_turns));
+        claude_cmd.push_str(" --disallowedTools Read,Bash,Glob,Grep");
     } else if let Some(turns) = max_turns {
         claude_cmd.push_str(&format!(" --max-turns {}", turns));
     } else {
@@ -1721,11 +1886,18 @@ pub async fn start_claude_session(
         claude_cmd.push_str(&format!(" --resume {}", resume));
     }
 
-    // Inject --mcp-config if any MCP servers are enabled
+    eprintln!("[operon] Final claude command (first 200 chars): {}", &claude_cmd[..claude_cmd.len().min(200)]);
+
+    // Sync MCP servers into Claude Code's native config so they're available
+    // without relying on --mcp-config (which has known bugs in some Claude Code versions).
     let mcp_servers = {
         let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
         settings.mcp_servers.clone()
     };
+    let _ = super::mcp::sync_mcp_servers_to_claude(&mcp_servers);
+
+    // Also generate mcp-config.json and pass --mcp-config as fallback
+    // (needed for remote/HPC sessions where Claude runs on a different host).
     if let Some(config_path) = super::mcp::generate_mcp_config(&mcp_servers)? {
         // Shell-escape the path in case it contains spaces
         claude_cmd.push_str(&format!(" --mcp-config '{}'", config_path.replace('\'', "'\\''")));
@@ -1800,6 +1972,59 @@ pub async fn start_claude_session(
                 }
             }
 
+            // For report mode, upload the local prompt file to the remote shared filesystem
+            // so the `cat prompt | claude` command works on the compute node.
+            // Uses SCP (with ControlMaster reuse) — reliable for any file size, no encoding issues.
+            if mode == "report" {
+                let local_prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+                let remote_prompt_file = format!("{}/.operon-report-prompt-{}.txt", ctx.remote_path, session_id);
+                if std::path::Path::new(&local_prompt_file).exists() {
+                    let host_str = format!("{}@{}", profile.user, profile.host);
+                    let mut scp_args: Vec<String> = vec![
+                        "-o".to_string(), "BatchMode=yes".to_string(),
+                        "-o".to_string(), "ConnectTimeout=10".to_string(),
+                    ];
+                    // Reuse ControlMaster socket if available
+                    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+                    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+                    if sock.exists() {
+                        scp_args.push("-o".to_string());
+                        scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+                    }
+                    if profile.port != 22 {
+                        scp_args.push("-P".to_string());
+                        scp_args.push(profile.port.to_string());
+                    }
+                    if let Some(key) = &profile.key_file {
+                        if std::path::Path::new(key).exists() {
+                            scp_args.push("-i".to_string());
+                            scp_args.push(key.clone());
+                        }
+                    }
+                    scp_args.push(local_prompt_file.clone());
+                    scp_args.push(format!("{}:{}", host_str, remote_prompt_file));
+
+                    let scp_result = std::process::Command::new("scp")
+                        .args(&scp_args)
+                        .output();
+                    match scp_result {
+                        Ok(output) if output.status.success() => {
+                            let file_size = std::fs::metadata(&local_prompt_file).map(|m| m.len()).unwrap_or(0);
+                            eprintln!("[operon] SCP uploaded report prompt to remote: {} ({} bytes)", remote_prompt_file, file_size);
+                        }
+                        Ok(output) => {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            eprintln!("[operon] SCP upload failed: {}", stderr);
+                        }
+                        Err(e) => {
+                            eprintln!("[operon] SCP command failed: {}", e);
+                        }
+                    }
+                    // Replace the local path in claude_cmd with the remote path
+                    claude_cmd = claude_cmd.replace(&local_prompt_file, &remote_prompt_file);
+                }
+            }
+
             // Create a unique output file path on the SHARED filesystem (not /tmp which is node-local).
             // On HPC systems, /tmp is local to each node — the compute node writes the file but
             // the tail SSH connects to the login node, which can't see compute-node /tmp.
@@ -1811,12 +2036,20 @@ pub async fn start_claude_session(
             // This keeps the terminal clean (only "source /path/.cf-run.sh" is visible)
             // while preserving the user's shell aliases (unlike piping to `bash`).
             let script_file = format!("{}/.operon-run-{}.sh", ctx.remote_path, session_id);
+            // Clean up the report prompt file after Claude finishes (if it exists)
+            let prompt_cleanup = if mode == "report" {
+                format!("; rm -f '{}/.operon-report-prompt-{}.txt'",
+                    ctx.remote_path.replace('\'', "'\\''"), session_id)
+            } else {
+                String::new()
+            };
             let script_content = format!(
-                "cd '{}' && {} > '{}' 2>&1; echo $? > '{}'",
+                "cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
                 ctx.remote_path.replace('\'', "'\\''"),
                 claude_cmd,
                 output_file.replace('\'', "'\\''"),
                 done_file.replace('\'', "'\\''"),
+                prompt_cleanup,
             );
 
             // Write the script file, source it, then clean up — all in one terminal command.
@@ -1935,7 +2168,8 @@ pub async fn start_claude_session(
                             lt.contains("wait longer") || lt.contains("proceeding without") ||
                             lt.contains("Connection to") || lt.contains("Killed by signal") ||
                             lt.contains("Transferred:") || lt.contains("kex_exchange") ||
-                            lt.contains("banner") || lt.starts_with("debug")
+                            lt.contains("banner") || lt.starts_with("debug") ||
+                            lt.contains("file truncated") || lt.contains("tail:")
                         });
                         if !is_just_warning {
                             let _ = app_handle2.emit(
@@ -2047,14 +2281,63 @@ pub async fn start_claude_session(
             claude_resolve.clone()
         };
 
+        // For report mode, upload the prompt file to the remote server via SCP
+        if mode == "report" {
+            let local_prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+            let remote_prompt_file = format!("{}/.operon-report-prompt-{}.txt", ctx.remote_path, session_id);
+            if std::path::Path::new(&local_prompt_file).exists() {
+                let host_str = format!("{}@{}", profile.user, profile.host);
+                let mut scp_args: Vec<String> = vec![
+                    "-o".to_string(), "BatchMode=yes".to_string(),
+                    "-o".to_string(), "ConnectTimeout=10".to_string(),
+                ];
+                let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+                let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+                if sock.exists() {
+                    scp_args.push("-o".to_string());
+                    scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+                }
+                if profile.port != 22 {
+                    scp_args.push("-P".to_string());
+                    scp_args.push(profile.port.to_string());
+                }
+                if let Some(key) = &profile.key_file {
+                    if std::path::Path::new(key).exists() {
+                        scp_args.push("-i".to_string());
+                        scp_args.push(key.clone());
+                    }
+                }
+                scp_args.push(local_prompt_file.clone());
+                scp_args.push(format!("{}:{}", host_str, remote_prompt_file));
+
+                match std::process::Command::new("scp").args(&scp_args).output() {
+                    Ok(output) if output.status.success() => {
+                        let file_size = std::fs::metadata(&local_prompt_file).map(|m| m.len()).unwrap_or(0);
+                        eprintln!("[operon] SCP uploaded report prompt: {} ({} bytes)", remote_prompt_file, file_size);
+                    }
+                    Ok(output) => {
+                        eprintln!("[operon] SCP upload failed: {}", String::from_utf8_lossy(&output.stderr));
+                    }
+                    Err(e) => {
+                        eprintln!("[operon] SCP command failed: {}", e);
+                    }
+                }
+                claude_cmd = claude_cmd.replace(&local_prompt_file, &remote_prompt_file);
+            }
+        }
+
         let claude_cmd_abs = claude_cmd.replacen("claude ", &format!("{} ", claude_invoke), 1);
 
         // Step 3: Build the remote command — source profile for PATH (needed for npx/node)
         // then cd to the working directory and run claude
+        // For report mode, the command is `cat file | claude ...` — don't redirect stdin from /dev/null.
+        // For other modes, redirect stdin to prevent Claude from hanging waiting for input.
+        let stdin_redirect = if mode == "report" { "" } else { " < /dev/null" };
         let remote_cmd = format!(
-            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; cd '{}' && {} < /dev/null",
+            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; cd '{}' && {}{}",
             ctx.remote_path.replace('\'', "'\\''"),
-            claude_cmd_abs
+            claude_cmd_abs,
+            stdin_redirect
         );
 
         // Base64-encode to avoid nested quoting issues
@@ -2111,10 +2394,22 @@ pub async fn start_claude_session(
     // Spawn stdout reader task
     let app_handle = app.clone();
     let sid = session_id.clone();
+    // Persist output to .jsonl file so sessions can be resumed/reconnected.
+    // For local sessions this was previously missing — output was only streamed live.
+    let output_jsonl_path = format!("{}/.operon-{}.jsonl", project_path, session_id);
+    let done_marker_path = format!("{}/.operon-{}.done", project_path, session_id);
 
     tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
+
+        // Open the output file for appending (create if needed)
+        let mut output_file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&output_jsonl_path)
+            .await
+            .ok();
 
         while let Ok(Some(line)) = lines.next_line().await {
             if line.trim().is_empty() {
@@ -2126,9 +2421,17 @@ pub async fn start_claude_session(
                 &format!("claude-event-{}", sid),
                 serde_json::json!({ "line": line }),
             );
+
+            // Persist to disk for session resume
+            if let Some(ref mut f) = output_file {
+                use tokio::io::AsyncWriteExt;
+                let _ = f.write_all(line.as_bytes()).await;
+                let _ = f.write_all(b"\n").await;
+            }
         }
 
-        // Stream ended
+        // Stream ended — write done marker and emit event
+        let _ = tokio::fs::write(&done_marker_path, "done").await;
         let _ = app_handle.emit(
             &format!("claude-done-{}", sid),
             serde_json::json!({}),
@@ -2167,7 +2470,8 @@ pub async fn start_claude_session(
                     lt.contains("store now") || lt.contains("key exchange") ||
                     lt.contains("no stdin data") || lt.contains("redirect stdin") ||
                     lt.contains("piping from") || lt.contains("/dev/null") ||
-                    lt.contains("wait longer") || lt.contains("proceeding without")
+                    lt.contains("wait longer") || lt.contains("proceeding without") ||
+                    lt.contains("file truncated") || lt.contains("tail:")
                 });
 
                 if !is_just_warning {
@@ -2236,6 +2540,154 @@ pub async fn check_existing_plan(
         let content = std::fs::read_to_string(&plan_path).unwrap_or_default();
         Ok(content.trim().to_string())
     }
+}
+
+/// Archive the current implementation_plan.md to .operon/plan_history/ before a new plan is written.
+/// Called by the frontend before starting a plan session, so archival happens regardless of
+/// what mode string the backend receives.
+/// Returns Ok(true) if a plan was archived, Ok(false) if there was no plan to archive.
+#[tauri::command]
+pub async fn archive_current_plan(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    project_path: String,
+    remote: Option<RemoteContext>,
+) -> Result<bool, String> {
+    // Generate timestamp for the archive filename
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = secs / 86400;
+    let time_of_day = secs % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+    let mut y = 1970i64;
+    let mut remaining = days as i64;
+    loop {
+        let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 };
+        if remaining < days_in_year { break; }
+        remaining -= days_in_year;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut m = 0usize;
+    for &md in &month_days {
+        if remaining < md as i64 { break; }
+        remaining -= md as i64;
+        m += 1;
+    }
+    let ts = format!("{:04}-{:02}-{:02}_{:02}{:02}{:02}_UTC", y, m + 1, remaining + 1, hours, minutes, seconds);
+
+    if let Some(ctx) = remote {
+        let profile = {
+            let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+            profiles.iter().find(|p| p.id == ctx.profile_id).cloned()
+        };
+        if let Some(prof) = profile {
+            let base = ctx.remote_path.replace('\'', "'\\''");
+            // Check if plan exists, archive it, then return
+            let cmd = format!(
+                "if [ -f '{base}/implementation_plan.md' ]; then \
+                     mkdir -p '{base}/.operon/plan_history' && \
+                     cp '{base}/implementation_plan.md' '{base}/.operon/plan_history/plan_{ts}.md' && \
+                     echo 'ARCHIVED'; \
+                 else echo 'NO_PLAN'; fi"
+            );
+            let result = super::ssh::ssh_exec(&prof, &cmd).unwrap_or_default();
+            return Ok(result.contains("ARCHIVED"));
+        }
+        Ok(false)
+    } else {
+        let plan_path = std::path::Path::new(&project_path).join("implementation_plan.md");
+        if plan_path.is_file() {
+            let history_dir = std::path::Path::new(&project_path).join(".operon").join("plan_history");
+            std::fs::create_dir_all(&history_dir).map_err(|e| format!("Failed to create plan_history dir: {}", e))?;
+            let archive_name = format!("plan_{}.md", ts);
+            std::fs::copy(&plan_path, history_dir.join(&archive_name))
+                .map_err(|e| format!("Failed to archive plan: {}", e))?;
+            eprintln!("[operon] Archived implementation_plan.md → .operon/plan_history/{}", archive_name);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+/// Archived plan entry returned to the frontend.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PlanHistoryEntry {
+    pub filename: String,
+    pub timestamp: String,      // e.g. "2026-03-29 14:30:05"
+    pub title: String,           // first heading or "Untitled Plan"
+    pub lines: u64,
+    pub path: String,            // full path to the archived file
+}
+
+/// List all archived plans from .operon/plan_history/, newest first.
+#[tauri::command]
+pub async fn list_plan_history(
+    project_path: String,
+) -> Result<Vec<PlanHistoryEntry>, String> {
+    let history_dir = std::path::Path::new(&project_path)
+        .join(".operon")
+        .join("plan_history");
+    if !history_dir.is_dir() {
+        return Ok(vec![]);
+    }
+
+    let mut entries: Vec<PlanHistoryEntry> = Vec::new();
+    let dir = std::fs::read_dir(&history_dir).map_err(|e| e.to_string())?;
+    for entry in dir.flatten() {
+        let fname = entry.file_name().to_string_lossy().to_string();
+        if !fname.starts_with("plan_") || !fname.ends_with(".md") {
+            continue;
+        }
+        // Parse timestamp from filename: plan_YYYY-MM-DD_HHMMSS.md
+        let ts_part = fname.trim_start_matches("plan_").trim_end_matches(".md");
+        let timestamp = ts_part
+            .replacen('_', " ", 1) // "2026-03-29 143005"
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                // Insert colons into HHMMSS → HH:MM:SS
+                if i == 13 || i == 15 { ':' } else { c }
+            })
+            .collect::<String>();
+
+        let full_path = entry.path();
+        let content = std::fs::read_to_string(&full_path).unwrap_or_default();
+        let line_count = content.lines().count() as u64;
+
+        // Extract title from first heading
+        let title = content
+            .lines()
+            .find(|l| l.starts_with("# "))
+            .map(|l| l.trim_start_matches("# ").trim().to_string())
+            .unwrap_or_else(|| "Untitled Plan".to_string());
+
+        entries.push(PlanHistoryEntry {
+            filename: fname,
+            timestamp,
+            title,
+            lines: line_count,
+            path: full_path.to_string_lossy().to_string(),
+        });
+    }
+
+    // Sort newest first
+    entries.sort_by(|a, b| b.filename.cmp(&a.filename));
+    Ok(entries)
+}
+
+/// Read the content of a specific archived plan.
+#[tauri::command]
+pub async fn read_plan_history_entry(
+    path: String,
+) -> Result<String, String> {
+    std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read plan: {}", e))
 }
 
 // --- Session Management Commands ---

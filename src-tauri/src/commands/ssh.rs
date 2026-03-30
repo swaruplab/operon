@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -515,6 +516,124 @@ pub async fn read_remote_file_base64(
 
     let output = ssh_exec(&profile, &format!("base64 {}", shell_escape_inner(&path)))?;
     Ok(output.chars().filter(|c| !c.is_whitespace()).collect())
+}
+
+/// Create a directory on a remote server via SSH
+#[tauri::command]
+pub async fn create_remote_directory(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    let cmd = format!("mkdir -p {}", shell_escape_inner(&path));
+    ssh_exec(&profile, &cmd)?;
+    Ok(())
+}
+
+/// Write a file to the remote server via SSH.
+/// For text files, pipes content through base64 to avoid quoting issues.
+/// For binary files (like PDFs), use scp_to_remote instead.
+#[tauri::command]
+pub async fn write_remote_file(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&parent.to_string_lossy()));
+        let _ = ssh_exec(&profile, &mkdir_cmd);
+    }
+
+    // Encode content as base64 and decode on the remote side to avoid quoting issues
+    let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+    let cmd = format!("echo {} | base64 -d > {}", b64, shell_escape_inner(&path));
+    ssh_exec(&profile, &cmd)?;
+    Ok(())
+}
+
+/// Copy a local file to the remote server via SCP.
+/// Uses ControlMaster socket if available.
+#[tauri::command]
+pub async fn scp_to_remote(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    local_path: String,
+    remote_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Ensure remote parent directory exists
+    if let Some(parent) = std::path::Path::new(&remote_path).parent() {
+        let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&parent.to_string_lossy()));
+        let _ = ssh_exec(&profile, &mkdir_cmd);
+    }
+
+    let host_str = format!("{}@{}", profile.user, profile.host);
+    let mut scp_args: Vec<String> = vec![
+        "-o".to_string(), "BatchMode=yes".to_string(),
+        "-o".to_string(), "ConnectTimeout=10".to_string(),
+    ];
+
+    // Use ControlMaster socket if available
+    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    if sock.exists() {
+        scp_args.push("-o".to_string());
+        scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+    }
+
+    if profile.port != 22 {
+        scp_args.push("-P".to_string());
+        scp_args.push(profile.port.to_string());
+    }
+    if let Some(key) = &profile.key_file {
+        if std::path::Path::new(key).exists() {
+            scp_args.push("-i".to_string());
+            scp_args.push(key.clone());
+        }
+    }
+
+    scp_args.push(local_path);
+    scp_args.push(format!("{}:{}", host_str, remote_path));
+
+    let output = std::process::Command::new("scp")
+        .args(&scp_args)
+        .output()
+        .map_err(|e| format!("Failed to run scp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("SCP failed: {}", stderr));
+    }
+
+    Ok(())
 }
 
 // ── SSH Key Setup: PTY-Based with Duo/MFA Support ──
