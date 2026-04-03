@@ -1,17 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Emitter};
 
-/// Helper: run a command through the user's login shell to get proper PATH
-fn login_shell_cmd(command: &str) -> std::process::Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let mut cmd = std::process::Command::new(&shell);
-    cmd.arg("-l").arg("-c").arg(command);
-    cmd
-}
-
 /// Run a shell command in a specific directory, return stdout or error
 fn run_in_dir(command: &str, dir: &str) -> Result<String, String> {
-    let output = login_shell_cmd(&format!("cd '{}' && {}", dir.replace('\'', "'\\''"), command))
+    let escaped_dir = dir.replace('\'', "'\\''");
+    let full_cmd = format!("cd '{}' && {}", escaped_dir, command);
+    let output = crate::platform::shell_exec(&full_cmd)
         .output()
         .map_err(|e| format!("Failed to run command: {}", e))?;
 
@@ -174,7 +168,7 @@ pub struct GhAuthStatus {
 #[tauri::command]
 pub async fn gh_check_auth() -> Result<GhAuthStatus, String> {
     // Check if gh is installed
-    let installed = login_shell_cmd("which gh")
+    let installed = crate::platform::shell_exec("which gh")
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -189,7 +183,7 @@ pub async fn gh_check_auth() -> Result<GhAuthStatus, String> {
     }
 
     // Check auth status
-    let auth_output = login_shell_cmd("gh auth status 2>&1")
+    let auth_output = crate::platform::shell_exec("gh auth status 2>&1")
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -200,7 +194,7 @@ pub async fn gh_check_auth() -> Result<GhAuthStatus, String> {
 
     // Get username
     let username = if authenticated {
-        login_shell_cmd("gh api user --jq .login 2>/dev/null")
+        crate::platform::shell_exec("gh api user --jq .login 2>/dev/null")
             .output()
             .ok()
             .filter(|o| o.status.success())
@@ -220,17 +214,21 @@ pub async fn gh_check_auth() -> Result<GhAuthStatus, String> {
 
 #[tauri::command]
 pub async fn gh_install() -> Result<(), String> {
-    // Install via homebrew
-    let brew = login_shell_cmd("which brew")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    if brew {
-        run_in_dir("brew install gh", "/tmp")?;
+    // Try platform package manager first
+    if let Some(pkg_mgr) = crate::platform::find_package_manager() {
+        let cmd = if pkg_mgr.contains("brew") {
+            format!("{} install gh", pkg_mgr)
+        } else if pkg_mgr.contains("winget") {
+            format!("{} install --id GitHub.cli --accept-source-agreements --accept-package-agreements", pkg_mgr)
+        } else {
+            // apt
+            "sudo apt-get install -y gh".to_string()
+        };
+        let tmp = crate::platform::temp_dir().to_string_lossy().to_string();
+        run_in_dir(&cmd, &tmp)?;
         Ok(())
     } else {
-        Err("Homebrew not found. Please install GitHub CLI manually: https://cli.github.com".to_string())
+        Err("No package manager found. Please install GitHub CLI manually: https://cli.github.com".to_string())
     }
 }
 
@@ -241,7 +239,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
     use std::process::Stdio;
 
     // Check if already logged in
-    let check = login_shell_cmd("gh auth status 2>&1")
+    let check = crate::platform::shell_exec("gh auth status 2>&1")
         .output()
         .map(|o| {
             String::from_utf8_lossy(&o.stdout).to_string()
@@ -252,11 +250,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
         return Ok("ALREADY_AUTHED".to_string());
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let mut child = std::process::Command::new(&shell)
-        .arg("-l")
-        .arg("-c")
-        .arg("gh auth login --hostname github.com --git-protocol https --scopes repo,read:org --web 2>&1")
+    let mut child = crate::platform::shell_exec("gh auth login --hostname github.com --git-protocol https --scopes repo,read:org --web 2>&1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -284,9 +278,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
                     }
                     // When gh says to open URL, open it
                     if line.contains("https://github.com/login/device") {
-                        let _ = std::process::Command::new("open")
-                            .arg("https://github.com/login/device")
-                            .spawn();
+                        let _ = crate::platform::open_url("https://github.com/login/device");
                     }
                 }
             }
@@ -298,7 +290,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
         // Notify frontend that login completed
         if let Some(window) = app.get_webview_window("main") {
             // Check final auth status
-            let ok = login_shell_cmd("gh auth status 2>&1")
+            let ok = crate::platform::shell_exec("gh auth status 2>&1")
                 .output()
                 .map(|o| {
                     let out = String::from_utf8_lossy(&o.stdout).to_string()

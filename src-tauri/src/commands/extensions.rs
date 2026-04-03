@@ -193,10 +193,7 @@ pub struct ExtensionManager {
 
 impl ExtensionManager {
     pub fn new() -> Self {
-        let extensions_dir = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("operon")
-            .join("extensions");
+        let extensions_dir = crate::platform::config_dir().join("extensions");
         std::fs::create_dir_all(&extensions_dir).ok();
 
         let registry = Self::load_registry(&extensions_dir);
@@ -1878,7 +1875,7 @@ pub async fn install_remote_extension(
         .to_string();
 
     // Download VSIX to temp
-    let tmp_path = std::env::temp_dir().join(format!("{}.{}.vsix", namespace, name));
+    let tmp_path = crate::platform::temp_dir().join(format!("{}.{}.vsix", namespace, name));
     let resp = client.get(&download_url).send().await.map_err(|e| e.to_string())?;
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
     std::fs::write(&tmp_path, &bytes).map_err(|e| e.to_string())?;

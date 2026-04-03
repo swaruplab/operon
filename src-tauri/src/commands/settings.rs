@@ -68,7 +68,7 @@ impl SettingsManager {
     }
 
     pub(crate) fn config_path() -> Option<std::path::PathBuf> {
-        dirs::config_dir().map(|p| p.join("operon").join("settings.json"))
+        Some(crate::platform::config_dir().join("settings.json"))
     }
 
     fn load_from_disk() -> Option<AppSettings> {
@@ -108,181 +108,24 @@ pub async fn update_settings(
     Ok(())
 }
 
-/// Start macOS native speech recognition using SFSpeechRecognizer + AVAudioEngine.
-/// Spawns a background Swift process that streams recognized text back via events.
+/// Start platform-native speech recognition.
+/// On macOS: uses SFSpeechRecognizer + AVAudioEngine via a Swift subprocess.
+/// On other platforms: returns an error (dictation not supported).
 #[tauri::command]
 pub async fn start_dictation(app_handle: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Emitter;
-
-    // Write the Swift speech recognition script to a temp file
-    let script_path = std::env::temp_dir().join("operon_dictation.swift");
-    let swift_code = r#"
-import Foundation
-import Speech
-import AVFoundation
-
-// Request authorization
-SFSpeechRecognizer.requestAuthorization { status in
-    guard status == .authorized else {
-        FileHandle.standardError.write("NOT_AUTHORIZED\n".data(using: .utf8)!)
-        exit(1)
+    if !crate::platform::supports_dictation() {
+        return Err("Dictation is not supported on this platform".to_string());
     }
-
-    let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))!
-    let audioEngine = AVAudioEngine()
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    request.shouldReportPartialResults = true
-
-    let inputNode = audioEngine.inputNode
-    let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-    inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-        request.append(buffer)
-    }
-
-    audioEngine.prepare()
-    do {
-        try audioEngine.start()
-    } catch {
-        FileHandle.standardError.write("AUDIO_ERROR\n".data(using: .utf8)!)
-        exit(2)
-    }
-
-    recognizer.recognitionTask(with: request) { result, error in
-        if let result = result {
-            let text = result.bestTranscription.formattedString
-            let isFinal = result.isFinal
-            // Output format: PARTIAL:text or FINAL:text
-            let prefix = isFinal ? "FINAL" : "PARTIAL"
-            print("\(prefix):\(text)")
-            fflush(stdout)
-
-            if isFinal {
-                audioEngine.stop()
-                inputNode.removeTap(onBus: 0)
-                exit(0)
-            }
-        }
-        if let error = error {
-            // Normal end-of-speech errors are ok
-            let nsError = error as NSError
-            if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                // No speech detected - normal timeout
-                audioEngine.stop()
-                inputNode.removeTap(onBus: 0)
-                print("DONE:")
-                fflush(stdout)
-                exit(0)
-            }
-        }
-    }
-
-    // Listen for STOP on stdin
-    DispatchQueue.global().async {
-        while let line = readLine() {
-            if line == "STOP" {
-                audioEngine.stop()
-                inputNode.removeTap(onBus: 0)
-                request.endAudio()
-                // Give a moment for final results
-                Thread.sleep(forTimeInterval: 0.5)
-                print("DONE:")
-                fflush(stdout)
-                exit(0)
-            }
-        }
-    }
+    crate::platform::start_dictation_platform(&app_handle)
 }
 
-RunLoop.main.run()
-"#;
-
-    std::fs::write(&script_path, swift_code)
-        .map_err(|e| format!("Failed to write dictation script: {}", e))?;
-
-    // Spawn the Swift process
-    let mut child = std::process::Command::new("swift")
-        .arg(&script_path)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start dictation: {}", e))?;
-
-    let pid = child.id();
-    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-
-    // Store the child's stdin so we can send STOP later
-    if let Some(stdin) = child.stdin.take() {
-        // Store in a global so stop_dictation can access it
-        let mut guard = DICTATION_PROCESS.lock().map_err(|e| e.to_string())?;
-        *guard = Some(DictationProcess { stdin, pid });
-    }
-
-    // Read stdout in a background thread and emit events
-    let app = app_handle.clone();
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.starts_with("PARTIAL:") {
-                    let text = &line[8..];
-                    let _ = app.emit("dictation-result", serde_json::json!({
-                        "text": text,
-                        "isFinal": false
-                    }));
-                } else if line.starts_with("FINAL:") {
-                    let text = &line[6..];
-                    let _ = app.emit("dictation-result", serde_json::json!({
-                        "text": text,
-                        "isFinal": true
-                    }));
-                } else if line.starts_with("DONE:") {
-                    let _ = app.emit("dictation-done", "complete");
-                }
-            }
-        }
-        // Process ended
-        let _ = app.emit("dictation-done", "ended");
-        // Clean up global reference
-        if let Ok(mut guard) = DICTATION_PROCESS.lock() {
-            *guard = None;
-        }
-    });
-
-    // Read stderr for errors
-    let app2 = app_handle.clone();
-    std::thread::spawn(move || {
-        use std::io::BufRead;
-        let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.contains("NOT_AUTHORIZED") {
-                    let _ = app2.emit("dictation-error", "Speech recognition not authorized. Please allow in System Settings → Privacy & Security → Speech Recognition.");
-                } else if line.contains("AUDIO_ERROR") {
-                    let _ = app2.emit("dictation-error", "Could not access microphone. Please allow in System Settings → Privacy & Security → Microphone.");
-                }
-            }
-        }
-    });
-
-    // Wait for process in background
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-
-    Ok(())
-}
-
-struct DictationProcess {
-    stdin: std::process::ChildStdin,
+pub(crate) struct DictationProcess {
+    pub(crate) stdin: std::process::ChildStdin,
     #[allow(dead_code)]
-    pid: u32,
+    pub(crate) pid: u32,
 }
 
-static DICTATION_PROCESS: std::sync::Mutex<Option<DictationProcess>> = std::sync::Mutex::new(None);
+pub(crate) static DICTATION_PROCESS: std::sync::Mutex<Option<DictationProcess>> = std::sync::Mutex::new(None);
 
 /// Stop the currently running dictation process.
 #[tauri::command]

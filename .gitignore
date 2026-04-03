@@ -44,3 +44,7 @@ screenshots/
 # OS files
 Thumbs.db
 Desktop.ini
+
+# Operon session temp files
+.operon-*.jsonl
+.operon-*.done

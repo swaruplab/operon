@@ -50,8 +50,8 @@ pub async fn spawn_terminal(
 
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
-    // Detect user's shell
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    // Detect user's shell via platform abstraction
+    let shell = crate::platform::default_shell();
 
     let mut cmd = if let Some(args) = &ssh_args {
         // Spawn SSH directly as the PTY process — no shell wrapper.
@@ -69,7 +69,7 @@ pub async fn spawn_terminal(
     cmd.env("COLORTERM", "truecolor");
 
     // Set working directory to home
-    if let Ok(home) = std::env::var("HOME") {
+    if let Some(home) = crate::platform::home_dir() {
         cmd.cwd(&home);
     }
 

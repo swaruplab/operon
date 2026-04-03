@@ -25,6 +25,7 @@ import {
   Paperclip,
   MousePointerClick,
 } from 'lucide-react';
+import { adaptShortcut } from '../../lib/platform';
 
 interface HelpPanelProps {
   isOpen: boolean;
@@ -716,7 +717,7 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
                         </span>
                         {item.shortcut && (
                           <kbd className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-500 font-mono ml-auto shrink-0">
-                            {item.shortcut}
+                            {adaptShortcut(item.shortcut)}
                           </kbd>
                         )}
                       </button>
@@ -724,7 +725,7 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 ml-5 space-y-2.5">
                           <p className="text-[12px] text-zinc-400 leading-relaxed whitespace-pre-line">
-                            {item.content}
+                            {adaptShortcut(item.content)}
                           </p>
 
                           {item.tip && (
@@ -773,7 +774,7 @@ function ItemCard({
         <span className="text-sm text-zinc-200">{item.title}</span>
         <span className="text-[10px] text-zinc-600 ml-auto">{sectionTitle}</span>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed line-clamp-2">{item.content}</p>
+      <p className="text-[11px] text-zinc-500 leading-relaxed line-clamp-2">{adaptShortcut(item.content)}</p>
       {item.action && (
         <button
           onClick={() => onAction(item.action!.view)}
