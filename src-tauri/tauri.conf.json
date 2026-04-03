@@ -16,16 +16,33 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
+      "icons/icon.ico",
       "icons/icon.png"
     ],
     "resources": [
       "protocols/**/*"
     ],
-    "targets": ["dmg", "app"],
+    "targets": "all",
     "macOS": {
       "entitlements": null,
       "infoPlist": "Info.plist",
       "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     }
   },
   "app": {
@@ -37,7 +54,8 @@
         "minWidth": 900,
         "minHeight": 600,
         "decorations": true,
-        "center": true
+        "center": true,
+        "useHttpsScheme": true
       }
     ],
     "security": {

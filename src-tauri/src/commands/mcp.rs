@@ -250,9 +250,7 @@ pub fn generate_mcp_config(mcp_servers: &[MCPServerConfig]) -> Result<Option<Str
     let mut config = serde_json::Map::new();
     config.insert("mcpServers".into(), serde_json::Value::Object(servers));
 
-    let config_dir = dirs::home_dir()
-        .ok_or("Cannot find home directory")?
-        .join(".operon");
+    let config_dir = crate::platform::data_dir();
     std::fs::create_dir_all(&config_dir)
         .map_err(|e| format!("Failed to create .operon directory: {}", e))?;
 
@@ -599,9 +597,25 @@ fn infer_runtime(command: &str) -> String {
 }
 
 async fn check_runtime(runtime: &str) -> Result<DependencyStatus, String> {
+    let python_cmd = crate::platform::python_command();
+    let python_install_hint = if cfg!(target_os = "windows") {
+        "winget install Python.Python.3.12"
+    } else if cfg!(target_os = "macos") {
+        "brew install python@3.12"
+    } else {
+        "sudo apt install python3 python3-pip"
+    };
+    let node_install_hint = if cfg!(target_os = "windows") {
+        "winget install OpenJS.NodeJS.LTS"
+    } else if cfg!(target_os = "macos") {
+        "brew install node"
+    } else {
+        "sudo apt install nodejs"
+    };
+
     let (cmd, args, min_version, install_hint) = match runtime {
-        "node" => ("node", vec!["--version"], "20.0.0", "brew install node"),
-        "python" => ("python3", vec!["--version"], "3.10.0", "brew install python@3.12"),
+        "node" => ("node", vec!["--version"], "20.0.0", node_install_hint),
+        "python" => (python_cmd, vec!["--version"], "3.10.0", python_install_hint),
         _ => return Ok(DependencyStatus {
             satisfied: false,
             runtime: runtime.to_string(),

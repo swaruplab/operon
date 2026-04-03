@@ -1,4 +1,5 @@
 import { Hammer, Settings, Wifi, HelpCircle } from "lucide-react";
+import { isMac } from "../../lib/platform";
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -11,7 +12,7 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
   return (
     <div className="h-10 flex items-center bg-zinc-900 border-b border-zinc-800 shrink-0">
       {/* macOS traffic light spacer (when using transparent titlebar) */}
-      <div className="w-[78px] shrink-0" />
+      {isMac && <div className="w-[78px] shrink-0" />}
 
       {/* App branding */}
       <div className="flex items-center gap-2 px-3">

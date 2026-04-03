@@ -1,7 +1,7 @@
 mod commands;
+pub mod platform;
 
 use tauri::{Emitter, Manager};
-use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use commands::{
     greet,
     // Terminal
@@ -23,7 +23,7 @@ use commands::{
     list_sessions, check_session_files, read_session_output,
     reconnect_session, delete_session, rename_session,
     // Setup / Dependencies
-    check_local_dependencies, install_xcode_cli, install_node, install_all_dependencies,
+    check_local_dependencies, refresh_environment, install_xcode_cli, install_node, install_all_dependencies,
     install_phase_xcode, install_phase_tools, install_phase_claude,
     check_remote_claude, check_remote_claude_auth, install_remote_claude,
     // SSH
@@ -82,59 +82,9 @@ pub fn run() {
         .manage(SettingsManager::new())
         .manage(ExtensionManager::new())
         .setup(|app| {
-            // Build custom menu to wire the Help menu to the webview
-            let app_submenu = SubmenuBuilder::new(app, "Operon")
-                .item(&PredefinedMenuItem::about(app, Some("About Operon"), None)?)
-                .separator()
-                .item(&PredefinedMenuItem::services(app, None)?)
-                .separator()
-                .item(&PredefinedMenuItem::hide(app, None)?)
-                .item(&PredefinedMenuItem::hide_others(app, None)?)
-                .item(&PredefinedMenuItem::show_all(app, None)?)
-                .separator()
-                .item(&PredefinedMenuItem::quit(app, None)?)
-                .build()?;
-
-            let file_submenu = SubmenuBuilder::new(app, "File")
-                .item(&PredefinedMenuItem::close_window(app, None)?)
-                .build()?;
-
-            let edit_submenu = SubmenuBuilder::new(app, "Edit")
-                .item(&PredefinedMenuItem::undo(app, None)?)
-                .item(&PredefinedMenuItem::redo(app, None)?)
-                .separator()
-                .item(&PredefinedMenuItem::cut(app, None)?)
-                .item(&PredefinedMenuItem::copy(app, None)?)
-                .item(&PredefinedMenuItem::paste(app, None)?)
-                .item(&PredefinedMenuItem::select_all(app, None)?)
-                .build()?;
-
-            let view_submenu = SubmenuBuilder::new(app, "View")
-                .item(&PredefinedMenuItem::fullscreen(app, None)?)
-                .build()?;
-
-            let window_submenu = SubmenuBuilder::new(app, "Window")
-                .item(&PredefinedMenuItem::minimize(app, None)?)
-                .item(&PredefinedMenuItem::maximize(app, None)?)
-                .build()?;
-
-            // Custom Help menu item that sends an event to the frontend
-            let help_item = MenuItemBuilder::with_id("open-help", "Operon Help")
-                .build(app)?;
-
-            let help_submenu = SubmenuBuilder::new(app, "Help")
-                .item(&help_item)
-                .build()?;
-
-            let menu = MenuBuilder::new(app)
-                .item(&app_submenu)
-                .item(&file_submenu)
-                .item(&edit_submenu)
-                .item(&view_submenu)
-                .item(&window_submenu)
-                .item(&help_submenu)
-                .build()?;
-
+            // Build platform-appropriate menu
+            let menu = platform::build_menu(app)
+                .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
             app.set_menu(menu)?;
 
             // Handle menu events
@@ -203,6 +153,7 @@ pub fn run() {
             rename_session,
             // Setup / Dependencies
             check_local_dependencies,
+            refresh_environment,
             install_xcode_cli,
             install_node,
             install_all_dependencies,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
+import { isMac } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
@@ -931,7 +932,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </button>
 
                 <p className="text-xs text-zinc-600">
-                  The wizard checks for Xcode CLI Tools, Homebrew, Node.js, GitHub CLI, Claude Code, and the PDF report library (reportlab), and can install any missing dependencies.
+                  The wizard checks for {isMac ? 'Xcode CLI Tools, Homebrew, ' : ''}Node.js, GitHub CLI, Claude Code, and the PDF report library (reportlab), and can install any missing dependencies.
                 </p>
               </div>
 

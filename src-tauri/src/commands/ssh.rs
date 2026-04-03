@@ -56,10 +56,9 @@ fn default_true() -> bool {
 
 // ── Persistence ──
 
-/// Returns the path to ~/.operon/ssh_profiles.json
+/// Returns the path to the SSH profiles file in Operon's data directory.
 fn profiles_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    let dir = home.join(".operon");
+    let dir = crate::platform::data_dir();
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
@@ -92,48 +91,22 @@ fn save_profiles_to_disk(profiles: &[SSHProfile]) -> Result<(), String> {
 // ── ControlMaster Helpers ──
 
 /// Returns the ControlMaster socket path for a given profile.
-/// Socket is at ~/.operon/sockets/ctrl_%h_%p_%r
 fn control_socket_path(profile: &SSHProfile) -> String {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-    let sock_dir = home.join(".operon").join("sockets");
-    // Ensure socket directory exists
-    let _ = std::fs::create_dir_all(&sock_dir);
-    let sock = sock_dir.join(format!("ctrl_{}_{}_{}", profile.host, profile.port, profile.user));
-    sock.to_string_lossy().to_string()
+    crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user)
+        .to_string_lossy().to_string()
 }
 
 /// Check if a ControlMaster socket is active for this profile.
 fn control_master_active(profile: &SSHProfile) -> bool {
-    let sock = control_socket_path(profile);
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let check_cmd = format!(
-        "ssh -o ControlPath={} -O check {}@{} -p {} 2>/dev/null",
-        sock, profile.user, profile.host, profile.port
-    );
-    let output = std::process::Command::new(&shell)
-        .arg("-l").arg("-c").arg(&check_cmd)
-        .output();
-    matches!(output, Ok(o) if o.status.success())
+    crate::platform::ssh_mux_check(&profile.host, profile.port, &profile.user)
 }
 
 /// Build common SSH args including ControlMaster and ControlPath.
-/// If `as_master` is true, starts a new ControlMaster. Otherwise, reuses existing.
 fn control_master_args(profile: &SSHProfile, as_master: bool) -> String {
-    if !profile.use_control_master {
+    if !profile.use_control_master || !crate::platform::supports_ssh_mux() {
         return String::new();
     }
-    let sock = control_socket_path(profile);
-    if as_master {
-        format!(
-            " -o ControlMaster=auto -o ControlPath={} -o ControlPersist=4h",
-            sock
-        )
-    } else {
-        format!(
-            " -o ControlMaster=auto -o ControlPath={} -o ControlPersist=4h",
-            sock
-        )
-    }
+    crate::platform::ssh_mux_args(&profile.host, profile.port, &profile.user, as_master)
 }
 
 // ── Manager State ──
@@ -147,9 +120,7 @@ impl SSHManager {
     pub fn new() -> Self {
         let profiles = load_profiles_from_disk();
         // Ensure socket directory exists at startup
-        if let Some(home) = dirs::home_dir() {
-            let _ = std::fs::create_dir_all(home.join(".operon").join("sockets"));
-        }
+        let _ = crate::platform::ssh_sockets_dir();
         Self {
             profiles: Mutex::new(profiles),
             active_connections: Mutex::new(HashMap::new()),
@@ -253,7 +224,7 @@ pub async fn spawn_ssh_terminal(
         ssh_cmd.push_str(&format!(" -i {}", key));
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = crate::platform::default_shell();
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
     cmd.arg("-c");
@@ -261,7 +232,7 @@ pub async fn spawn_ssh_terminal(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = crate::platform::home_dir() {
         cmd.env("HOME", home.to_string_lossy().as_ref());
         cmd.cwd(&home);
     }
@@ -331,8 +302,6 @@ pub async fn spawn_ssh_terminal(
 /// Run a command on a remote server via a quick non-interactive SSH subprocess.
 /// Automatically uses ControlMaster socket if one is active, bypassing re-auth.
 pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
     let mut ssh_args = format!(
         "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
         profile.user, profile.host, profile.port
@@ -346,10 +315,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
     }
     ssh_args.push_str(&format!(" -- {}", shell_escape(remote_cmd)));
 
-    let output = std::process::Command::new(&shell)
-        .arg("-l")
-        .arg("-c")
-        .arg(&ssh_args)
+    let output = crate::platform::shell_exec(&ssh_args)
         .output()
         .map_err(|e| format!("Failed to run SSH: {}", e))?;
 
@@ -691,7 +657,7 @@ pub async fn setup_ssh_key(
     emit_progress(&app, "connecting", "Generating SSH key...");
 
     // 1. Generate SSH key pair locally
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    let home = crate::platform::home_dir().ok_or("Could not determine home directory")?;
     let ssh_dir = home.join(".ssh");
     if !ssh_dir.exists() {
         std::fs::create_dir_all(&ssh_dir).map_err(|e| format!("Failed to create .ssh dir: {}", e))?;
@@ -757,13 +723,13 @@ pub async fn setup_ssh_key(
         profile.port, profile.user, profile.host, shell_escape(&install_script)
     );
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = crate::platform::default_shell();
     let mut cmd = CommandBuilder::new(&shell);
     cmd.arg("-l");
     cmd.arg("-c");
     cmd.arg(&ssh_cmd);
     cmd.env("TERM", "xterm-256color");
-    if let Some(h) = dirs::home_dir() {
+    if let Some(h) = crate::platform::home_dir() {
         cmd.env("HOME", h.to_string_lossy().as_ref());
         cmd.cwd(&h);
     }
@@ -981,13 +947,11 @@ pub async fn setup_ssh_key(
 
     // 4. Verify key-based auth works (quick non-interactive test)
     emit_progress(&app, "verifying", "Verifying key-based authentication...");
-    let verify_shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let verify_cmd = format!(
         "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i {} -p {} {}@{} echo OPERON_KEY_VERIFY_OK",
         private_key_path.to_string_lossy(), profile.port, profile.user, profile.host
     );
-    let verify_output = std::process::Command::new(&verify_shell)
-        .arg("-l").arg("-c").arg(&verify_cmd)
+    let verify_output = crate::platform::shell_exec(&verify_cmd)
         .output()
         .map_err(|e| format!("Verification failed: {}", e))?;
 
@@ -1084,14 +1048,11 @@ pub async fn stop_control_master(
     };
 
     let sock = control_socket_path(&profile);
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let cmd = format!(
         "ssh -o ControlPath={} -O exit {}@{} -p {} 2>/dev/null",
         sock, profile.user, profile.host, profile.port
     );
-    let _ = std::process::Command::new(&shell)
-        .arg("-l").arg("-c").arg(&cmd)
-        .output();
+    let _ = crate::platform::shell_exec(&cmd).output();
 
     Ok(())
 }

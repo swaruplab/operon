@@ -21,8 +21,8 @@ pub async fn list_directory(path: String, show_hidden: Option<bool>) -> Result<V
         let entry_path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip hidden files unless requested
-        if !show_hidden && name.starts_with('.') {
+        // Skip hidden files unless requested (platform-aware: dot-prefix on Unix, FILE_ATTRIBUTE_HIDDEN on Windows)
+        if !show_hidden && crate::platform::is_hidden(&entry_path) {
             continue;
         }
 
@@ -81,7 +81,7 @@ pub async fn save_clipboard_image(data: String, extension: String) -> Result<Str
         .decode(&data)
         .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
-    let tmp_dir = std::env::temp_dir().join("operon-clipboard");
+    let tmp_dir = crate::platform::temp_dir().join("operon-clipboard");
     std::fs::create_dir_all(&tmp_dir)
         .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
@@ -127,7 +127,7 @@ pub async fn save_attachment_file(data: String, filename: String) -> Result<Stri
 
 #[tauri::command]
 pub async fn get_home_dir() -> Result<String, String> {
-    dirs::home_dir()
+    crate::platform::home_dir()
         .map(|p| p.to_string_lossy().to_string())
         .ok_or_else(|| "Could not determine home directory".to_string())
 }
@@ -215,8 +215,8 @@ fn index_walk(
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip hidden files/dirs (starting with .)
-        if name.starts_with('.') { continue; }
+        // Skip hidden files/dirs (platform-aware)
+        if crate::platform::is_hidden(&path) { continue; }
 
         let metadata = match std::fs::metadata(&path) {
             Ok(m) => m,
@@ -477,10 +477,7 @@ fn detect_category(id: &str, _content: &str) -> String {
 
 /// Get the protocols directory, creating it if needed.
 fn protocols_dir() -> Result<std::path::PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or("Could not determine home directory")?
-        .join(".operon")
-        .join("protocols");
+    let dir = crate::platform::data_dir().join("protocols");
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create protocols dir: {}", e))?;
     }
@@ -873,8 +870,6 @@ pub async fn delete_protocol(protocol_id: String) -> Result<(), String> {
 /// Returns the generated markdown content.
 #[tauri::command]
 pub async fn generate_protocol(description: String) -> Result<String, String> {
-    use tokio::process::Command as AsyncCommand;
-
     let meta_prompt = format!(
         r#"You are generating a protocol for a bioinformatics AI coding assistant called Operon. \
 The protocol will be injected into every prompt when active, guiding Claude on how to handle tasks in a specific domain.
@@ -911,9 +906,7 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
         escaped_prompt
     );
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let output = AsyncCommand::new(&shell)
-        .args(["-l", "-c", &shell_cmd])
+    let output = crate::platform::shell_exec_async(&shell_cmd)
         .output()
         .await
         .map_err(|e| format!("Failed to run Claude: {}. Is Claude Code installed?", e))?;

@@ -23,6 +23,7 @@ import {
   Plug,
   Puzzle,
 } from 'lucide-react';
+import { adaptShortcut } from '../../lib/platform';
 
 interface HelpSection {
   id: string;
@@ -533,7 +534,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
                         </span>
                         {item.shortcut && (
                           <kbd className="text-[9px] bg-zinc-800 px-1 py-0.5 rounded text-zinc-500 font-mono ml-auto shrink-0">
-                            {item.shortcut}
+                            {adaptShortcut(item.shortcut)}
                           </kbd>
                         )}
                       </button>
@@ -541,7 +542,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
                       {isExpanded && (
                         <div className="px-3 pl-9 pr-4 pb-2 space-y-2">
                           <p className="text-[11px] text-zinc-500 leading-relaxed whitespace-pre-line">
-                            {item.content}
+                            {adaptShortcut(item.content)}
                           </p>
 
                           {item.tip && (

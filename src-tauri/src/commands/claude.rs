@@ -71,12 +71,7 @@ impl ClaudeManager {
 // --- Session Metadata Persistence ---
 
 fn sessions_dir() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
-    let dir = home.join(".operon").join("sessions");
-    if !dir.exists() {
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create sessions dir: {}", e))?;
-    }
-    Ok(dir)
+    crate::platform::sessions_dir()
 }
 
 fn save_session_to_disk(meta: &SessionMetadata) -> Result<(), String> {
@@ -122,28 +117,18 @@ fn load_all_sessions_from_disk() -> Vec<SessionMetadata> {
 
 // --- Detection & Installation ---
 
-/// Helper: run a command through the user's login shell to get proper PATH
+/// Helper: run a command through the user's login shell to get proper PATH.
+/// Delegates to the platform abstraction layer.
 fn login_shell_cmd(command: &str) -> std::process::Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let mut cmd = std::process::Command::new(&shell);
-    cmd.arg("-l").arg("-c").arg(command);
-    cmd
+    crate::platform::shell_exec(command)
 }
 
 #[tauri::command]
 pub async fn check_claude_installed() -> Result<ClaudeStatus, String> {
-    let which = match login_shell_cmd("which claude").output() {
-        Ok(o) => o,
-        Err(_) => {
-            return Ok(ClaudeStatus {
-                installed: false,
-                version: None,
-                path: None,
-            });
-        }
-    };
+    // Use platform-aware tool discovery (where.exe on Windows, which on Unix)
+    let tool_info = crate::platform::check_tool("claude");
 
-    if !which.status.success() {
+    if tool_info.is_none() {
         return Ok(ClaudeStatus {
             installed: false,
             version: None,
@@ -151,7 +136,7 @@ pub async fn check_claude_installed() -> Result<ClaudeStatus, String> {
         });
     }
 
-    let path = String::from_utf8_lossy(&which.stdout).trim().to_string();
+    let (path, _) = tool_info.unwrap();
 
     let version_output = login_shell_cmd("claude --version").output().ok();
 
@@ -166,146 +151,14 @@ pub async fn check_claude_installed() -> Result<ClaudeStatus, String> {
     })
 }
 
+/// Install Claude Code using platform-appropriate methods.
+/// Delegates to the platform abstraction layer which handles:
+/// - macOS: curl installer → npm fallback → Terminal.app fallback
+/// - Windows: npm install
+/// - Linux: curl installer → npm fallback
 #[tauri::command]
-pub async fn install_claude(method: String) -> Result<(), String> {
-    // Already installed?
-    let has_claude = login_shell_cmd("claude --version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if has_claude {
-        return Ok(());
-    }
-
-    // Primary method: official curl installer (works regardless of `method` param)
-    eprintln!("[Claude Code] Attempting install via official installer...");
-    let output = login_shell_cmd("curl -fsSL https://claude.ai/install.sh | bash").output();
-
-    match output {
-        Ok(ref o) if o.status.success() => {
-            eprintln!("[Claude Code] Installed successfully via curl installer");
-            // Verify the binary is accessible
-            let check = login_shell_cmd("claude --version").output();
-            if check.map(|c| c.status.success()).unwrap_or(false) {
-                return Ok(());
-            }
-            // Also check common install location directly
-            if let Some(home) = dirs::home_dir() {
-                if home.join(".claude/local/bin/claude").exists() {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(ref o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-            eprintln!("[Claude Code] Curl installer failed: {}", stderr);
-        }
-        Err(e) => {
-            eprintln!("[Claude Code] Curl installer error: {}", e);
-        }
-    }
-
-    // Fallback: npm install (for systems where curl installer doesn't work)
-    eprintln!("[Claude Code] Falling back to npm install...");
-
-    let npm_path = if std::path::Path::new("/opt/homebrew/bin/npm").exists() {
-        "/opt/homebrew/bin/npm"
-    } else if std::path::Path::new("/usr/local/bin/npm").exists() {
-        "/usr/local/bin/npm"
-    } else {
-        "npm"
-    };
-
-    let shell_command = match method.as_str() {
-        "brew" => {
-            let brew_path = if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-                "/opt/homebrew/bin/brew"
-            } else if std::path::Path::new("/usr/local/bin/brew").exists() {
-                "/usr/local/bin/brew"
-            } else {
-                "brew"
-            };
-            format!("{} install --cask claude-code", brew_path)
-        }
-        _ => format!("{} install -g @anthropic-ai/claude-code", npm_path),
-    };
-
-    let npm_output = login_shell_cmd(&shell_command).output();
-
-    match npm_output {
-        Ok(ref o) if o.status.success() => {
-            eprintln!("[Claude Code] Installed successfully via fallback");
-            return Ok(());
-        }
-        Ok(ref o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-            if stderr.contains("already installed") {
-                return Ok(());
-            }
-            eprintln!("[Claude Code] Fallback install failed: {}", stderr);
-        }
-        Err(e) => {
-            eprintln!("[Claude Code] Fallback install error: {}", e);
-        }
-    }
-
-    // All automatic methods failed — open Terminal.app as last resort
-    eprintln!("[Claude Code] Opening Terminal for installation...");
-
-    let install_cmd = "curl -fsSL https://claude.ai/install.sh | bash";
-
-    let script = format!(
-        r#"
-            clear
-            echo "╔═══════════════════════════════════════════════════╗"
-            echo "║  Operon — Installing Claude Code                  ║"
-            echo "║                                                   ║"
-            echo "║  When done, go back to Operon and click Re-check. ║"
-            echo "╚═══════════════════════════════════════════════════╝"
-            echo ""
-            echo "▸ Installing Claude Code..."
-            {}
-            echo ""
-            echo "✅ Done! Go back to Operon and click Re-check."
-            echo ""
-            echo "You can close this Terminal window."
-        "#,
-        install_cmd
-    );
-
-    let applescript = format!(
-        r#"tell application "Terminal"
-            activate
-            do script "{}"
-        end tell"#,
-        script.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
-    );
-
-    let result = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&applescript)
-        .output()
-        .map_err(|e| format!("Failed to open Terminal: {}", e))?;
-
-    if !result.status.success() {
-        // Fallback: write script to temp file and open in Terminal
-        eprintln!("[Claude Code] osascript failed, trying fallback...");
-
-        let script_path = "/tmp/operon_install_claude.sh";
-        std::fs::write(script_path, format!("#!/bin/bash\n{}", script))
-            .map_err(|e| format!("Failed to write install script: {}", e))?;
-
-        let _ = std::process::Command::new("chmod")
-            .args(["+x", script_path])
-            .output();
-
-        let _ = std::process::Command::new("open")
-            .args(["-a", "Terminal", script_path])
-            .output();
-    }
-
-    // Return OK — the frontend will poll via Re-check
-    Ok(())
+pub async fn install_claude(_method: String) -> Result<(), String> {
+    crate::platform::install_claude_platform()
 }
 
 // --- Dependency Checking for Setup Wizard ---
@@ -319,139 +172,36 @@ pub struct DependencyStatus {
     pub npm_version: Option<String>,
     pub claude_code: bool,
     pub claude_version: Option<String>,
+    pub git_bash: bool,
 }
 
 /// Check all local dependencies needed for Claude Code
 #[tauri::command]
 pub async fn check_local_dependencies() -> Result<DependencyStatus, String> {
-    // Build an augmented PATH that includes Homebrew and Operon-managed Node locations.
-    // This is necessary because after a fresh install, the GUI app's login shell
-    // may not yet see the updated PATH.
-    let operon_bin = operon_node_dir().join("bin").to_string_lossy().to_string();
-    let extra_paths = format!("{}:/opt/homebrew/bin:/usr/local/bin", operon_bin);
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    let augmented_path = format!("{}:{}", extra_paths, current_path);
-
-    // Helper: run a command with augmented PATH via login shell
-    let check_cmd = |cmd: &str| -> Option<std::process::Output> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        std::process::Command::new(&shell)
-            .arg("-l")
-            .arg("-c")
-            .arg(cmd)
-            .env("PATH", &augmented_path)
-            .output()
-            .ok()
-    };
-
-    // Check Xcode CLI tools
-    let xcode = check_cmd("xcode-select -p")
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    // Check Node.js — try login shell first, then check Homebrew paths directly
-    let node_out = check_cmd("node --version");
-    let mut node = node_out.as_ref().map_or(false, |o| o.status.success());
-    let mut node_version = node_out
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    // Fallback: check Operon-managed and Homebrew node directly
-    if !node {
-        let operon_node = operon_node_dir().join("bin").join("node");
-        let operon_node_str = operon_node.to_string_lossy().to_string();
-        for node_path in &[operon_node_str.as_str(), "/opt/homebrew/bin/node", "/usr/local/bin/node"] {
-            if std::path::Path::new(node_path).exists() {
-                if let Ok(out) = std::process::Command::new(node_path).arg("--version").output() {
-                    if out.status.success() {
-                        node = true;
-                        node_version = Some(String::from_utf8_lossy(&out.stdout).trim().to_string());
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Check npm
-    let npm_out = check_cmd("npm --version");
-    let mut npm = npm_out.as_ref().map_or(false, |o| o.status.success());
-    let mut npm_version = npm_out
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    if !npm {
-        let operon_npm = operon_node_dir().join("bin").join("npm");
-        let operon_npm_str = operon_npm.to_string_lossy().to_string();
-        for npm_path in &[operon_npm_str.as_str(), "/opt/homebrew/bin/npm", "/usr/local/bin/npm"] {
-            if std::path::Path::new(npm_path).exists() {
-                if let Ok(out) = std::process::Command::new(npm_path).arg("--version").output() {
-                    if out.status.success() {
-                        npm = true;
-                        npm_version = Some(String::from_utf8_lossy(&out.stdout).trim().to_string());
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Check Claude Code
-    let claude_out = check_cmd("claude --version");
-    let claude_code = claude_out.as_ref().map_or(false, |o| o.status.success());
-    let claude_version = claude_out
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    Ok(DependencyStatus {
-        xcode_cli: xcode,
-        node,
-        node_version,
-        npm,
-        npm_version,
-        claude_code,
-        claude_version,
-    })
+    // Delegate to the platform abstraction layer which handles
+    // tool discovery paths and Xcode checks per-platform.
+    Ok(crate::platform::check_dependencies())
 }
 
-/// Install Xcode CLI tools (triggers macOS native installer dialog)
+/// Refresh the process PATH from the system registry (Windows) or shell profile.
+/// Called by the frontend before re-checking dependencies after user installs something.
 #[tauri::command]
-pub async fn install_xcode_cli() -> Result<(), String> {
-    // First check if already installed
-    let check = login_shell_cmd("xcode-select -p")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if check {
-        return Ok(());
-    }
-
-    let output = std::process::Command::new("xcode-select")
-        .arg("--install")
-        .output()
-        .map_err(|e| {
-            format!("Could not launch Xcode CLI installer: {}. Please run 'xcode-select --install' in Terminal.", e)
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        // "already installed" is not a real error
-        if stderr.contains("already installed") {
-            return Ok(());
-        }
-        // "install requested" means the native dialog popped up — that's success
-        if stderr.contains("install requested") {
-            return Ok(());
-        }
-        return Err(format!("Failed to start Xcode CLI install: {}", stderr));
-    }
+pub async fn refresh_environment() -> Result<(), String> {
+    crate::platform::refresh_path();
+    crate::platform::persist_git_bash_env();
     Ok(())
 }
 
+/// Install Xcode CLI tools (macOS only, no-op on other platforms).
+/// Delegates to the platform abstraction layer.
+#[tauri::command]
+pub async fn install_xcode_cli() -> Result<(), String> {
+    crate::platform::install_xcode_cli_platform()
+}
+
 /// The Operon-managed Node.js installation directory.
-/// We install Node here so no sudo/admin/Homebrew is ever needed.
 fn operon_node_dir() -> std::path::PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".operon").join("node")
+    crate::platform::operon_node_dir()
 }
 
 /// Get the path to the Operon-managed `node` binary (if it exists).
@@ -460,304 +210,15 @@ fn operon_node_bin() -> Option<String> {
     if bin.exists() { Some(bin.to_string_lossy().to_string()) } else { None }
 }
 
-/// Get the path to the Operon-managed `npm` binary (if it exists).
-fn operon_npm_bin() -> Option<String> {
-    let bin = operon_node_dir().join("bin").join("npm");
-    if bin.exists() { Some(bin.to_string_lossy().to_string()) } else { None }
-}
 
-/// Download a Node.js tar.gz, extract to ~/.operon/node/, and add to PATH.
-/// Zero admin privileges needed — everything goes in the user's home directory.
-fn install_node_tarball() -> Result<(), String> {
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
-    let node_version = "v22.14.0"; // LTS
-    let tarball_url = format!(
-        "https://nodejs.org/dist/{}/node-{}-darwin-{}.tar.gz",
-        node_version, node_version, arch
-    );
-
-    let dest = operon_node_dir();
-    let tmp_tar = "/tmp/operon_node.tar.gz";
-
-    // Download
-    eprintln!("[Node] Downloading {} ...", tarball_url);
-    let dl = std::process::Command::new("curl")
-        .args(["-fSL", "--progress-bar", "-o", tmp_tar, &tarball_url])
-        .output()
-        .map_err(|e| format!("curl failed: {}", e))?;
-
-    if !dl.status.success() {
-        let stderr = String::from_utf8_lossy(&dl.stderr);
-        return Err(format!("Download failed: {}", stderr));
-    }
-
-    // Clean any previous install
-    if dest.exists() {
-        let _ = std::fs::remove_dir_all(&dest);
-    }
-    std::fs::create_dir_all(&dest)
-        .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
-
-    // Extract — the tarball has a top-level directory like node-v22.14.0-darwin-arm64/
-    // We strip that with --strip-components=1 so files go directly into ~/.operon/node/
-    eprintln!("[Node] Extracting to {} ...", dest.display());
-    let extract = std::process::Command::new("tar")
-        .args(["xzf", tmp_tar, "--strip-components=1", "-C"])
-        .arg(&dest)
-        .output()
-        .map_err(|e| format!("tar failed: {}", e))?;
-
-    if !extract.status.success() {
-        let stderr = String::from_utf8_lossy(&extract.stderr);
-        return Err(format!("Extract failed: {}", stderr));
-    }
-
-    // Clean up tarball
-    let _ = std::fs::remove_file(tmp_tar);
-
-    // Verify node binary works
-    let node_bin = dest.join("bin").join("node");
-    if !node_bin.exists() {
-        return Err("Node binary not found after extraction".to_string());
-    }
-
-    let check = std::process::Command::new(&node_bin)
-        .arg("--version")
-        .output();
-
-    match check {
-        Ok(o) if o.status.success() => {
-            let ver = String::from_utf8_lossy(&o.stdout);
-            eprintln!("[Node] Installed: {}", ver.trim());
-        }
-        _ => {
-            return Err("Node binary exists but won't run".to_string());
-        }
-    }
-
-    // Add ~/.operon/node/bin to PATH in shell profile so it's found in future shells
-    let home = dirs::home_dir().unwrap_or_default();
-    let bin_dir = dest.join("bin");
-    let path_line = format!("\nexport PATH=\"{}:$PATH\"\n", bin_dir.to_string_lossy());
-
-    for profile_name in &[".zprofile", ".bash_profile"] {
-        let profile_path = home.join(profile_name);
-        if profile_path.exists() || *profile_name == ".zprofile" {
-            if let Ok(existing) = std::fs::read_to_string(&profile_path) {
-                if !existing.contains(".operon/node") {
-                    let _ = std::fs::write(&profile_path, format!("{}{}", existing, path_line));
-                }
-            } else {
-                let _ = std::fs::write(&profile_path, &path_line);
-            }
-            break; // Only write to first matching profile
-        }
-    }
-
-    Ok(())
-}
-
-/// Install Node.js — uses Homebrew if available, otherwise extracts tarball to ~/.operon/node/
+/// Install Node.js using platform-appropriate methods.
+/// Delegates to the platform abstraction layer which handles:
+/// - macOS: Homebrew → tarball fallback
+/// - Windows: winget → tarball
+/// - Linux: apt → tarball fallback
 #[tauri::command]
 pub async fn install_node() -> Result<(), String> {
-    // Already installed?
-    let has_node = login_shell_cmd("node --version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if has_node {
-        return Ok(());
-    }
-
-    // Also check our own managed install
-    if operon_node_bin().is_some() {
-        return Ok(());
-    }
-
-    // Try Homebrew if it happens to be installed already
-    let brew_path = if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-        Some("/opt/homebrew/bin/brew")
-    } else if std::path::Path::new("/usr/local/bin/brew").exists() {
-        Some("/usr/local/bin/brew")
-    } else {
-        None
-    };
-
-    if let Some(brew) = brew_path {
-        eprintln!("[Node] Trying Homebrew...");
-        let output = login_shell_cmd(&format!("{} install node", brew)).output();
-        if let Ok(o) = output {
-            if o.status.success() { return Ok(()); }
-        }
-    }
-
-    // Primary strategy: download tar.gz → extract to ~/.operon/node/ (zero sudo)
-    install_node_tarball()
-}
-
-/// Silently install Homebrew by bypassing the official install script.
-///
-/// The official script always calls `have_sudo_access()` and aborts without it on macOS.
-/// Instead, we do it ourselves:
-///
-///   Phase 1 (one macOS password dialog):
-///     Use `osascript "with administrator privileges"` to create /opt/homebrew
-///     with all subdirectories and chown to the current user.
-///
-///   Phase 2 (zero sudo — Homebrew is just a git repo):
-///     `git clone --depth=1 https://github.com/Homebrew/brew /opt/homebrew/Homebrew`
-///     Then symlink `bin/brew` and run `brew update --force --quiet`.
-///
-/// Returns Ok(path_to_brew) on success.
-fn install_homebrew_silent() -> Result<String, String> {
-    // Already installed?
-    if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-        return Ok("/opt/homebrew/bin/brew".to_string());
-    }
-    if std::path::Path::new("/usr/local/bin/brew").exists() {
-        return Ok("/usr/local/bin/brew".to_string());
-    }
-
-    let is_arm = cfg!(target_arch = "aarch64");
-    let prefix = if is_arm { "/opt/homebrew" } else { "/usr/local" };
-    let _repo_dir = if is_arm { "/opt/homebrew" } else { "/usr/local/Homebrew" };
-
-    // Get current username
-    let current_user = std::env::var("USER")
-        .or_else(|_| std::env::var("LOGNAME"))
-        .unwrap_or_else(|_| {
-            String::from_utf8_lossy(
-                &std::process::Command::new("id").arg("-un")
-                    .output().map(|o| o.stdout).unwrap_or_default()
-            ).trim().to_string()
-        });
-
-    eprintln!("[Homebrew] User: {}, Prefix: {}", current_user, prefix);
-
-    // ── Phase 1: Create ALL directories Homebrew needs (one password dialog) ──
-    let subdirs = [
-        "bin", "etc", "include", "lib", "sbin", "share", "var", "opt",
-        "Cellar", "Caskroom", "Frameworks",
-        "etc/bash_completion.d",
-        "lib/pkgconfig",
-        "share/aclocal", "share/doc", "share/info", "share/locale", "share/man",
-        "share/man/man1", "share/man/man2", "share/man/man3", "share/man/man4",
-        "share/man/man5", "share/man/man6", "share/man/man7", "share/man/man8",
-        "share/zsh", "share/zsh/site-functions",
-        "var/homebrew", "var/homebrew/linked", "var/log",
-    ];
-
-    let mkdir_list: Vec<String> = subdirs.iter()
-        .map(|s| format!("{}/{}", prefix, s))
-        .collect();
-
-    let admin_script = format!(
-        "mkdir -p {} {} && chown -R {}:admin {} && chmod -R 755 {} && chmod go-w {}/share/zsh {}/share/zsh/site-functions",
-        prefix,
-        mkdir_list.join(" "),
-        current_user, prefix, prefix,
-        prefix, prefix,
-    );
-
-    let osascript_cmd = format!(
-        r#"do shell script "{}" with administrator privileges"#,
-        admin_script.replace('\\', "\\\\").replace('"', "\\\"")
-    );
-
-    eprintln!("[Homebrew] Phase 1: Creating directories with admin privileges...");
-    let mkdir_result = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&osascript_cmd)
-        .output()
-        .map_err(|e| format!("osascript failed: {}", e))?;
-
-    if !mkdir_result.status.success() {
-        let stderr = String::from_utf8_lossy(&mkdir_result.stderr);
-        if stderr.contains("cancel") || stderr.contains("-128") {
-            return Err("Password dialog was cancelled.".to_string());
-        }
-        return Err(format!("Failed to create Homebrew directories: {}", stderr));
-    }
-    eprintln!("[Homebrew] Phase 1 complete — directories owned by {}", current_user);
-
-    // Ensure cache directory exists (user-writable, no sudo)
-    let home = dirs::home_dir().unwrap_or_default();
-    let _ = std::fs::create_dir_all(home.join("Library/Caches/Homebrew"));
-
-    // ── Phase 2: Clone Homebrew repo (zero sudo) ──
-    // Clone to a temp dir first, then merge into the prefix.
-    // This avoids git clone failing because the prefix dir already has subdirs we created.
-    eprintln!("[Homebrew] Phase 2: Cloning Homebrew repository...");
-
-    let tmp_clone = format!("{}/homebrew-clone-tmp", std::env::temp_dir().display());
-    // Clean up any leftover temp dir
-    let _ = std::fs::remove_dir_all(&tmp_clone);
-
-    let clone_result = std::process::Command::new("git")
-        .args(["clone", "--depth=1", "https://github.com/Homebrew/brew", &tmp_clone])
-        .output()
-        .map_err(|e| format!("git clone failed: {}", e))?;
-
-    if !clone_result.status.success() {
-        let stderr = String::from_utf8_lossy(&clone_result.stderr);
-        let _ = std::fs::remove_dir_all(&tmp_clone);
-        return Err(format!("git clone failed: {}", stderr));
-    }
-
-    // Move clone contents into the prefix using rsync (preserves existing dirs)
-    eprintln!("[Homebrew] Moving cloned files into {}...", prefix);
-    let rsync_result = std::process::Command::new("rsync")
-        .args(["-a", &format!("{}/", tmp_clone), &format!("{}/", prefix)])
-        .output()
-        .map_err(|e| format!("rsync failed: {}", e))?;
-
-    if !rsync_result.status.success() {
-        // Fallback: try cp -a
-        eprintln!("[Homebrew] rsync failed, trying cp...");
-        let _ = std::process::Command::new("/bin/bash")
-            .args(["-c", &format!("cp -a {}/* {}/", tmp_clone, prefix)])
-            .output();
-        // Also copy hidden dirs like .git
-        let _ = std::process::Command::new("/bin/bash")
-            .args(["-c", &format!("cp -a {}/.[!.]* {}/", tmp_clone, prefix)])
-            .output();
-    }
-
-    // Clean up temp dir
-    let _ = std::fs::remove_dir_all(&tmp_clone);
-
-    let brew_bin = format!("{}/bin/brew", prefix);
-    eprintln!("[Homebrew] Checking for brew at: {}", brew_bin);
-    if !std::path::Path::new(&brew_bin).exists() {
-        // Debug: list what's in prefix/bin
-        if let Ok(entries) = std::fs::read_dir(format!("{}/bin", prefix)) {
-            let files: Vec<_> = entries.flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
-            eprintln!("[Homebrew] Files in {}/bin/: {:?}", prefix, files);
-        }
-        return Err(format!("brew binary not found at {} after clone", brew_bin));
-    }
-
-    // Run `brew update --force --quiet` to set up taps and complete installation
-    eprintln!("[Homebrew] Running brew update --force --quiet...");
-    let _ = std::process::Command::new(&brew_bin)
-        .args(["update", "--force", "--quiet"])
-        .env("HOMEBREW_NO_ANALYTICS", "1")
-        .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-        .output();
-
-    // Add to shell profile
-    let zprofile = home.join(".zprofile");
-    let shellenv_line = format!("\neval \"$({} shellenv)\"\n", brew_bin);
-    if let Ok(existing) = std::fs::read_to_string(&zprofile) {
-        if !existing.contains("brew shellenv") {
-            let _ = std::fs::write(&zprofile, format!("{}{}", existing, shellenv_line));
-        }
-    } else {
-        let _ = std::fs::write(&zprofile, &shellenv_line);
-    }
-
-    eprintln!("[Homebrew] Installed at {}", brew_bin);
-    Ok(brew_bin)
+    crate::platform::install_node_platform()
 }
 
 // ── Phased Dependency Installation ──
@@ -787,12 +248,16 @@ fn emit_install_progress(app: &tauri::AppHandle, step: &str, status: &str, messa
     });
 }
 
-/// Phase 1: Xcode CLI Tools.
+/// Phase 1: Xcode CLI Tools (macOS only).
 /// Triggers the macOS installer dialog and polls until it completes.
-/// This can take 20-30 min on slow internet — the frontend should let
-/// the user confirm when it's done rather than blocking.
+/// On non-macOS platforms, this is a no-op that returns true.
 #[tauri::command]
 pub async fn install_phase_xcode(app: tauri::AppHandle) -> Result<bool, String> {
+    if !crate::platform::requires_xcode() {
+        emit_install_progress(&app, "xcode", "skipped", "Not required on this platform", 100);
+        return Ok(true);
+    }
+
     let already = login_shell_cmd("xcode-select -p")
         .output().map(|o| o.status.success()).unwrap_or(false);
 
@@ -803,9 +268,11 @@ pub async fn install_phase_xcode(app: tauri::AppHandle) -> Result<bool, String> 
 
     emit_install_progress(&app, "xcode", "starting", "Installing Xcode Command Line Tools...", 5);
 
-    let _ = std::process::Command::new("xcode-select")
-        .arg("--install")
-        .output();
+    // Delegate to platform layer which calls xcode-select --install
+    if let Err(e) = crate::platform::install_xcode_cli_platform() {
+        emit_install_progress(&app, "xcode", "error", &format!("Xcode install failed: {}", e), 100);
+        return Ok(false);
+    }
 
     emit_install_progress(&app, "xcode", "waiting",
         "A macOS dialog will appear — click Install and wait for it to finish.", 10);
@@ -828,41 +295,76 @@ pub async fn install_phase_xcode(app: tauri::AppHandle) -> Result<bool, String> 
     Ok(false)
 }
 
-/// Phase 2: Homebrew + Node.js + GitHub CLI.
-/// Homebrew: pre-create /opt/homebrew with one admin dialog → git clone (no install script).
-/// Node.js: `brew install node`, fallback to tar.gz in ~/.operon/node/.
-/// GitHub CLI: `brew install gh`.
+/// Phase 2: Package manager + Node.js + GitHub CLI.
+/// Uses platform abstraction for package manager detection and installation:
+/// - macOS: Homebrew → brew install node/gh
+/// - Windows: winget → winget install node/gh
+/// - Linux: apt → apt install node/gh
 #[tauri::command]
 pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> {
     let mut all_ok = true;
 
-    // ── Homebrew (0-50%) ──
-    let mut brew_path: Option<String> = if std::path::Path::new("/opt/homebrew/bin/brew").exists() {
-        Some("/opt/homebrew/bin/brew".into())
-    } else if std::path::Path::new("/usr/local/bin/brew").exists() {
-        Some("/usr/local/bin/brew".into())
-    } else {
-        None
-    };
+    // ── Git Bash (Windows only, 0-10%) ──
+    // Claude Code on Windows requires Git Bash. Install it first so that
+    // Claude Code works after npm install.
+    #[cfg(target_os = "windows")]
+    {
+        if crate::platform::find_git_bash_path().is_none() {
+            emit_install_progress(&app, "git", "installing",
+                "Downloading Git for Windows installer...", 2);
 
-    if brew_path.is_none() {
+            match crate::platform::install_git_platform() {
+                Ok(()) => {
+                    // Shouldn't normally reach here — install_git returns Err sentinels
+                    emit_install_progress(&app, "git", "complete", "Git installed!", 10);
+                }
+                Err(e) if e == "INSTALLER_LAUNCHED" => {
+                    emit_install_progress(&app, "git", "error",
+                        "Git installer launched — complete the setup wizard, then click Re-check below.", 10);
+                    all_ok = false;
+                }
+                Err(e) if e == "BROWSER_OPENED" => {
+                    emit_install_progress(&app, "git", "error",
+                        "Download page opened — install Git, then click Re-check below.", 10);
+                    all_ok = false;
+                }
+                Err(e) => {
+                    emit_install_progress(&app, "git", "error",
+                        &format!("Git install failed: {}. Download from https://git-scm.com", e), 10);
+                    all_ok = false;
+                }
+            }
+        } else {
+            // Git already installed — make sure env var is persisted
+            crate::platform::persist_git_bash_env();
+            emit_install_progress(&app, "git", "skipped", "Git already installed", 10);
+        }
+
+        // Refresh PATH after Git install so subsequent steps find git/node/npm
+        crate::platform::refresh_path();
+    }
+
+    // ── Package Manager (10-50%) ──
+    let mut pkg_mgr = crate::platform::find_package_manager();
+
+    if pkg_mgr.is_none() {
         emit_install_progress(&app, "homebrew", "installing",
-            "Installing Homebrew (you'll be asked for your Mac password once)...", 5);
+            "Installing package manager...", 5);
 
-        match install_homebrew_silent() {
+        match crate::platform::install_homebrew_platform() {
             Ok(path) => {
-                brew_path = Some(path);
-                emit_install_progress(&app, "homebrew", "complete", "Homebrew installed!", 45);
+                pkg_mgr = Some(path);
+                emit_install_progress(&app, "homebrew", "complete", "Package manager installed!", 45);
             }
             Err(e) => {
-                eprintln!("[Homebrew] Install failed: {}", e);
+                eprintln!("[Package Manager] Install failed: {}", e);
                 emit_install_progress(&app, "homebrew", "error",
-                    &format!("Homebrew install failed: {}", e), 45);
-                all_ok = false;
+                    &format!("Package manager install failed: {}", e), 45);
+                // Not fatal — Node.js can still be installed via tarball
             }
         }
     } else {
-        emit_install_progress(&app, "homebrew", "skipped", "Homebrew already installed", 45);
+        emit_install_progress(&app, "homebrew", "skipped", "Package manager already installed", 45);
     }
 
     // ── Node.js (50-80%) ──
@@ -871,36 +373,18 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         || operon_node_bin().is_some();
 
     if !has_node {
-        let mut node_installed = false;
+        emit_install_progress(&app, "node", "installing", "Installing Node.js...", 55);
 
-        if let Some(brew) = &brew_path {
-            emit_install_progress(&app, "node", "installing", "Installing Node.js via Homebrew...", 55);
-            let output = std::process::Command::new(brew).args(["install", "node"]).output();
-            if let Ok(o) = output {
-                if o.status.success() { node_installed = true; }
-                else {
-                    let stderr = String::from_utf8_lossy(&o.stderr);
-                    if stderr.contains("already installed") { node_installed = true; }
-                    else { eprintln!("[Node] brew install node failed: {}", stderr); }
-                }
+        match crate::platform::install_node_platform() {
+            Ok(()) => {
+                emit_install_progress(&app, "node", "complete", "Node.js installed!", 80);
             }
-        }
-
-        // Fallback: tar.gz to ~/.operon/node/ (zero sudo, no Homebrew needed)
-        if !node_installed {
-            emit_install_progress(&app, "node", "downloading", "Downloading Node.js (no admin needed)...", 55);
-            match install_node_tarball() {
-                Ok(()) => { node_installed = true; }
-                Err(e) => { eprintln!("[Node] Tarball fallback failed: {}", e); }
+            Err(e) => {
+                eprintln!("[Node] Install failed: {}", e);
+                emit_install_progress(&app, "node", "error",
+                    "Node.js could not be installed automatically.", 80);
+                all_ok = false;
             }
-        }
-
-        if node_installed {
-            emit_install_progress(&app, "node", "complete", "Node.js installed!", 80);
-        } else {
-            emit_install_progress(&app, "node", "error",
-                "Node.js could not be installed automatically.", 80);
-            all_ok = false;
         }
     } else {
         let ver = login_shell_cmd("node --version").output()
@@ -910,82 +394,148 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
     }
 
     // ── GitHub CLI (80-100%) ──
-    let has_gh = login_shell_cmd("which gh").output()
-        .map(|o| o.status.success()).unwrap_or(false);
+    let has_gh = crate::platform::check_tool("gh").is_some();
 
     if !has_gh {
-        if let Some(brew) = &brew_path {
-            emit_install_progress(&app, "gh", "installing", "Installing GitHub CLI...", 85);
-            let output = std::process::Command::new(brew).args(["install", "gh"]).output();
-            if let Ok(o) = output {
-                if o.status.success() {
-                    emit_install_progress(&app, "gh", "complete", "GitHub CLI installed!", 100);
-                } else {
+        emit_install_progress(&app, "gh", "installing", "Installing GitHub CLI...", 85);
+        let mut gh_installed = false;
+
+        // Strategy 1 (Windows): winget
+        #[cfg(target_os = "windows")]
+        {
+            let winget = std::process::Command::new("winget")
+                .args(["install", "--id", "GitHub.cli", "-e",
+                       "--accept-source-agreements", "--accept-package-agreements"])
+                .output();
+            if let Ok(o) = winget {
+                let out_text = format!("{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr));
+                if o.status.success() || out_text.contains("already installed") {
+                    gh_installed = true;
+                }
+            }
+        }
+
+        // Strategy 2: Package manager (Homebrew on macOS, apt on Linux)
+        if !gh_installed {
+            if let Some(ref mgr) = pkg_mgr {
+                let output = std::process::Command::new(mgr).args(["install", "gh"]).output();
+                if let Ok(o) = output {
                     let stderr = String::from_utf8_lossy(&o.stderr);
-                    if stderr.contains("already installed") {
-                        emit_install_progress(&app, "gh", "complete", "GitHub CLI already installed!", 100);
+                    if o.status.success() || stderr.contains("already installed") {
+                        gh_installed = true;
                     } else {
-                        eprintln!("[gh] brew install gh failed: {}", stderr);
-                        emit_install_progress(&app, "gh", "error",
-                            "GitHub CLI could not be installed.", 100);
-                        all_ok = false;
+                        eprintln!("[gh] {} install gh failed: {}", mgr, stderr);
                     }
                 }
             }
+        }
+
+        if gh_installed {
+            emit_install_progress(&app, "gh", "complete", "GitHub CLI installed!", 90);
         } else {
+            eprintln!("[gh] All install strategies failed");
             emit_install_progress(&app, "gh", "error",
-                "Cannot install GitHub CLI — Homebrew is required.", 100);
-            all_ok = false;
+                "GitHub CLI could not be installed (optional — you can install it later).", 90);
+            // gh is optional — don't fail the whole phase
         }
     } else {
         emit_install_progress(&app, "gh", "skipped", "GitHub CLI already installed", 90);
     }
 
+    // ── Python (Windows only, 80-84%) ──
+    // On macOS/Linux, Python is typically pre-installed or managed by the user.
+    // On Windows, we install it automatically via winget.
+    #[cfg(target_os = "windows")]
+    {
+        if crate::platform::find_python().is_none() {
+            emit_install_progress(&app, "python", "installing",
+                "Installing Python (required for PDF reports and research tools)...", 81);
+
+            match crate::platform::install_python_platform() {
+                Ok(()) => {
+                    emit_install_progress(&app, "python", "complete", "Python installed!", 84);
+                }
+                Err(e) => {
+                    eprintln!("[Python] Install failed: {}", e);
+                    emit_install_progress(&app, "python", "error",
+                        "Python could not be installed. Install from https://python.org/downloads", 84);
+                    // Not fatal — user can install manually
+                }
+            }
+        } else {
+            emit_install_progress(&app, "python", "skipped", "Python already installed", 84);
+        }
+    }
+
+    // ── OpenSSH (Windows only, 84-87%) ──
+    // macOS/Linux always have OpenSSH.
+    #[cfg(target_os = "windows")]
+    {
+        // Check both native OpenSSH and Git Bash's ssh
+        let has_ssh = crate::platform::has_openssh()
+            || crate::platform::find_git_bash_path().is_some(); // Git Bash includes ssh
+
+        if !has_ssh {
+            emit_install_progress(&app, "openssh", "installing",
+                "Installing OpenSSH client (for remote connections)...", 85);
+
+            match crate::platform::install_openssh_platform() {
+                Ok(()) => {
+                    emit_install_progress(&app, "openssh", "complete", "OpenSSH installed!", 87);
+                }
+                Err(e) => {
+                    eprintln!("[OpenSSH] Install failed: {}", e);
+                    emit_install_progress(&app, "openssh", "error",
+                        "OpenSSH could not be installed (optional — Git Bash provides SSH if needed).", 87);
+                    // Not fatal — Git Bash includes ssh as a fallback
+                }
+            }
+        } else {
+            emit_install_progress(&app, "openssh", "skipped", "SSH available (via OpenSSH or Git Bash)", 87);
+        }
+    }
+
+    // ── uv / uvx (Windows only, 87-90%) ──
+    // On macOS/Linux, uv is typically installed via brew or curl by the user.
+    // On Windows, we install it automatically.
+    #[cfg(target_os = "windows")]
+    {
+        if !crate::platform::has_uv() {
+            emit_install_progress(&app, "uv", "installing",
+                "Installing uv (Python package manager for research tools)...", 88);
+
+            match crate::platform::install_uv_platform() {
+                Ok(()) => {
+                    emit_install_progress(&app, "uv", "complete", "uv installed!", 90);
+                }
+                Err(e) => {
+                    eprintln!("[uv] Install failed: {}", e);
+                    emit_install_progress(&app, "uv", "error",
+                        "uv could not be installed. Install from https://docs.astral.sh/uv/", 90);
+                }
+            }
+        } else {
+            emit_install_progress(&app, "uv", "skipped", "uv already installed", 90);
+        }
+    }
+
     // ── Python reportlab for PDF reports (90-100%) ──
-    let has_reportlab = std::process::Command::new("python3")
-        .args(["-c", "import reportlab"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let has_reportlab = crate::platform::has_reportlab();
 
     if !has_reportlab {
         emit_install_progress(&app, "reportlab", "installing", "Installing PDF report library (reportlab)...", 92);
-        let mut installed = false;
 
-        // Strategy 1: --user install (macOS Homebrew Python)
-        if let Ok(o) = std::process::Command::new("python3")
-            .args(["-m", "pip", "install", "reportlab", "--user", "--quiet"])
-            .output()
-        {
-            if o.status.success() { installed = true; }
-        }
-
-        // Strategy 2: --break-system-packages (Linux)
-        if !installed {
-            if let Ok(o) = std::process::Command::new("python3")
-                .args(["-m", "pip", "install", "reportlab", "--quiet", "--break-system-packages"])
-                .output()
-            {
-                if o.status.success() { installed = true; }
+        match crate::platform::install_reportlab_platform() {
+            Ok(()) => {
+                emit_install_progress(&app, "reportlab", "complete", "reportlab installed!", 100);
             }
-        }
-
-        // Strategy 3: pip3 directly
-        if !installed {
-            if let Ok(o) = std::process::Command::new("pip3")
-                .args(["install", "reportlab", "--user", "--quiet"])
-                .output()
-            {
-                if o.status.success() { installed = true; }
+            Err(_e) => {
+                emit_install_progress(&app, "reportlab", "error",
+                    "reportlab could not be installed (Report mode will install it on first use).", 100);
+                // Don't fail the whole phase — report mode has its own fallback
             }
-        }
-
-        if installed {
-            emit_install_progress(&app, "reportlab", "complete", "reportlab installed!", 100);
-        } else {
-            emit_install_progress(&app, "reportlab", "error",
-                "reportlab could not be installed (Report mode will install it on first use).", 100);
-            // Don't fail the whole phase — report mode has its own fallback
         }
     } else {
         emit_install_progress(&app, "reportlab", "skipped", "reportlab already installed", 100);
@@ -1000,12 +550,29 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
 }
 
 /// Phase 3: Claude Code.
-/// Uses the official installer (curl -fsSL https://claude.ai/install.sh | bash).
-/// Falls back to npm if curl installer fails.
+/// Delegates to the platform abstraction layer which handles:
+/// - macOS: curl installer → npm fallback → Terminal.app fallback
+/// - Windows: curl installer via Git Bash → npm fallback
+/// - Linux: curl installer → npm fallback
 #[tauri::command]
 pub async fn install_phase_claude(app: tauri::AppHandle) -> Result<bool, String> {
-    let has_claude = login_shell_cmd("which claude").output()
-        .map(|o| o.status.success()).unwrap_or(false);
+    // Refresh PATH so we can find npm/claude from tools installed in previous phases
+    crate::platform::refresh_path();
+
+    // On Windows, ensure CLAUDE_CODE_GIT_BASH_PATH is set before installing/running Claude
+    crate::platform::persist_git_bash_env();
+
+    // Check Git Bash is available on Windows before proceeding
+    #[cfg(target_os = "windows")]
+    {
+        if crate::platform::find_git_bash_path().is_none() {
+            emit_install_progress(&app, "claude", "error",
+                "Git Bash is required but not installed. Please install Git from https://git-scm.com/downloads/win and restart Operon.", 100);
+            return Ok(false);
+        }
+    }
+
+    let has_claude = crate::platform::check_tool("claude").is_some();
 
     if has_claude {
         let ver = login_shell_cmd("claude --version").output()
@@ -1015,117 +582,24 @@ pub async fn install_phase_claude(app: tauri::AppHandle) -> Result<bool, String>
         return Ok(true);
     }
 
-    // Method 1: Official Claude Code installer (recommended, no Node.js dependency)
     emit_install_progress(&app, "claude", "installing",
-        "Installing Claude Code via official installer...", 20);
-    eprintln!("[Claude] Attempting install via curl installer...");
+        "Installing Claude Code...", 20);
 
-    let curl_output = login_shell_cmd("curl -fsSL https://claude.ai/install.sh | bash").output();
-
-    let mut claude_installed = false;
-
-    match curl_output {
-        Ok(o) if o.status.success() => {
-            eprintln!("[Claude] Curl installer succeeded");
-            // Source updated profile so `claude` is in PATH for subsequent checks
-            let check = login_shell_cmd("claude --version").output();
-            if let Ok(c) = check {
-                if c.status.success() {
-                    claude_installed = true;
-                } else {
-                    // Also check common install location directly
-                    let home = dirs::home_dir().unwrap_or_default();
-                    let claude_bin = home.join(".claude/local/bin/claude");
-                    if claude_bin.exists() {
-                        claude_installed = true;
-                    }
-                }
-            }
-        }
-        Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-            eprintln!("[Claude] Curl installer failed (exit {}): {}", o.status, stderr);
+    match crate::platform::install_claude_platform() {
+        Ok(()) => {
+            emit_install_progress(&app, "claude", "complete", "Claude Code installed!", 100);
+            Ok(true)
         }
         Err(e) => {
-            eprintln!("[Claude] Curl installer error: {}", e);
+            eprintln!("[Claude] Platform install failed: {}", e);
+            let hint = if cfg!(target_os = "windows") {
+                "Claude Code could not be installed automatically. Try running: npm install -g @anthropic-ai/claude-code"
+            } else {
+                "Claude Code could not be installed automatically. Try running: curl -fsSL https://claude.ai/install.sh | bash"
+            };
+            emit_install_progress(&app, "claude", "error", hint, 100);
+            Ok(false)
         }
-    }
-
-    // Method 2: npm fallback (if curl installer didn't work and npm is available)
-    if !claude_installed {
-        emit_install_progress(&app, "claude", "installing",
-            "Curl installer didn't work, trying npm fallback...", 50);
-        eprintln!("[Claude] Trying npm fallback...");
-
-        let npm_cmd = operon_npm_bin()
-            .or_else(|| {
-                if std::path::Path::new("/opt/homebrew/bin/npm").exists() {
-                    Some("/opt/homebrew/bin/npm".to_string())
-                } else if std::path::Path::new("/usr/local/bin/npm").exists() {
-                    Some("/usr/local/bin/npm".to_string())
-                } else {
-                    login_shell_cmd("which npm").output().ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                }
-            });
-
-        if let Some(npm) = npm_cmd {
-            eprintln!("[Claude] Using npm at: {}", npm);
-            let install_cmd = format!("{} install -g @anthropic-ai/claude-code", npm);
-            let output = login_shell_cmd(&install_cmd).output();
-
-            match output {
-                Ok(o) if o.status.success() => { claude_installed = true; }
-                Ok(o) => {
-                    let stderr = String::from_utf8_lossy(&o.stderr).to_string();
-                    eprintln!("[Claude] npm install failed: {}", stderr);
-
-                    // EACCES workaround for system npm
-                    if stderr.contains("EACCES") || stderr.contains("permission") {
-                        emit_install_progress(&app, "claude", "installing",
-                            "Fixing npm permissions and retrying...", 70);
-
-                        let home = dirs::home_dir().unwrap_or_default();
-                        let npm_global = home.join(".npm-global");
-                        let _ = std::fs::create_dir_all(&npm_global);
-                        let _ = login_shell_cmd(&format!("{} config set prefix {}", npm,
-                            npm_global.to_string_lossy())).output();
-
-                        let zprofile = home.join(".zprofile");
-                        let path_line = format!("\nexport PATH=\"{}:$PATH\"\n",
-                            npm_global.join("bin").to_string_lossy());
-                        if let Ok(existing) = std::fs::read_to_string(&zprofile) {
-                            if !existing.contains(".npm-global") {
-                                let _ = std::fs::write(&zprofile, format!("{}{}", existing, path_line));
-                            }
-                        } else {
-                            let _ = std::fs::write(&zprofile, path_line);
-                        }
-
-                        let retry = login_shell_cmd(&format!(
-                            "export PATH={}:$PATH && {} install -g @anthropic-ai/claude-code",
-                            npm_global.join("bin").to_string_lossy(), npm
-                        )).output();
-                        if let Ok(r) = retry {
-                            if r.status.success() { claude_installed = true; }
-                        }
-                    }
-                }
-                Err(e) => { eprintln!("[Claude] npm command failed: {}", e); }
-            }
-        } else {
-            eprintln!("[Claude] npm not available for fallback");
-        }
-    }
-
-    if claude_installed {
-        emit_install_progress(&app, "claude", "complete", "Claude Code installed!", 100);
-        Ok(true)
-    } else {
-        emit_install_progress(&app, "claude", "error",
-            "Claude Code could not be installed automatically. Try running: curl -fsSL https://claude.ai/install.sh | bash", 100);
-        Ok(false)
     }
 }
 
@@ -1206,6 +680,7 @@ echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev
         npm_version: if npm_ver != "MISSING" { Some(npm_ver.to_string()) } else { None },
         claude_code: claude_ver != "MISSING",
         claude_version: if claude_ver != "MISSING" && claude_ver != "FOUND" { Some(claude_ver.to_string()) } else { None },
+        git_bash: true, // Not applicable for remote (Linux servers)
     })
 }
 
@@ -1463,8 +938,8 @@ pub async fn delete_api_key(
 #[tauri::command]
 pub async fn check_oauth_status() -> Result<bool, String> {
     // Fast path: scan ~/.claude/ for any file that looks like credentials/auth
-    if let Some(home) = dirs::home_dir() {
-        let claude_dir = home.join(".claude");
+    {
+        let claude_dir = crate::platform::home_dir().unwrap_or_default().join(".claude");
         if claude_dir.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&claude_dir) {
                 for entry in entries.flatten() {
@@ -1488,12 +963,11 @@ pub async fn check_oauth_status() -> Result<bool, String> {
     }
 
     // Slow path: actually run claude through a login shell to test auth
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-
-    let output = tokio::process::Command::new(&shell)
-        .arg("-l")
-        .arg("-c")
-        .arg("claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null")
+    let mut auth_cmd = crate::platform::shell_exec_async("claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null");
+    if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
+        auth_cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
+    }
+    let output = auth_cmd
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -1509,25 +983,161 @@ pub async fn check_oauth_status() -> Result<bool, String> {
     Ok(false)
 }
 
-/// Open the system Terminal.app with `claude login` running in it.
-/// Uses AppleScript on macOS for a native, reliable experience.
+/// Launch `claude login` and open the OAuth URL in the user's browser.
+///
+/// Runs `claude login` as a direct child process with CLAUDE_CODE_GIT_BASH_PATH
+/// set (Windows). Captures stdout/stderr, extracts the OAuth URL, and opens it
+/// in the default browser. This avoids the fragile "open external terminal" approach
+/// which fails when PowerShell/wt aren't in PATH or when env vars don't propagate.
 #[tauri::command]
 pub async fn launch_claude_login() -> Result<String, String> {
-    // Use osascript to open Terminal.app and run `claude login`
-    let output = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(r#"tell application "Terminal"
-    activate
-    do script "claude login"
-end tell"#)
-        .output()
-        .map_err(|e| format!("Failed to open Terminal: {}", e))?;
+    // Refresh PATH so we can find the claude binary
+    crate::platform::refresh_path();
+    // Ensure Git Bash env var is set
+    crate::platform::persist_git_bash_env();
 
-    if output.status.success() {
-        Ok("Terminal opened — complete login there, then come back and click Verify.".to_string())
+    // --- Strategy 1: Run `claude login` directly and capture the OAuth URL ---
+    // Find the actual claude binary path for reliable execution
+    let claude_path = crate::platform::check_tool("claude")
+        .map(|(path, _)| path);
+
+    let augmented = crate::platform::augmented_path();
+
+    // Build the command — try direct path first, fall back to shell
+    let mut cmd = if let Some(ref path) = claude_path {
+        let mut c = tokio::process::Command::new(path);
+        c.arg("login");
+        c
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(format!("Failed to open Terminal: {}", stderr))
+        crate::platform::shell_exec_async("claude login")
+    };
+
+    // Set environment for Claude Code
+    cmd.env("PATH", &augmented);
+    if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
+        cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
+    }
+    // Prevent claude from trying to open a browser itself (we'll do it)
+    cmd.env("BROWSER", "echo");
+
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let child = cmd.spawn();
+
+    if let Ok(mut child) = child {
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        let url_found = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let url_clone = url_found.clone();
+
+        // Read stdout and stderr looking for the OAuth URL
+        tokio::spawn(async move {
+            let mut all_output = String::new();
+
+            // Helper to extract OAuth URL from text
+            fn extract_url(text: &str) -> Option<String> {
+                for line in text.lines() {
+                    let trimmed = line.trim();
+                    // Direct URL line
+                    if trimmed.starts_with("https://") {
+                        let url = trimmed.split_whitespace().next().unwrap_or(trimmed);
+                        if url.contains("oauth") || url.contains("claude.ai") || url.contains("anthropic") || url.contains("login") {
+                            return Some(url.to_string());
+                        }
+                    }
+                    // "Open this URL: https://..." or similar
+                    if let Some(url_start) = trimmed.find("https://") {
+                        let url_part = &trimmed[url_start..];
+                        let url = url_part.split_whitespace().next().unwrap_or(url_part);
+                        if url.contains("claude.ai") || url.contains("oauth") || url.contains("anthropic") || url.contains("login") {
+                            return Some(url.to_string());
+                        }
+                    }
+                }
+                None
+            }
+
+            // Read stdout
+            let stdout_task = async {
+                let mut buf = String::new();
+                if let Some(mut s) = stdout {
+                    use tokio::io::AsyncReadExt;
+                    let mut bytes = vec![0u8; 4096];
+                    loop {
+                        match s.read(&mut bytes).await {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                let chunk = String::from_utf8_lossy(&bytes[..n]);
+                                buf.push_str(&chunk);
+                                if let Some(url) = extract_url(&chunk) {
+                                    return (buf, Some(url));
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                (buf, Option::<String>::None)
+            };
+
+            // Read stderr
+            let stderr_task = async {
+                let mut buf = String::new();
+                if let Some(mut s) = stderr {
+                    use tokio::io::AsyncReadExt;
+                    let mut bytes = vec![0u8; 4096];
+                    loop {
+                        match s.read(&mut bytes).await {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                let chunk = String::from_utf8_lossy(&bytes[..n]);
+                                buf.push_str(&chunk);
+                                if let Some(url) = extract_url(&chunk) {
+                                    return (buf, Some(url));
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
+                (buf, Option::<String>::None)
+            };
+
+            let ((out, out_url), (err, err_url)) = tokio::join!(stdout_task, stderr_task);
+
+            all_output.push_str(&out);
+            all_output.push_str(&err);
+
+            // Use the first URL found from either stream
+            let found_url: Option<String> = out_url.or(err_url).or_else(|| extract_url(&all_output));
+
+            if let Some(ref url) = found_url {
+                let _ = crate::platform::open_url(url);
+                if let Ok(mut u) = url_clone.lock() {
+                    *u = url.clone();
+                }
+            }
+
+            eprintln!("[Claude Login] Output: {}", all_output.chars().take(500).collect::<String>());
+        });
+
+        // Give the process a moment to output the URL
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+
+        let found = url_found.lock().map(|u| !u.is_empty()).unwrap_or(false);
+        if found {
+            return Ok("Login page opened in your browser. Complete the sign-in, then click Verify below.".to_string());
+        }
+    }
+
+    // --- Strategy 2: Open an external terminal with `claude login` ---
+    eprintln!("[Claude Login] Direct approach failed, trying external terminal");
+    let result = crate::platform::open_terminal_with_command("claude login");
+    match result {
+        Ok(()) => Ok("Terminal opened with Claude login. Complete sign-in there, then click Verify below.".to_string()),
+        Err(e) => Err(format!("Failed to launch login: {}. Try running 'claude login' manually in PowerShell.", e)),
     }
 }
 
@@ -1903,7 +1513,7 @@ pub async fn start_claude_session(
         claude_cmd.push_str(&format!(" --mcp-config '{}'", config_path.replace('\'', "'\\''")));
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = crate::platform::default_shell();
 
     let use_terminal = use_terminal.unwrap_or(false);
 
@@ -2370,6 +1980,11 @@ pub async fn start_claude_session(
 
     if let Some(key) = &api_key {
         cmd.env("ANTHROPIC_API_KEY", key);
+    }
+
+    // On Windows, Claude Code requires Git Bash. Set the path so it can find it.
+    if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
+        cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
     }
 
     cmd.stdout(std::process::Stdio::piped());
@@ -2864,7 +2479,7 @@ pub async fn reconnect_session(
     let output_file = format!("{}/.operon-{}.jsonl", base_path, session_id);
     let done_file = format!("{}/.operon-{}.done", base_path, session_id);
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    let shell = crate::platform::default_shell();
 
     if let Some(ctx) = remote {
         let profile = {

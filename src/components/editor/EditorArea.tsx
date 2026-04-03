@@ -5,6 +5,7 @@ import { CodeEditor } from './CodeEditor';
 import { DiffViewer } from './DiffViewer';
 import { FileViewer } from './FileViewer';
 import { writeFile } from '../../lib/files';
+import { modSymbol } from '../../lib/platform';
 
 export function EditorArea() {
   const {
@@ -149,7 +150,7 @@ export function EditorArea() {
             <p className="text-xs text-zinc-700">
               Open a file from the sidebar or press{' '}
               <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400 text-[11px] font-mono">
-                ⌘P
+                {modSymbol}P
               </kbd>
             </p>
           </div>

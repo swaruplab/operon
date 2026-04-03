@@ -32,6 +32,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { MCPCatalogEntry } from '../../types/mcp';
 import { getMCPCatalog, installMCPServer, checkMCPDependencies } from '../../lib/mcp';
+import { modKey, isMac, isWindows, isLinux } from '../../lib/platform';
 
 interface DependencyStatus {
   xcode_cli: boolean;
@@ -41,6 +42,7 @@ interface DependencyStatus {
   npm_version: string | null;
   claude_code: boolean;
   claude_version: string | null;
+  git_bash: boolean;
 }
 
 interface InstallProgress {
@@ -185,10 +187,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   const [phaseDone, setPhaseDone] = useState(false);
   const [phaseError, setPhaseError] = useState<string | null>(null);
 
-  // Step indicator
+  // Track which steps completed with errors (for StepIndicator coloring)
+  const [failedSteps, setFailedSteps] = useState<Set<Step>>(new Set());
+
+  // Git installer download state (Windows)
+  const [gitDownloading, setGitDownloading] = useState(false);
+
+  // Step indicator — Xcode is macOS-only
   const allSteps: { key: Step; label: string }[] = [
     { key: 'welcome', label: 'Welcome' },
-    { key: 'install-xcode', label: 'Xcode' },
+    ...(isMac ? [{ key: 'install-xcode' as Step, label: 'Xcode' }] : []),
     { key: 'install-tools', label: 'Tools' },
     { key: 'install-claude', label: 'Claude' },
     { key: 'auth', label: 'Auth' },
@@ -198,14 +206,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   ];
 
   const currentStepIndex = (() => {
+    // On non-macOS, Xcode step is removed so indices shift down by 1
+    const xcodeOffset = isMac ? 0 : -1;
     if (step === 'welcome') return 0;
-    if (step === 'checking' || step === 'install-xcode') return 1;
-    if (step === 'install-tools' || step === 'installing') return 2;
-    if (step === 'install-claude') return 3;
-    if (step === 'auth') return 4;
-    if (step === 'research-tools') return 5;
-    if (step === 'tour-overview' || step === 'tour-modes' || step === 'tour-remote' || step === 'tour-features' || step === 'tour-shortcuts') return 6;
-    if (step === 'complete') return 7;
+    if (step === 'checking' || step === 'install-xcode') return 1; // Only reached on macOS
+    if (step === 'install-tools' || step === 'installing') return 2 + xcodeOffset;
+    if (step === 'install-claude') return 3 + xcodeOffset;
+    if (step === 'auth') return 4 + xcodeOffset;
+    if (step === 'research-tools') return 5 + xcodeOffset;
+    if (step === 'tour-overview' || step === 'tour-modes' || step === 'tour-remote' || step === 'tour-features' || step === 'tour-shortcuts') return 6 + xcodeOffset;
+    if (step === 'complete') return 7 + xcodeOffset;
     return 0;
   })();
 
@@ -216,14 +226,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     try {
       const status = await invoke<DependencyStatus>('check_local_dependencies');
       setDeps(status);
-      if (status.xcode_cli && status.node && status.claude_code) {
+      const allGood = status.xcode_cli && status.node && status.claude_code
+        && (isWindows ? status.git_bash : true);
+      if (allGood) {
         // Everything's already installed — skip to auth
         setStep('auth');
-      } else if (!status.xcode_cli) {
-        // Start with Xcode
+      } else if (isMac && !status.xcode_cli) {
+        // Start with Xcode (macOS only)
         setStep('install-xcode');
-      } else if (!status.node) {
-        // Xcode done, need tools
+      } else if (!status.node || (isWindows && !status.git_bash)) {
+        // Need tools (Node.js, package manager, Git on Windows)
         setStep('install-tools');
       } else {
         // Just need Claude Code
@@ -310,9 +322,28 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     }
   };
 
-  const startXcodeInstall = () => runPhase('install_phase_xcode');
-  const startToolsInstall = () => runPhase('install_phase_tools');
-  const startClaudeInstall = () => runPhase('install_phase_claude');
+  // Run a phase and track which wizard step it belongs to for error display
+  const runPhaseForStep = async (command: string, wizardStep: Step) => {
+    await runPhase(command);
+    // After the phase finishes, re-check deps to see what actually succeeded
+    try {
+      const status = await invoke<DependencyStatus>('check_local_dependencies');
+      setDeps(status);
+      // On Windows, if Git Bash is still missing after tools phase, mark as failed
+      const criticalMissing = isWindows
+        ? (!status.node || !status.git_bash)
+        : !status.node;
+      if (criticalMissing) {
+        setFailedSteps(prev => new Set([...prev, wizardStep]));
+      } else {
+        setFailedSteps(prev => { const next = new Set(prev); next.delete(wizardStep); return next; });
+      }
+    } catch { /* ignore re-check failures */ }
+  };
+
+  const startXcodeInstall = () => runPhaseForStep('install_phase_xcode', 'install-xcode' as Step);
+  const startToolsInstall = () => runPhaseForStep('install_phase_tools', 'install-tools' as Step);
+  const startClaudeInstall = () => runPhaseForStep('install_phase_claude', 'install-claude' as Step);
 
   // Cleanup listener on unmount
   useEffect(() => {
@@ -344,6 +375,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   }, [step]);
 
   // Launch OAuth login flow
+  const oauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const launchOAuth = async () => {
     setOauthState('launched');
     setOauthMessage(null);
@@ -351,24 +384,47 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     try {
       const msg = await invoke<string>('launch_claude_login');
       setOauthMessage(msg);
+
+      // Auto-poll for auth status every 3 seconds
+      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+      oauthPollRef.current = setInterval(async () => {
+        try {
+          const ok = await invoke<boolean>('check_oauth_status');
+          if (ok) {
+            if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+            oauthPollRef.current = null;
+            setOauthState('success');
+            setTimeout(() => setStep('research-tools'), 600);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 3000);
     } catch (e) {
       setError(`Failed to launch login: ${e}`);
       setOauthState('failed');
     }
   };
 
-  // Verify OAuth succeeded
+  // Clean up poll on unmount
+  useEffect(() => {
+    return () => {
+      if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+    };
+  }, []);
+
+  // Verify OAuth succeeded (manual button)
   const verifyOAuth = async () => {
     setOauthState('checking');
     setError(null);
     try {
       const ok = await invoke<boolean>('check_oauth_status');
       if (ok) {
+        if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+        oauthPollRef.current = null;
         setOauthState('success');
         setTimeout(() => setStep('research-tools'), 600);
       } else {
         setOauthState('failed');
-        setError('No OAuth credentials found yet. Complete the login in Terminal, then try again.');
+        setError('No OAuth credentials found yet. Complete the login in your browser, then try again.');
       }
     } catch (e) {
       setOauthState('failed');
@@ -403,32 +459,63 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     setTimeout(onComplete, 600);
   };
 
+  // Derive step failure from actual dependency state — not just a flag
+  const isStepFailed = (key: Step): boolean => {
+    if (failedSteps.has(key)) return true;
+    if (!deps) return false;
+    // Tools step: failed if Git (Windows) or Node is missing
+    if (key === 'install-tools') {
+      return (isWindows && !deps.git_bash) || !deps.node;
+    }
+    // Claude step: failed if Claude Code is not installed
+    if (key === 'install-claude') {
+      return !deps.claude_code;
+    }
+    // Xcode step (macOS): failed if xcode_cli missing
+    if (key === 'install-xcode') {
+      return !deps.xcode_cli;
+    }
+    return false;
+  };
+
   // Stepper bar
   const StepIndicator = () => (
     <div className="flex items-center justify-center gap-1 mb-6">
-      {allSteps.map((s, i) => (
-        <div key={s.key} className="flex items-center gap-1">
-          <div
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-colors ${
-              i < currentStepIndex
-                ? 'bg-green-900/30 text-green-400'
-                : i === currentStepIndex
-                ? 'bg-blue-900/40 text-blue-400 ring-1 ring-blue-500/30'
-                : 'bg-zinc-800/50 text-zinc-600'
-            }`}
-          >
-            {i < currentStepIndex ? (
-              <CheckCircle className="w-3 h-3" />
-            ) : (
-              <span className="w-3 h-3 flex items-center justify-center text-[9px]">{i + 1}</span>
+      {allSteps.map((s, i) => {
+        const isPast = i < currentStepIndex;
+        const isCurrent = i === currentStepIndex;
+        const hasFailed = isPast && isStepFailed(s.key);
+
+        return (
+          <div key={s.key} className="flex items-center gap-1">
+            <div
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-colors ${
+                hasFailed
+                  ? 'bg-red-900/30 text-red-400'
+                  : isPast
+                  ? 'bg-green-900/30 text-green-400'
+                  : isCurrent
+                  ? 'bg-blue-900/40 text-blue-400 ring-1 ring-blue-500/30'
+                  : 'bg-zinc-800/50 text-zinc-600'
+              }`}
+            >
+              {hasFailed ? (
+                <XCircle className="w-3 h-3" />
+              ) : isPast ? (
+                <CheckCircle className="w-3 h-3" />
+              ) : (
+                <span className="w-3 h-3 flex items-center justify-center text-[9px]">{i + 1}</span>
+              )}
+              {s.label}
+            </div>
+            {i < allSteps.length - 1 && (
+              <div className={`w-4 h-px ${
+                hasFailed ? 'bg-red-800' : isPast ? 'bg-green-800' : 'bg-zinc-800'
+              }`} />
             )}
-            {s.label}
           </div>
-          {i < allSteps.length - 1 && (
-            <div className={`w-4 h-px ${i < currentStepIndex ? 'bg-green-800' : 'bg-zinc-800'}`} />
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -540,8 +627,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           </div>
         )}
 
-        {/* ========== PAGE 1: XCODE ========== */}
-        {step === 'install-xcode' && (
+        {/* ========== PAGE 1: XCODE (macOS only) ========== */}
+        {isMac && step === 'install-xcode' && (
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
@@ -666,16 +753,101 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
               <h2 className="text-lg font-semibold text-zinc-100">Developer Tools</h2>
               <p className="text-zinc-500 text-sm mt-1">
-                Installing Homebrew, Node.js, and GitHub CLI. This usually takes a couple of minutes.
+                {isMac
+                  ? 'Installing Homebrew, Node.js, and GitHub CLI. This usually takes a couple of minutes.'
+                  : isWindows
+                  ? 'Installing Git, Node.js, and other developer tools.'
+                  : 'Installing Node.js and GitHub CLI. This usually takes a couple of minutes.'}
               </p>
             </div>
+
+            {/* Windows: Git missing — show download button BEFORE install phase runs */}
+            {isWindows && deps && !deps.git_bash && !phaseRunning && !phaseDone && (() => {
+              const GIT_INSTALLER_URL = 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe';
+
+              return (
+                <div className="space-y-3">
+                  {!gitDownloading ? (
+                    <>
+                      <div className="p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg text-center space-y-2">
+                        <XCircle className="w-8 h-8 text-red-400 mx-auto" />
+                        <p className="text-sm font-semibold text-red-200">Git for Windows is required</p>
+                        <p className="text-xs text-zinc-400">Claude Code needs Git to work. Click below to download the installer.</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          invoke('open_url', { url: GIT_INSTALLER_URL });
+                          setGitDownloading(true);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-base transition-colors"
+                      >
+                        <Download className="w-5 h-5" />
+                        Download Git Installer
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-4 bg-blue-950/20 border-2 border-blue-700/30 rounded-lg space-y-3">
+                        <div className="flex items-start gap-3">
+                          <Download className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                          <div className="space-y-2">
+                            <p className="text-sm font-semibold text-blue-200">Git installer is downloading</p>
+                            <p className="text-xs text-zinc-300 leading-relaxed">
+                              Check your browser's download bar at the bottom of the screen. When the download finishes:
+                            </p>
+                            <ol className="text-xs text-zinc-400 space-y-1 list-decimal list-inside">
+                              <li><span className="text-zinc-300 font-medium">Open</span> the downloaded <code className="text-blue-300 bg-zinc-900 px-1 rounded text-[11px]">Git-2.47.1.2-64-bit.exe</code></li>
+                              <li><span className="text-zinc-300 font-medium">Click Next</span> through the setup wizard (defaults are fine)</li>
+                              <li><span className="text-zinc-300 font-medium">Click Install</span> and wait for it to finish</li>
+                              <li>Come back here and click the green button below</li>
+                            </ol>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await invoke('refresh_environment').catch(() => {});
+                            const status = await invoke<DependencyStatus>('check_local_dependencies');
+                            setDeps(status);
+                            if (status.git_bash) {
+                              // Git found! Now run the full tools install for remaining items
+                              startToolsInstall();
+                            } else {
+                              // Not found yet — keep showing instructions
+                              setGitDownloading(true);
+                            }
+                          } catch { /* ignore */ }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-semibold text-base transition-colors"
+                      >
+                        <CheckCircle className="w-5 h-5" />
+                        I finished installing Git — Continue
+                      </button>
+                      <button
+                        onClick={() => {
+                          invoke('open_url', { url: GIT_INSTALLER_URL });
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg text-xs transition-colors"
+                      >
+                        Download again
+                      </button>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Per-step status rows */}
             {(phaseRunning || phaseDone) && (
               <div className="space-y-1.5">
-                <InstallStepRow stepKey="homebrew" label="Homebrew Package Manager" icon={Download} />
+                {isWindows && <InstallStepRow stepKey="git" label="Git for Windows (required by Claude Code)" icon={GitBranch} />}
+                {isMac && <InstallStepRow stepKey="homebrew" label="Homebrew Package Manager" icon={Download} />}
                 <InstallStepRow stepKey="node" label="Node.js Runtime" icon={Package} />
                 <InstallStepRow stepKey="gh" label="GitHub CLI" icon={GitBranch} />
+                {isWindows && <InstallStepRow stepKey="python" label="Python (for PDF reports & research tools)" icon={Terminal} />}
+                {isWindows && <InstallStepRow stepKey="openssh" label="OpenSSH Client (for remote connections)" icon={Globe} />}
+                {isWindows && <InstallStepRow stepKey="uv" label="uv Package Manager (for research tools)" icon={Zap} />}
                 <InstallStepRow stepKey="reportlab" label="PDF Report Library" icon={FileText} />
               </div>
             )}
@@ -689,11 +861,13 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                   <div className="h-full bg-amber-500 rounded-full transition-all duration-700" style={{ width: `${installPercent}%` }} />
                 </div>
-                <div className="p-2.5 bg-amber-950/20 border border-amber-800/20 rounded-lg">
-                  <p className="text-[10px] text-amber-300/80 leading-relaxed">
-                    macOS may ask for your password once to create the Homebrew directory. This is normal.
-                  </p>
-                </div>
+                {isMac && (
+                  <div className="p-2.5 bg-amber-950/20 border border-amber-800/20 rounded-lg">
+                    <p className="text-[10px] text-amber-300/80 leading-relaxed">
+                      macOS may ask for your password once to create the Homebrew directory. This is normal.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -704,7 +878,53 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
             )}
 
-            {phaseError && (
+            {phaseError && installSteps['git']?.status === 'error' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-4 bg-amber-950/20 border-2 border-amber-700/40 rounded-lg">
+                  <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-200">Action Required: Install Git for Windows</p>
+                    <p className="text-xs text-zinc-300 mt-2 leading-relaxed">
+                      {installSteps['git']?.message?.includes('installer launched')
+                        ? 'The Git installer should have appeared on your screen. Complete the setup wizard (just click Next → Next → Install) and wait for it to finish.'
+                        : 'A download page should have opened in your browser. Download and run the Git installer — accept the defaults and click Next through the wizard.'}
+                    </p>
+                    <div className="mt-3 p-2 bg-zinc-900/80 rounded border border-zinc-700">
+                      <p className="text-[10px] text-zinc-400 font-medium mb-1">If you don't see the installer:</p>
+                      <p className="text-[10px] text-zinc-500">Open PowerShell and run:</p>
+                      <code className="block text-[11px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all mt-1">
+                        winget install Git.Git
+                      </code>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      // Refresh PATH on the backend first
+                      await invoke('refresh_environment').catch(() => {});
+                      const status = await invoke<DependencyStatus>('check_local_dependencies');
+                      setDeps(status);
+                      if (status.git_bash) {
+                        setPhaseError(null);
+                        setFailedSteps(prev => { const next = new Set(prev); next.delete('install-tools' as Step); return next; });
+                        // Re-run tools phase to install remaining tools now that Git is present
+                        setPhaseDone(false);
+                        startToolsInstall();
+                      } else {
+                        setPhaseError('Git Bash still not detected. Make sure the Git installer finished completely, then try again.');
+                      }
+                    } catch { /* ignore */ }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold text-base transition-colors"
+                >
+                  <CheckCircle className="w-5 h-5" />
+                  I finished installing Git — Re-check
+                </button>
+              </div>
+            )}
+
+            {phaseError && installSteps['git']?.status !== 'error' && (
               <div className="flex items-start gap-3 p-3 bg-red-950/10 border border-red-900/20 rounded-lg">
                 <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
                 <div>
@@ -721,26 +941,72 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {phaseError ? 'Run these in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
                 <div className="space-y-1.5">
+                  {isWindows && (
+                    <div>
+                      <p className="text-[9px] text-zinc-500 mb-0.5">Git for Windows (required by Claude Code):</p>
+                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        winget install Git.Git
+                      </code>
+                    </div>
+                  )}
+                  {isMac && (
+                    <div>
+                      <p className="text-[9px] text-zinc-500 mb-0.5">Homebrew:</p>
+                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
+                      </code>
+                    </div>
+                  )}
                   <div>
-                    <p className="text-[9px] text-zinc-500 mb-0.5">Homebrew:</p>
+                    <p className="text-[9px] text-zinc-500 mb-0.5">Node.js{!isMac && ' & GitHub CLI'}:</p>
                     <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
-                      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                      {isMac
+                        ? 'brew install node gh'
+                        : isWindows
+                        ? 'winget install OpenJS.NodeJS.LTS GitHub.cli'
+                        : 'sudo apt install -y nodejs gh'}
                     </code>
                   </div>
-                  <div>
-                    <p className="text-[9px] text-zinc-500 mb-0.5">Node.js & GitHub CLI:</p>
-                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
-                      brew install node gh
-                    </code>
-                  </div>
+                  {isMac && (
+                    <div>
+                      <p className="text-[9px] text-zinc-500 mb-0.5">GitHub CLI:</p>
+                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        (included in brew install above)
+                      </code>
+                    </div>
+                  )}
+                  {isWindows && (
+                    <>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 mb-0.5">Python:</p>
+                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                          winget install Python.Python.3.12
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 mb-0.5">OpenSSH Client:</p>
+                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                          winget install Microsoft.OpenSSH.Beta
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 mb-0.5">uv (Python package manager):</p>
+                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                          winget install astral-sh.uv
+                        </code>
+                      </div>
+                    </>
+                  )}
                   <div>
                     <p className="text-[9px] text-zinc-500 mb-0.5">PDF Report Library:</p>
                     <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
-                      pip3 install reportlab
+                      {isWindows ? 'pip install reportlab' : 'pip3 install reportlab'}
                     </code>
                   </div>
                 </div>
-                <p className="text-[9px] text-zinc-600">Click a command to select it, paste into Terminal.app. Hit Retry after.</p>
+                <p className="text-[9px] text-zinc-600">
+                  Click a command to select it, paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}. Hit Retry after.
+                </p>
               </div>
             )}
 
@@ -774,7 +1040,22 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     Retry
                   </button>
                   <button
-                    onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-claude'); }}
+                    onClick={async () => {
+                      // Re-check deps before allowing skip — block if critical tools missing
+                      await invoke('refresh_environment').catch(() => {});
+                      const status = await invoke<DependencyStatus>('check_local_dependencies');
+                      setDeps(status);
+                      const gitOk = !isWindows || status.git_bash;
+                      if (gitOk && status.node) {
+                        setPhaseDone(false); setPhaseError(null); setStep('install-claude');
+                      } else {
+                        setPhaseError(
+                          !gitOk
+                            ? 'Git Bash is still not installed. Please install Git for Windows before continuing.'
+                            : 'Node.js is still not installed. Please install it before continuing.'
+                        );
+                      }
+                    }}
                     className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
                   >
                     I installed manually →
@@ -786,13 +1067,34 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {!phaseRunning && !phaseDone && (
               <div className="flex items-center justify-center gap-4">
                 <button
-                  onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-xcode'); }}
+                  onClick={() => { setPhaseDone(false); setPhaseError(null); setStep(isMac ? 'install-xcode' : 'welcome'); }}
                   className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
                 >
                   ← Back
                 </button>
                 <button
-                  onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-claude'); }}
+                  onClick={async () => {
+                    // Re-check deps before allowing skip — block if critical tools missing
+                    await invoke('refresh_environment').catch(() => {});
+                    const status = await invoke<DependencyStatus>('check_local_dependencies');
+                    setDeps(status);
+                    const gitOk = !isWindows || status.git_bash;
+                    if (gitOk && status.node) {
+                      setPhaseDone(false); setPhaseError(null); setStep('install-claude');
+                    } else {
+                      // Can't skip — show the install UI with error
+                      setPhaseDone(true);
+                      setPhaseError(
+                        !gitOk
+                          ? 'Git for Windows is required. Install it first, then click Retry.'
+                          : 'Node.js is required. Install it first, then click Retry.'
+                      );
+                      // Populate git step status so the amber panel shows
+                      if (!gitOk) {
+                        setInstallSteps(prev => ({ ...prev, git: { status: 'error', message: 'Git not found' } }));
+                      }
+                    }
+                  }}
                   className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
                 >
                   Already installed? Skip →
@@ -803,7 +1105,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         )}
 
         {/* ========== PAGE 3: CLAUDE CODE ========== */}
-        {step === 'install-claude' && (
+        {step === 'install-claude' && (() => {
+          const gitBashMissing = isWindows && deps && !deps.git_bash;
+          const nodeMissing = deps && !deps.node;
+          const hasPrereqIssue = gitBashMissing || nodeMissing;
+
+          return (
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-purple-900/30 flex items-center justify-center mx-auto mb-3">
@@ -814,6 +1121,32 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 The AI coding agent that powers Operon.
               </p>
             </div>
+
+            {/* Prerequisite missing — redirect back to Tools step */}
+            {hasPrereqIssue && !phaseRunning && (
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg">
+                  <XCircle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-200">
+                      {gitBashMissing ? 'Git for Windows must be installed first' : 'Node.js must be installed first'}
+                    </p>
+                    <p className="text-xs text-zinc-400 mt-1.5">
+                      {gitBashMissing
+                        ? 'Claude Code requires Git Bash to run on Windows. Go back to the Tools step to install it.'
+                        : 'Claude Code requires Node.js. Go back to the Tools step to install it.'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-tools'); }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold text-base transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                  Go Back to Install Tools
+                </button>
+              </div>
+            )}
 
             {phaseRunning && (
               <div className="space-y-2">
@@ -853,16 +1186,29 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <p className="text-[11px] text-zinc-400 font-medium">
                   {phaseError ? 'Run this in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
-                <code className="block text-[11px] text-green-300 bg-zinc-950 px-3 py-2 rounded font-mono select-all">
-                  curl -fsSL https://claude.ai/install.sh | bash
-                </code>
-                <p className="text-[9px] text-zinc-600">Click the command to select it, then paste into Terminal.app.</p>
+                {isWindows && (
+                  <div className="mb-1.5">
+                    <p className="text-[9px] text-zinc-500 mb-0.5">1. Install Git Bash (if not done):</p>
+                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                      winget install Git.Git
+                    </code>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[9px] text-zinc-500 mb-0.5">{isWindows ? '2. ' : ''}Install Claude Code:</p>
+                  <code className="block text-[11px] text-green-300 bg-zinc-950 px-3 py-2 rounded font-mono select-all">
+                    {isWindows
+                      ? 'npm install -g @anthropic-ai/claude-code'
+                      : 'curl -fsSL https://claude.ai/install.sh | bash'}
+                  </code>
+                </div>
+                <p className="text-[9px] text-zinc-600">Click a command to select it, then paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}.</p>
               </div>
             )}
 
             {/* Action buttons */}
             <div className="flex gap-3">
-              {!phaseRunning && !phaseDone && (
+              {!phaseRunning && !phaseDone && !hasPrereqIssue && (
                 <button
                   onClick={() => { setPhaseDone(false); setPhaseError(null); startClaudeInstall(); }}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
@@ -916,7 +1262,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {/* ========== INSTALLING (Legacy — kept for backward compat) ========== */}
         {step === 'installing' && (
@@ -953,8 +1300,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
             </div>
             <div className="space-y-1.5">
-              <InstallStepRow stepKey="xcode" label="Xcode Command Line Tools" icon={Terminal} />
-              <InstallStepRow stepKey="homebrew" label="Homebrew Package Manager" icon={Download} />
+              {isMac && <InstallStepRow stepKey="xcode" label="Xcode Command Line Tools" icon={Terminal} />}
+              {isMac && <InstallStepRow stepKey="homebrew" label="Homebrew Package Manager" icon={Download} />}
               <InstallStepRow stepKey="node" label="Node.js Runtime" icon={Package} />
               <InstallStepRow stepKey="claude" label="Claude Code" icon={Bot} />
             </div>
@@ -1105,8 +1452,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 {oauthState === 'idle' && (
                   <div className="p-4 bg-zinc-900 rounded-lg border border-zinc-800 space-y-3">
                     <p className="text-sm text-zinc-300 leading-relaxed">
-                      This will open Terminal and run <code className="text-[11px] bg-zinc-800 px-1.5 py-0.5 rounded font-mono">claude login</code>.
-                      A browser window will open for you to sign in with your Claude account.
+                      Click below to sign in. A browser window will open for you to log into your Claude account.
                     </p>
                     <p className="text-xs text-zinc-500 leading-relaxed">
                       Works with Claude Pro ($20/mo), Team, and Enterprise subscriptions.
@@ -1115,14 +1461,14 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 )}
 
                 {oauthState === 'launched' && (
-                  <div className="p-4 bg-purple-950/20 rounded-lg border border-purple-900/30 space-y-2">
+                  <div className="p-4 bg-purple-950/20 rounded-lg border border-purple-900/30 space-y-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-                      <p className="text-sm text-purple-300 font-medium">Waiting for login...</p>
+                      <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+                      <p className="text-sm text-purple-300 font-medium">Waiting for you to sign in...</p>
                     </div>
                     <p className="text-xs text-zinc-400 leading-relaxed">
-                      Complete the sign-in in the Terminal/browser window that opened.
-                      Once done, click "Verify Login" below.
+                      A browser window should have opened. Sign in with your Claude account there.
+                      This page will update automatically once you're logged in.
                     </p>
                     {oauthMessage && <p className="text-[10px] text-zinc-500">{oauthMessage}</p>}
                   </div>
@@ -1140,15 +1486,18 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <CheckCircle className="w-5 h-5 text-green-400" />
                     <div>
                       <p className="text-sm text-green-300 font-medium">Logged in successfully!</p>
-                      <p className="text-xs text-zinc-500">OAuth credentials verified.</p>
+                      <p className="text-xs text-zinc-500">Credentials verified. Continuing...</p>
                     </div>
                   </div>
                 )}
 
                 {oauthState === 'failed' && (
-                  <div className="p-4 bg-zinc-900 rounded-lg border border-zinc-800 space-y-2">
-                    <p className="text-xs text-zinc-400 leading-relaxed">
-                      Login not detected yet. Make sure you completed the sign-in flow in the browser, then click "Verify Login" again.
+                  <div className="p-4 bg-amber-950/20 rounded-lg border border-amber-800/30 space-y-2">
+                    <p className="text-xs text-zinc-300 leading-relaxed">
+                      Login not detected yet. Make sure you completed the sign-in in the browser window.
+                    </p>
+                    <p className="text-[10px] text-zinc-500">
+                      If the browser didn't open, try clicking "Relaunch Login" below.
                     </p>
                   </div>
                 )}
@@ -1179,25 +1528,30 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {/* Action buttons for OAuth */}
             {authMethod === 'oauth' && oauthState !== 'success' && (
               <div className="flex gap-3">
-                {oauthState === 'idle' || oauthState === 'failed' ? (
+                {(oauthState === 'idle' || oauthState === 'failed') && (
                   <button
                     onClick={launchOAuth}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-medium transition-colors"
                   >
                     <LogIn className="w-4 h-4" />
-                    {oauthState === 'failed' ? 'Relaunch Login' : 'Open Login'}
+                    {oauthState === 'failed' ? 'Relaunch Login' : 'Sign In with Claude'}
                   </button>
-                ) : oauthState === 'launched' ? (
+                )}
+                {oauthState === 'launched' && (
                   <button
                     onClick={verifyOAuth}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg font-medium transition-colors"
                   >
                     <CheckCircle className="w-4 h-4" />
-                    Verify Login
+                    Check Now
                   </button>
-                ) : null}
+                )}
                 <button
-                  onClick={() => completeAuth(true)}
+                  onClick={() => {
+                    if (oauthPollRef.current) clearInterval(oauthPollRef.current);
+                    oauthPollRef.current = null;
+                    completeAuth(true);
+                  }}
                   className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
                 >
                   Skip
@@ -1379,11 +1733,11 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             <div className="space-y-2">
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <Keyboard className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">Cmd+K</kbd> to start a new conversation</p>
+                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+K</kbd> to start a new conversation</p>
               </div>
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <Keyboard className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">Cmd+Shift+P</kbd> to open the command palette</p>
+                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+Shift+P</kbd> to open the command palette</p>
               </div>
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />

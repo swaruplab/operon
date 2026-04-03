@@ -643,7 +643,8 @@ pub async fn generate_report_pdf(
         .map_err(|e| format!("Failed to write generator script: {}", e))?;
 
     // Run the Python generator
-    let output = std::process::Command::new("python3")
+    let python = crate::platform::python_command();
+    let output = std::process::Command::new(python)
         .args([
             script_file.to_string_lossy().as_ref(),
             config_file.to_string_lossy().as_ref(),
@@ -671,8 +672,8 @@ pub async fn generate_report_pdf(
 
             let mut installed = false;
             for strategy in &install_strategies {
-                eprintln!("[operon] Trying: python3 {}", strategy.join(" "));
-                let install = std::process::Command::new("python3")
+                eprintln!("[operon] Trying: {} {}", python, strategy.join(" "));
+                let install = std::process::Command::new(python)
                     .args(strategy)
                     .output();
                 if let Ok(install_out) = install {
@@ -686,23 +687,24 @@ pub async fn generate_report_pdf(
                 }
             }
 
-            // Fallback: try pip3 directly (some systems have pip3 but not python3 -m pip)
+            // Fallback: try pip/pip3 directly (some systems have pip3 but not python3 -m pip)
             if !installed {
-                eprintln!("[operon] Trying: pip3 install reportlab --user --quiet");
-                if let Ok(pip3_out) = std::process::Command::new("pip3")
+                let pip_cmd = if cfg!(target_os = "windows") { "pip" } else { "pip3" };
+                eprintln!("[operon] Trying: {} install reportlab --user --quiet", pip_cmd);
+                if let Ok(pip_out) = std::process::Command::new(pip_cmd)
                     .args(["install", "reportlab", "--user", "--quiet"])
                     .output()
                 {
-                    if pip3_out.status.success() {
+                    if pip_out.status.success() {
                         installed = true;
-                        eprintln!("[operon] reportlab installed via pip3");
+                        eprintln!("[operon] reportlab installed via {}", pip_cmd);
                     }
                 }
             }
 
             if installed {
                 // Retry PDF generation after installing
-                let retry = std::process::Command::new("python3")
+                let retry = std::process::Command::new(python)
                     .args([
                         script_file.to_string_lossy().as_ref(),
                         config_file.to_string_lossy().as_ref(),
