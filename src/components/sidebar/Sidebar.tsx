@@ -87,6 +87,16 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
   };
 
   const openLocalFile = async (preview: boolean) => {
+    // Guard: refuse to open files larger than 15 MB to avoid UI hangs
+    if (entry.size > MAX_FILE_SIZE) {
+      openFile(
+        entry.path,
+        `⚠ File too large to display\n\nThis file is ${formatSize(entry.size)}, which exceeds the 15 MB limit.\nOpening it in the editor could freeze the application.\n\nPath: ${entry.path}`,
+        preview,
+      );
+      return;
+    }
+
     try {
       const ext = entry.extension?.toLowerCase() || '';
       const binaryInfo = BINARY_EXTENSIONS[ext];
@@ -138,6 +148,16 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
     return colorMap[ext || ''] || 'text-zinc-400';
   };
 
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+
+  const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15 MB
+
   return (
     <div>
       <div
@@ -146,7 +166,7 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
         onMouseLeave={() => setHovered(false)}
       >
         <button
-          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors group"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -174,6 +194,11 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
           <span className="truncate ml-1">{entry.name}</span>
           {isPinned && !hovered && (
             <Star className="w-3 h-3 text-amber-400 ml-auto shrink-0 fill-amber-400" />
+          )}
+          {!entry.is_dir && entry.size > 0 && !isPinned && !loading && (
+            <span className="ml-auto text-[10px] text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              {formatSize(entry.size)}
+            </span>
           )}
           {loading && <span className="ml-auto text-[10px] text-zinc-600 animate-pulse">...</span>}
         </button>

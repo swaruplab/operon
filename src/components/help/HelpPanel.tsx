@@ -211,25 +211,46 @@ const sections: HelpSection[] = [
     items: [
       {
         title: 'Overview',
-        content: 'Operon includes built-in GitHub integration for version control and publishing. You can initialize a repo, commit changes, and publish your project to GitHub — all from the Git panel in the sidebar without ever opening a terminal.',
+        content: 'Operon includes a full-featured GitHub integration for version control. Initialize repos, stage individual files, manage branches, stash changes, browse commit history, and publish — all from the Git panel in the sidebar.',
         action: { label: 'Open Git Panel', view: 'git' },
       },
       {
         title: 'Setting up GitHub',
-        content: 'Open the Git panel from the sidebar (the branch icon). The first time, Operon will guide you through a 3-step setup: 1) Install the GitHub CLI (gh) if not present, 2) Sign in to your GitHub account using device authentication, 3) Create a new repository on GitHub for your project.',
+        content: 'Open the Git panel from the sidebar (the branch icon). The first time, Operon guides you through a 3-step setup: 1) Install the GitHub CLI (gh) if not present, 2) Sign in to your GitHub account using device authentication, 3) Create a new repository or link an existing one.',
       },
       {
-        title: 'GitHub sign-in',
-        content: 'Operon uses GitHub\'s secure device authentication flow. When you click "Sign in to GitHub", a one-time code appears. Copy it, then click the link to open GitHub in your browser. Paste the code to authorize Operon. Once authenticated, you stay signed in across sessions.',
-        tip: 'The one-time code is displayed in the Git panel with a click-to-copy button for convenience.',
+        title: 'Repository selection',
+        content: 'In step 3, choose between creating a new repository (with name, description, and public/private toggle) or linking an existing one from your GitHub account. The existing repo picker shows all your repos with a search filter. You can change the linked repository at any time by clicking "Change repository..." below the connection status.',
+        tip: 'Use "Change repository..." to switch between personal and organization repos without re-authenticating.',
       },
       {
-        title: 'Committing and publishing',
-        content: 'Once set up, the Git panel shows your current branch, changed files count, and version info. Write a commit message and click "Commit & Push" to save your work. The "Publish" button handles creating a version tag and pushing everything to GitHub in one click.',
+        title: 'Branch management',
+        content: 'Click the branch name at the top of the Git panel to open the branch picker. It shows both local and remote branches. Switch branches with one click, or create a new branch inline by typing a name and pressing Enter. Remote branches are fetched automatically via git fetch.',
       },
       {
-        title: 'Auto-versioning',
-        content: 'Enable "Auto Version" in the Git panel to automatically bump the patch version (e.g., 0.1.0 → 0.1.1) each time you publish. Operon uses semantic versioning (semver) and creates git tags for each release.',
+        title: 'File-level staging',
+        content: 'The Changes section groups files into "Staged" and "Changes" (unstaged). Hover over any file to reveal stage (+), unstage (−), and discard (↩) buttons. Use the header icons to stage all or unstage all at once. This gives you precise control over what goes into each commit.',
+      },
+      {
+        title: 'Publishing and push targets',
+        content: 'Write a commit message and click "Publish to GitHub" to commit and push in one step. Click the branch name in the "Push to" indicator to choose a different target branch — useful for pushing a local feature branch to a specific remote branch.',
+      },
+      {
+        title: 'Version tagging',
+        content: 'Enable "Tag version" to create a git tag with each publish. Choose from patch (0.1.0 → 0.1.1), minor (0.1.0 → 0.2.0), major (0.1.0 → 1.0.0), or enter a custom version string. Operon uses semantic versioning and pushes tags alongside your commits.',
+      },
+      {
+        title: 'Stash manager',
+        content: 'Expand the Stash section to temporarily shelve uncommitted changes. Type an optional message and click the archive icon to stash. Each stash entry shows its message and date — click the restore icon to apply it back, or the trash icon to discard it.',
+        tip: 'Stash your work before switching branches to avoid losing uncommitted changes.',
+      },
+      {
+        title: 'Commit history',
+        content: 'Expand the History section to see the last 30 commits with author, date, and file count. Click any commit to see its full diff. Use the copy icon to grab a commit hash for reference in chat or terminal commands.',
+      },
+      {
+        title: 'Amend last commit',
+        content: 'Below the Publish button, click "Amend last commit" to edit the most recent commit message or fold staged changes into it. The current message is pre-filled for editing.',
       },
     ],
   },
@@ -286,6 +307,10 @@ const sections: HelpSection[] = [
       {
         title: 'cd to terminal',
         content: 'Click the terminal-arrow icon on any folder to automatically run a cd command in the integrated terminal, navigating to that directory. Saves you from typing long paths manually.',
+      },
+      {
+        title: 'File sizes',
+        content: 'Hover over any file in the explorer to see its size (B, KB, MB, GB) displayed on the right. This works in both the local and remote file explorers. Files larger than 15 MB show a warning instead of opening in the editor, to prevent the UI from hanging on very large data files.',
       },
       {
         title: 'Search across files',
@@ -362,6 +387,11 @@ const sections: HelpSection[] = [
       {
         title: 'SSH key setup',
         content: 'Don\'t have an SSH key? Expand the "Generate one automatically" section when adding a server. Enter your server password once — Operon generates an ed25519 key, copies it to the server, and stores it locally. You\'ll never need the password again.',
+      },
+      {
+        title: 'File transfer (drag & drop)',
+        content: 'Drag files from your Mac\'s Finder directly into the remote file explorer to upload them to the server via SCP. A blue overlay shows the drop target. Multiple files and folders are supported — each transfer shows a live progress bar. Right-click any remote file or folder and select "Download to local" to save it to your ~/Downloads folder.',
+        tip: 'This works like CyberDuck or WinSCP but built right into the IDE. Use it to move scripts, data files, and results between your laptop and the cluster.',
       },
       {
         title: 'HPC tips',

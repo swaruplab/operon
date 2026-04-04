@@ -370,7 +370,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || id.contains("markdown") || id.contains("report") || id.contains("research-grant")
         || id.contains("scientific-writing") || id.contains("scientific-slide")
         || id.contains("scientific-schemat") || id.contains("open-notebook")
-        || id.contains("clinical-report")
+        || id.contains("clinical-report") || id.contains("markitdown")
     {
         return "writing".to_string();
     }
@@ -409,6 +409,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || id.contains("biopython") || id.contains("bioservices") || id.contains("gget")
         || id.contains("pyopenms") || id.contains("matchms") || id.contains("arboreto")
         || id.contains("neurokit") || id.contains("pydicom") || id.contains("imaging-data")
+        || id.contains("get-available-resources")
     {
         return "genomics".to_string();
     }
@@ -440,7 +441,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || id.contains("sympy") || id.contains("simpy") || id.contains("pymoo")
         || id.contains("networkx") || id.contains("exploratory-data")
         || id.contains("matlab") || id.contains("geopandas")
-        || id.contains("fluidsim") || id.contains("astropy")
+        || id.contains("fluidsim") || id.contains("astropy") || id.contains("geomaster")
     {
         return "statistics".to_string();
     }
@@ -450,7 +451,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || id.contains("scholar-evaluation") || id.contains("consciousness")
         || id.contains("what-if") || id.contains("research-lookup")
         || id.contains("bgpt-paper") || id.contains("perplexity-search")
-        || id.contains("parallel-web")
+        || id.contains("parallel-web") || id.contains("pyzotero")
     {
         return "research".to_string();
     }

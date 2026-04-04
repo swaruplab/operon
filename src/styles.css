@@ -52,3 +52,9 @@ html, body, #root {
 ::selection {
   background: rgba(59, 130, 246, 0.3);
 }
+
+/* Chat message text overflow fix — prevent long URLs and unbroken strings from escaping bubbles */
+.break-words {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

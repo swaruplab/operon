@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import {
   Send,
   Square,
@@ -719,7 +720,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
         <div
           onContextMenu={handleContextMenu}
-          className={`max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed cursor-default ${
+          className={`max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed cursor-default break-words overflow-hidden ${
             isUser
               ? 'bg-blue-600/90 text-white'
               : systemStyles
@@ -766,7 +767,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     <div className="flex justify-start">
       <div
         onContextMenu={handleContextMenu}
-        className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-zinc-800/80 text-zinc-200 cursor-default"
+        className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-zinc-800/80 text-zinc-200 cursor-default break-words overflow-hidden"
       >
         {/* Working section: collapsed by default */}
         {hasWorkingContent && (
@@ -777,9 +778,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           />
         )}
 
-        {/* Text output — always visible */}
+        {/* Text output — always visible, rendered as Markdown for assistant */}
         {textParts.map(({ idx, text }) => (
-          <div key={idx} className="whitespace-pre-wrap">{text}</div>
+          <MarkdownRenderer key={idx} text={text} />
         ))}
       </div>
       {ctxMenu && (
@@ -1155,6 +1156,8 @@ export function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamStalled, setStreamStalled] = useState(false);
+  const lastEventTime = useRef<number>(0);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [totalCost, setTotalCost] = useState(0);
@@ -1211,8 +1214,10 @@ export function ChatPanel() {
 
   // Voice dictation via native macOS speech recognition
   const [isDictating, setIsDictating] = useState(false);
-  // PubMed knowledge base
-  const [pubmedEnabled, setPubmedEnabled] = useState(true);
+  // PubMed knowledge base — disabled by default to avoid irrelevant searches
+  // for non-scientific queries (e.g. "list files in this folder"). Users can
+  // toggle it on via the PubMed button when they need literature grounding.
+  const [pubmedEnabled, setPubmedEnabled] = useState(false);
   const [pubmedSearching, setPubmedSearching] = useState(false);
   const [lastPubmedResults, setLastPubmedResults] = useState<PubMedArticle[] | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1226,6 +1231,10 @@ export function ChatPanel() {
   remoteInfoRef.current = remoteInfo;
   const projectPathRef = useRef(projectPath);
   projectPathRef.current = projectPath;
+  // Pin the working directory for the lifetime of a session so that folder
+  // navigation in the sidebar doesn't break an active streaming session.
+  // Set on the first message; cleared when the session is reset.
+  const sessionProjectPath = useRef<string | null>(null);
   const reportPhaseRef = useRef<ReportPhase>(reportPhase);
   reportPhaseRef.current = reportPhase;
   const reportSelectedFilesRef = useRef(reportSelectedFiles);
@@ -1318,6 +1327,7 @@ export function ChatPanel() {
     dirCache.current.clear();
     projectIndex.current = null;
     projectIndexPath.current = null;
+    sessionProjectPath.current = null;
   }, [isStreaming, sessionId]);
 
   // @-mention: search files when query changes (with caching + adaptive debounce)
@@ -1757,11 +1767,29 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Watchdog: detect stalled remote streams (no events for 90 seconds).
+  // On remote SSH, the connection can drop silently (network hiccup, SSH timeout,
+  // NFS stall) leaving the UI stuck in streaming mode with no way to recover.
+  useEffect(() => {
+    if (!isStreaming || !remoteInfo) {
+      setStreamStalled(false);
+      return;
+    }
+    const interval = setInterval(() => {
+      if (lastEventTime.current > 0 && Date.now() - lastEventTime.current > 90_000) {
+        setStreamStalled(true);
+      }
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [isStreaming, remoteInfo]);
+
   // Listen for Claude events
   useEffect(() => {
     const unlisteners: UnlistenFn[] = [];
 
     listen<{ line: string }>(`claude-event-${sessionId}`, (event) => {
+      lastEventTime.current = Date.now();
+      setStreamStalled(false);
       const line = event.payload.line;
       try {
         const data = JSON.parse(line) as ClaudeEvent;
@@ -1796,6 +1824,10 @@ export function ChatPanel() {
             };
           });
 
+          // Tag each block with the turn's message ID so we can distinguish
+          // blocks from previous turns vs the current turn during content updates.
+          const taggedNewBlocks = newBlocks.map((b) => ({ ...b, _turnId: msgId }));
+
           if (isNewMsg) {
             // First time seeing this message ID — it's a new turn
             seenMsgIds.current.add(msgId);
@@ -1811,7 +1843,7 @@ export function ChatPanel() {
                 const updated = [...prev];
                 updated[existingIdx] = {
                   ...existing,
-                  content: [...existing.content, ...newBlocks],
+                  content: [...existing.content, ...taggedNewBlocks],
                 };
                 return updated;
               }
@@ -1822,7 +1854,7 @@ export function ChatPanel() {
                 {
                   id: crypto.randomUUID(),
                   role: 'assistant',
-                  content: newBlocks,
+                  content: taggedNewBlocks,
                   timestamp: Date.now(),
                   isStreaming: true,
                 },
@@ -1838,26 +1870,16 @@ export function ChatPanel() {
 
               const existing = prev[existingIdx];
 
-              // Find where this message's blocks start by looking for matching IDs
-              // Build a set of IDs in the new blocks for quick lookup
-              const newBlockIds = new Set(
-                newBlocks
-                  .filter((b) => b.type === 'tool_use')
-                  .map((b) => (b as ToolUseBlock).id)
-              );
-
-              // Keep blocks from PREVIOUS turns (blocks whose tool_use IDs aren't in newBlocks)
-              // and replace/update blocks from THIS turn
+              // Keep blocks from PREVIOUS turns (those with a different _turnId).
+              // This preserves text, thinking, and tool_use blocks from earlier turns
+              // while replacing only the current turn's content.
               const prevTurnBlocks = existing.content.filter((b) => {
-                if (b.type === 'tool_use') {
-                  return !newBlockIds.has(b.id);
-                }
-                // For text/thinking from previous turns, keep them if they're not in new blocks
-                return false; // Will be re-added from newBlocks if still present
+                const blockTurnId = (b as ContentBlock & { _turnId?: string })._turnId;
+                return blockTurnId !== undefined && blockTurnId !== msgId;
               });
 
               // Preserve tool results for blocks that already have results
-              const mergedNewBlocks = newBlocks.map((block) => {
+              const mergedNewBlocks = taggedNewBlocks.map((block) => {
                 if (block.type === 'tool_use') {
                   const prevBlock = existing.content.find(
                     (b) => b.type === 'tool_use' && b.id === (block as ToolUseBlock).id
@@ -1912,8 +1934,10 @@ export function ChatPanel() {
           );
 
           // Plan mode: detect plan file after Claude finishes
+          // Use the pinned session path — the plan file was written there, not
+          // wherever the sidebar may have navigated to since.
           if (modeRef.current === 'plan') {
-            const basePath = remoteInfoRef.current?.remotePath || projectPathRef.current || '.';
+            const basePath = remoteInfoRef.current?.remotePath || sessionProjectPath.current || projectPathRef.current || '.';
             const planPath = `${basePath}/implementation_plan.md`;
             // Delay slightly to let file writes flush
             setTimeout(async () => {
@@ -1996,8 +2020,9 @@ export function ChatPanel() {
       }).catch(() => {});
 
       // If in plan mode, check for implementation_plan.md and show approval UI
+      // Use the pinned session path — the plan file was written there.
       if (modeRef.current === 'plan') {
-        const basePath = remoteInfoRef.current?.remotePath || projectPathRef.current || '.';
+        const basePath = remoteInfoRef.current?.remotePath || sessionProjectPath.current || projectPathRef.current || '.';
         const planPath = `${basePath}/implementation_plan.md`;
 
         // Try to read the plan file (Claude Code writes it during plan mode)
@@ -2083,7 +2108,7 @@ export function ChatPanel() {
           setTimeout(async () => {
             try {
               const remote = remoteInfoRef.current;
-              const basePath = remote?.remotePath || projectPathRef.current || '.';
+              const basePath = remote?.remotePath || sessionProjectPath.current || projectPathRef.current || '.';
               const filename = generateReportFilename();
 
               // ── Step 1: Always save markdown file as primary output ──
@@ -2798,7 +2823,16 @@ export function ChatPanel() {
     setAttachments([]); // Clear attachments for next message
     setMentionActive(false);
     setIsStreaming(true);
+    setStreamStalled(false);
+    lastEventTime.current = Date.now();
     seenMsgIds.current.clear(); // Reset for new conversation turn
+
+    // Pin the working directory on the first message of this session so that
+    // navigating folders in the sidebar doesn't break an active session.
+    if (!sessionProjectPath.current) {
+      sessionProjectPath.current = projectPath || '.';
+    }
+    const pinnedPath = sessionProjectPath.current;
 
     try {
       // For report draft generation, start a FRESH session (don't resume).
@@ -2813,7 +2847,7 @@ export function ChatPanel() {
       const invokeArgs: Record<string, unknown> = {
         sessionId,
         prompt,
-        projectPath: projectPath || '.',
+        projectPath: pinnedPath,
         model,
         resumeSession: shouldStartFresh ? null : claudeSessionId,
         // Send the actual mode — the backend handles plan/report prompt construction,
@@ -2855,7 +2889,10 @@ export function ChatPanel() {
         },
       ]);
     }
-  }, [input, isStreaming, sessionId, projectPath, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocol, protocolContent, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady]);
+  // NOTE: projectPath is intentionally excluded from deps — we use
+  // sessionProjectPath (pinned on first message) so that sidebar folder
+  // navigation does not break an active streaming session.
+  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocol, protocolContent, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // @-mention popup keyboard navigation
@@ -3413,6 +3450,36 @@ export function ChatPanel() {
           <div className="flex items-center gap-2 text-zinc-500 text-sm">
             <span className="animate-pulse">{'\u25CF'}</span>
             <span>Claude is thinking...</span>
+          </div>
+        )}
+        {/* Stalled stream warning — shown when no events received for 90s on remote */}
+        {isStreaming && streamStalled && (
+          <div className="my-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[12px]">
+            <p className="text-amber-300 font-medium mb-1">
+              No response received for over 90 seconds
+            </p>
+            <p className="text-amber-200/60 mb-2">
+              The remote SSH connection may have stalled. You can wait, or stop and retry.
+            </p>
+            <button
+              onClick={() => {
+                invoke('stop_claude_session', { sessionId }).catch(() => {});
+                setIsStreaming(false);
+                setStreamStalled(false);
+                setMessages((prev) => [
+                  ...prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+                  {
+                    id: crypto.randomUUID(),
+                    role: 'system' as const,
+                    content: [{ type: 'text' as const, text: 'Session stopped due to stalled connection. You can send a new message to retry.' }],
+                    timestamp: Date.now(),
+                  },
+                ]);
+              }}
+              className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
+            >
+              Stop session
+            </button>
           </div>
         )}
         {/* Plan conflict resolution UI */}

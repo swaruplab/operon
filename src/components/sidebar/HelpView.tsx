@@ -181,25 +181,33 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       items: [
         {
           title: 'Overview',
-          content: 'Operon includes built-in GitHub integration for version control and publishing. You can initialize a repo, commit changes, and publish your project to GitHub — all from the Git panel in the sidebar without ever opening a terminal.',
+          content: 'Operon includes a full-featured GitHub integration. Initialize repos, stage individual files, manage branches, stash changes, browse commit history, and publish — all from the Git panel.',
           action: onViewChange ? { label: 'Open Git Panel', handler: () => onViewChange('git') } : undefined,
         },
         {
           title: 'Setting up GitHub',
-          content: 'Open the Git panel from the sidebar (the branch icon). The first time, Operon will guide you through a 3-step setup: 1) Install the GitHub CLI (gh) if not present, 2) Sign in to your GitHub account using device authentication, 3) Create a new repository on GitHub for your project.',
+          content: 'Open the Git panel from the sidebar. Operon guides you through: 1) Install GitHub CLI, 2) Sign in via device auth, 3) Create a new repo (with public/private toggle) or link an existing one from your account.',
         },
         {
-          title: 'GitHub sign-in',
-          content: 'Operon uses GitHub\'s secure device authentication flow. When you click "Sign in to GitHub", a one-time code appears. Copy it, then click the link to open GitHub in your browser. Paste the code to authorize Operon. Once authenticated, you stay signed in across sessions.',
-          tip: 'The one-time code is displayed in the Git panel with a click-to-copy button for convenience.',
+          title: 'Repository selection',
+          content: 'Create a new repository (with name, description, and visibility toggle) or link an existing one with a searchable picker. Change the linked repo anytime via "Change repository..." in the connection status.',
+          tip: 'Switch between personal and organization repos without re-authenticating.',
         },
         {
-          title: 'Committing and publishing',
-          content: 'Once set up, the Git panel shows your current branch, changed files count, and version info. Write a commit message and click "Commit & Push" to save your work. The "Publish" button handles creating a version tag and pushing everything to GitHub in one click.',
+          title: 'Branch management',
+          content: 'Click the branch name to open the picker showing local and remote branches. Switch with one click, or create a new branch inline. Remote branches are auto-fetched.',
         },
         {
-          title: 'Auto-versioning',
-          content: 'Enable "Auto Version" in the Git panel to automatically bump the patch version (e.g., 0.1.0 → 0.1.1) each time you publish. Operon uses semantic versioning (semver) and creates git tags for each release.',
+          title: 'File-level staging',
+          content: 'The Changes section groups files into Staged and Unstaged. Hover any file for stage (+), unstage (−), and discard (↩) buttons. Stage/unstage all with the header icons.',
+        },
+        {
+          title: 'Publishing & push targets',
+          content: 'Commit and push in one click. Click the branch in the "Push to" indicator to target a different remote branch. Enable "Tag version" for automatic semver tagging (patch/minor/major/custom).',
+        },
+        {
+          title: 'Stash, history & amend',
+          content: 'Stash uncommitted changes with an optional message. Browse the last 30 commits with expandable diffs. Amend the last commit message or fold in new changes — all without touching the terminal.',
         },
       ],
     },
@@ -224,7 +232,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
         },
         {
           title: 'Previewing files',
-          content: 'Image files (PNG, JPG, SVG, etc.) open in a visual viewer with zoom and rotation. PDFs render inline. HTML files show a live preview. These all open as tabs alongside your code files.',
+          content: 'Image files (PNG, JPG, SVG, etc.) open in a visual viewer with zoom and rotation. PDFs render inline. HTML files show a live preview. File sizes are shown on hover in the explorer. Files over 15 MB show a warning instead of opening, to prevent UI hangs on large data files.',
         },
       ],
     },
@@ -271,6 +279,11 @@ export function HelpView({ onViewChange }: HelpViewProps) {
         {
           title: 'SSH key setup',
           content: 'Don\'t have an SSH key? Expand the "Generate one automatically" section when adding a server. Enter your server password once — Operon generates an ed25519 key, copies it to the server, and stores it locally. You\'ll never need the password again.',
+        },
+        {
+          title: 'File transfer (drag & drop)',
+          content: 'Drag files from Finder into the remote explorer to upload via SCP. Right-click any remote file to download it to ~/Downloads. Supports multiple files, folders, and shows a live progress bar.',
+          tip: 'Works like CyberDuck but built into the IDE — move scripts, data, and results between your laptop and the cluster.',
         },
         {
           title: 'HPC tips',

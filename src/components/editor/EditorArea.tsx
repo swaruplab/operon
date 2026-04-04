@@ -5,6 +5,7 @@ import { CodeEditor } from './CodeEditor';
 import { DiffViewer } from './DiffViewer';
 import { FileViewer } from './FileViewer';
 import { writeFile } from '../../lib/files';
+import { invoke } from '@tauri-apps/api/core';
 import { modSymbol } from '../../lib/platform';
 
 export function EditorArea() {
@@ -25,7 +26,17 @@ export function EditorArea() {
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab) return;
       try {
-        await writeFile(tab.filePath, content);
+        if (tab.remoteProfileId) {
+          // Remote file — save via SSH
+          await invoke('write_remote_file', {
+            profileId: tab.remoteProfileId,
+            path: tab.filePath,
+            content,
+          });
+        } else {
+          // Local file
+          await writeFile(tab.filePath, content);
+        }
         saveTab(tabId, content);
       } catch (err) {
         console.error('Failed to save file:', err);

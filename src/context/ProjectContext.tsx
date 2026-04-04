@@ -18,6 +18,8 @@ export interface EditorTab {
   binaryType: BinaryFileType;
   /** MIME type for binary content (e.g. 'image/png', 'application/pdf') */
   mimeType?: string;
+  /** SSH profile ID — if set, this file is remote and needs write_remote_file to save */
+  remoteProfileId?: string;
 }
 
 interface ProjectContextType {
@@ -28,8 +30,8 @@ interface ProjectContextType {
   // Editor tabs
   tabs: EditorTab[];
   activeTabId: string | null;
-  openFile: (filePath: string, content: string, preview?: boolean) => void;
-  openBinaryFile: (filePath: string, base64Content: string, mimeType: string, binaryType: BinaryFileType, preview?: boolean) => void;
+  openFile: (filePath: string, content: string, preview?: boolean, remoteProfileId?: string) => void;
+  openBinaryFile: (filePath: string, base64Content: string, mimeType: string, binaryType: BinaryFileType, preview?: boolean, remoteProfileId?: string) => void;
   closeTab: (tabId: string) => void;
   setActiveTabId: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
@@ -52,7 +54,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   const openFile = useCallback(
-    (filePath: string, content: string, preview = false) => {
+    (filePath: string, content: string, preview = false, remoteProfileId?: string) => {
       setTabs((prev) => {
         // Check if already open
         const existing = prev.find((t) => t.filePath === filePath);
@@ -89,6 +91,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           isPreview: preview,
           mode: 'edit',
           binaryType: null,
+          remoteProfileId,
         };
 
         // Replace existing preview tab if this is also a preview
@@ -110,7 +113,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   );
 
   const openBinaryFile = useCallback(
-    (filePath: string, base64Content: string, mimeType: string, binaryType: BinaryFileType, preview = false) => {
+    (filePath: string, base64Content: string, mimeType: string, binaryType: BinaryFileType, preview = false, remoteProfileId?: string) => {
       setTabs((prev) => {
         const existing = prev.find((t) => t.filePath === filePath);
         if (existing) {
@@ -145,6 +148,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           mode: 'edit',
           binaryType,
           mimeType,
+          remoteProfileId,
         };
 
         if (preview) {

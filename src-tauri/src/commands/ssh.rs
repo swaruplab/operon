@@ -300,12 +300,30 @@ pub async fn spawn_ssh_terminal(
 // ── Remote Command Execution (uses ControlMaster when available) ──
 
 /// Run a command on a remote server via a quick non-interactive SSH subprocess.
-/// Automatically uses ControlMaster socket if one is active, bypassing re-auth.
+/// On macOS/Linux: uses ControlMaster socket if active, bypassing re-auth.
+/// On Windows: uses key-based auth (ControlMaster unsupported). If keys aren't
+/// set up, SSH will fail with a clear error instead of hanging on Duo prompt.
 pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
-    let mut ssh_args = format!(
-        "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
-        profile.user, profile.host, profile.port
-    );
+    let has_mux = crate::platform::supports_ssh_mux();
+
+    let mut ssh_args = if has_mux {
+        // macOS/Linux: BatchMode is fine because ControlMaster socket handles auth
+        format!(
+            "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
+            profile.user, profile.host, profile.port
+        )
+    } else {
+        // Windows: No ControlMaster. Use key-based auth only to avoid hanging on
+        // interactive Duo MFA prompts. If the user has set up SSH keys via the
+        // setup wizard, publickey auth works silently. If not, fail fast with a
+        // clear error rather than blocking on a Duo prompt that can't be answered.
+        format!(
+            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 \
+             -o PreferredAuthentications=publickey {}@{} -p {}",
+            profile.user, profile.host, profile.port
+        )
+    };
+
     // Always include ControlPath so we ride the existing master connection
     ssh_args.push_str(&control_master_args(profile, false));
     if let Some(key) = &profile.key_file {
@@ -322,7 +340,19 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
     if !output.status.success() && stdout.trim().is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // On Windows without ControlMaster, provide actionable guidance
+        if !has_mux && (stderr.contains("Permission denied")
+            || stderr.contains("publickey")
+            || stderr.contains("no more authentication methods"))
+        {
+            return Err(
+                "SSH key authentication failed. On Windows, Operon requires SSH keys \
+                 for file operations because SSH multiplexing (ControlMaster) is not supported. \
+                 Please set up SSH keys using the key icon in the SSH connection panel."
+                    .to_string(),
+            );
+        }
         return Err(format!("SSH command failed: {}", stderr));
     }
 
@@ -566,6 +596,11 @@ pub async fn scp_to_remote(
         "-o".to_string(), "BatchMode=yes".to_string(),
         "-o".to_string(), "ConnectTimeout=10".to_string(),
     ];
+    // On Windows (no ControlMaster), restrict to publickey auth to avoid Duo hang
+    if !crate::platform::supports_ssh_mux() {
+        scp_args.push("-o".to_string());
+        scp_args.push("PreferredAuthentications=publickey".to_string());
+    }
 
     // Use ControlMaster socket if available
     let ctrl_dir = std::env::temp_dir().join("operon-ssh");
@@ -600,6 +635,242 @@ pub async fn scp_to_remote(
     }
 
     Ok(())
+}
+
+/// Copy a remote file to the local machine via SCP.
+/// Uses ControlMaster socket if available.
+#[tauri::command]
+pub async fn scp_from_remote(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Ensure local parent directory exists
+    if let Some(parent) = std::path::Path::new(&local_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let host_str = format!("{}@{}", profile.user, profile.host);
+    let mut scp_args: Vec<String> = vec![
+        "-o".to_string(), "BatchMode=yes".to_string(),
+        "-o".to_string(), "ConnectTimeout=10".to_string(),
+    ];
+    if !crate::platform::supports_ssh_mux() {
+        scp_args.push("-o".to_string());
+        scp_args.push("PreferredAuthentications=publickey".to_string());
+    }
+
+    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    if sock.exists() {
+        scp_args.push("-o".to_string());
+        scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+    }
+
+    if profile.port != 22 {
+        scp_args.push("-P".to_string());
+        scp_args.push(profile.port.to_string());
+    }
+    if let Some(key) = &profile.key_file {
+        if std::path::Path::new(key).exists() {
+            scp_args.push("-i".to_string());
+            scp_args.push(key.clone());
+        }
+    }
+
+    scp_args.push(format!("{}:{}", host_str, remote_path));
+    scp_args.push(local_path);
+
+    let output = std::process::Command::new("scp")
+        .args(&scp_args)
+        .output()
+        .map_err(|e| format!("Failed to run scp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("SCP download failed: {}", stderr));
+    }
+
+    Ok(())
+}
+
+/// Copy a remote directory to the local machine via SCP -r.
+#[tauri::command]
+pub async fn scp_dir_from_remote(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    if let Some(parent) = std::path::Path::new(&local_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let host_str = format!("{}@{}", profile.user, profile.host);
+    let mut scp_args: Vec<String> = vec![
+        "-r".to_string(),
+        "-o".to_string(), "BatchMode=yes".to_string(),
+        "-o".to_string(), "ConnectTimeout=10".to_string(),
+    ];
+    if !crate::platform::supports_ssh_mux() {
+        scp_args.push("-o".to_string());
+        scp_args.push("PreferredAuthentications=publickey".to_string());
+    }
+
+    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    if sock.exists() {
+        scp_args.push("-o".to_string());
+        scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+    }
+
+    if profile.port != 22 {
+        scp_args.push("-P".to_string());
+        scp_args.push(profile.port.to_string());
+    }
+    if let Some(key) = &profile.key_file {
+        if std::path::Path::new(key).exists() {
+            scp_args.push("-i".to_string());
+            scp_args.push(key.clone());
+        }
+    }
+
+    scp_args.push(format!("{}:{}", host_str, remote_path));
+    scp_args.push(local_path);
+
+    let output = std::process::Command::new("scp")
+        .args(&scp_args)
+        .output()
+        .map_err(|e| format!("Failed to run scp: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("SCP directory download failed: {}", stderr));
+    }
+
+    Ok(())
+}
+
+/// Upload multiple local files to a remote directory via SCP.
+/// Emits `scp-transfer-progress` events for each completed file.
+#[tauri::command]
+pub async fn scp_batch_upload(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    local_paths: Vec<String>,
+    remote_dir: String,
+) -> Result<u32, String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Ensure remote directory exists
+    let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&remote_dir));
+    let _ = ssh_exec(&profile, &mkdir_cmd);
+
+    let total = local_paths.len() as u32;
+    let mut completed: u32 = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    let host_str = format!("{}@{}", profile.user, profile.host);
+
+    // Build base SCP args once
+    let mut base_args: Vec<String> = vec![
+        "-o".to_string(), "BatchMode=yes".to_string(),
+        "-o".to_string(), "ConnectTimeout=10".to_string(),
+    ];
+    if !crate::platform::supports_ssh_mux() {
+        base_args.push("-o".to_string());
+        base_args.push("PreferredAuthentications=publickey".to_string());
+    }
+    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    if sock.exists() {
+        base_args.push("-o".to_string());
+        base_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+    }
+    if profile.port != 22 {
+        base_args.push("-P".to_string());
+        base_args.push(profile.port.to_string());
+    }
+    if let Some(key) = &profile.key_file {
+        if std::path::Path::new(key).exists() {
+            base_args.push("-i".to_string());
+            base_args.push(key.clone());
+        }
+    }
+
+    for local_path in &local_paths {
+        let local = std::path::Path::new(local_path);
+        let file_name = local.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string());
+
+        let remote_dest = if remote_dir.ends_with('/') {
+            format!("{}{}", remote_dir, file_name)
+        } else {
+            format!("{}/{}", remote_dir, file_name)
+        };
+
+        // Use -r flag for directories
+        let mut args = base_args.clone();
+        if local.is_dir() {
+            args.insert(0, "-r".to_string());
+        }
+        args.push(local_path.clone());
+        args.push(format!("{}:{}", host_str, remote_dest));
+
+        let output = std::process::Command::new("scp")
+            .args(&args)
+            .output()
+            .map_err(|e| format!("Failed to run scp: {}", e))?;
+
+        if output.status.success() {
+            completed += 1;
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            errors.push(format!("{}: {}", file_name, stderr.trim()));
+        }
+
+        // Emit progress event
+        let _ = app.emit("scp-transfer-progress", serde_json::json!({
+            "completed": completed,
+            "total": total,
+            "current_file": file_name,
+            "errors": errors.len(),
+        }));
+    }
+
+    if !errors.is_empty() && completed == 0 {
+        return Err(format!("All transfers failed: {}", errors.join("; ")));
+    }
+
+    Ok(completed)
 }
 
 // ── SSH Key Setup: PTY-Based with Duo/MFA Support ──

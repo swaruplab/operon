@@ -91,3 +91,25 @@ export async function detectServerConfig(profileId: string): Promise<Record<stri
 export async function getServerConfig(profileId: string): Promise<Record<string, string>> {
   return invoke('get_server_config', { profileId });
 }
+
+// ── File Transfer ──
+
+/** Upload a local file to the remote server via SCP */
+export async function scpToRemote(profileId: string, localPath: string, remotePath: string): Promise<void> {
+  return invoke('scp_to_remote', { profileId, localPath, remotePath });
+}
+
+/** Download a remote file to the local machine via SCP */
+export async function scpFromRemote(profileId: string, remotePath: string, localPath: string): Promise<void> {
+  return invoke('scp_from_remote', { profileId, remotePath, localPath });
+}
+
+/** Download a remote directory to the local machine via SCP -r */
+export async function scpDirFromRemote(profileId: string, remotePath: string, localPath: string): Promise<void> {
+  return invoke('scp_dir_from_remote', { profileId, remotePath, localPath });
+}
+
+/** Upload multiple local files to a remote directory. Returns count of successful uploads. */
+export async function scpBatchUpload(profileId: string, localPaths: string[], remoteDir: string): Promise<number> {
+  return invoke('scp_batch_upload', { profileId, localPaths, remoteDir });
+}

@@ -1653,8 +1653,16 @@ pub async fn start_claude_session(
             } else {
                 String::new()
             };
+            // Export API key in the script so Claude can authenticate on the remote.
+            // In terminal mode the user's shell may not have it set.
+            let api_key_line = if let Some(key) = &api_key {
+                format!("export ANTHROPIC_API_KEY='{}'; ", key.replace('\'', "'\\''"))
+            } else {
+                String::new()
+            };
             let script_content = format!(
-                "cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
+                api_key_line,
                 ctx.remote_path.replace('\'', "'\\''"),
                 claude_cmd,
                 output_file.replace('\'', "'\\''"),
@@ -1685,26 +1693,54 @@ pub async fn start_claude_session(
                 writer.flush().map_err(|e| e.to_string())?;
             }
 
-            // Now tail the output file via a separate SSH connection to stream results back
+            // Now tail the output file via a separate SSH connection to stream results back.
+            // Reuse ControlMaster socket if available — avoids re-authentication (critical
+            // for HPC clusters with Duo MFA where a second auth would block/fail).
             let mut ssh_tail_args = format!(
                 "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 {}@{} -p {}",
                 profile.user, profile.host, profile.port
             );
+            // Reuse ControlMaster socket if one exists from the main terminal connection
+            let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+            let ctrl_sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+            if ctrl_sock.exists() {
+                ssh_tail_args.push_str(&format!(
+                    " -o ControlPath={}",
+                    ctrl_sock.to_string_lossy()
+                ));
+            }
             if let Some(key) = &profile.key_file {
                 ssh_tail_args.push_str(&format!(" -i {}", key));
             }
             // Wait for the output file to appear, then tail -f it.
             // Use base64 encoding to completely avoid all shell quoting/expansion issues
             // across the local shell → SSH → remote shell → bash -c chain.
+            // The tail script streams the JSONL output file back to the local machine.
+            // Key fixes for reliability:
+            //   1. Use stdbuf/unbuffer to force line-buffered output through SSH pipe.
+            //      Without this, SSH block-buffers stdout (4KB) so small JSON lines
+            //      accumulate silently, causing the "thinking but not responding" symptom.
+            //   2. Use tail --pid or a polling loop so tail exits promptly when done.
+            //   3. Read any remaining lines after tail exits (tail -f may miss the last write).
             let tail_script = format!(
                 "i=0; while [ ! -f '{}' ] && [ \"$i\" -lt 150 ]; do sleep 0.2; i=$((i+1)); done; \
-                 if [ ! -f '{}' ]; then exit 1; fi; \
-                 tail -f '{}' & TAIL_PID=$!; \
-                 while [ ! -f '{}' ]; do sleep 1; done; \
-                 sleep 1; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null; \
+                 if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 30s\"}}}}'; exit 1; fi; \
+                 if command -v stdbuf >/dev/null 2>&1; then \
+                   TAIL_CMD=\"stdbuf -oL tail -f '{}'\"; \
+                 else \
+                   TAIL_CMD=\"tail -f '{}'\"; \
+                 fi; \
+                 eval $TAIL_CMD & TAIL_PID=$!; \
+                 while [ ! -f '{}' ]; do sleep 0.5; done; \
+                 sleep 0.5; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null; \
+                 cat '{}'; \
                  rm -f '{}' '{}'",
-                output_file, output_file, output_file,
-                done_file, output_file, done_file,
+                output_file, output_file,
+                output_file.replace('\'', "'\\''"),
+                output_file.replace('\'', "'\\''"),
+                done_file,
+                output_file.replace('\'', "'\\''"),
+                output_file, done_file,
             );
             // Base64-encode the script and have the REMOTE shell decode+execute it.
             // This avoids ALL quoting issues: local shell sees only safe base64 chars.
@@ -1943,8 +1979,16 @@ pub async fn start_claude_session(
         // For report mode, the command is `cat file | claude ...` — don't redirect stdin from /dev/null.
         // For other modes, redirect stdin to prevent Claude from hanging waiting for input.
         let stdin_redirect = if mode == "report" { "" } else { " < /dev/null" };
+        // Forward API key to the remote command — SSH doesn't forward env vars
+        // by default, and HPC servers rarely have AcceptEnv configured for custom vars.
+        let api_key_export = if let Some(key) = &api_key {
+            format!("export ANTHROPIC_API_KEY='{}'; ", key.replace('\'', "'\\''"))
+        } else {
+            String::new()
+        };
         let remote_cmd = format!(
-            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; cd '{}' && {}{}",
+            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}cd '{}' && {}{}",
+            api_key_export,
             ctx.remote_path.replace('\'', "'\\''"),
             claude_cmd_abs,
             stdin_redirect
@@ -1958,6 +2002,15 @@ pub async fn start_claude_session(
             "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 {}@{} -p {}",
             profile.user, profile.host, profile.port
         );
+        // Reuse ControlMaster socket if available (avoids re-auth on Duo MFA clusters)
+        let ctrl_dir = std::env::temp_dir().join("operon-ssh");
+        let ctrl_sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+        if ctrl_sock.exists() {
+            ssh_args.push_str(&format!(
+                " -o ControlPath={}",
+                ctrl_sock.to_string_lossy()
+            ));
+        }
         if let Some(key) = &profile.key_file {
             ssh_args.push_str(&format!(" -i {}", key));
         }
