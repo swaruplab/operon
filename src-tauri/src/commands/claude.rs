@@ -1595,8 +1595,7 @@ pub async fn start_claude_session(
                         "-o".to_string(), "ConnectTimeout=10".to_string(),
                     ];
                     // Reuse ControlMaster socket if available
-                    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-                    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+                    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
                     if sock.exists() {
                         scp_args.push("-o".to_string());
                         scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -1670,12 +1669,29 @@ pub async fn start_claude_session(
                 prompt_cleanup,
             );
 
-            // Write the script file, source it, then clean up — all in one terminal command.
+            // Upload the script to the remote via ssh_exec + base64.
+            // This is more reliable than both:
+            //   - heredoc through terminal PTY (corrupts on large content due to buffer limits)
+            //   - SCP (can fail with "dest open Failure" on some HPC filesystems)
+            // ssh_exec rides the ControlMaster socket, so no re-auth needed.
+            {
+                let b64_script = base64::engine::general_purpose::STANDARD.encode(script_content.as_bytes());
+                // Use printf instead of echo for portability, and base64 is shell-safe
+                // (only A-Za-z0-9+/=) so no quoting needed around it.
+                // Use double quotes for the path (safe inside ssh_exec's outer single quotes).
+                let write_cmd = format!(
+                    "printf %s {} | base64 -d > \"{}\"",
+                    b64_script,
+                    script_file.replace('"', "\\\""),
+                );
+                crate::commands::ssh::ssh_exec(&profile, &write_cmd)
+                    .map_err(|e| format!("Failed to create run script on remote: {}", e))?;
+            }
+
+            // Send a short source command to the terminal (the script is already on the remote)
             // The leading space prevents it from appearing in shell history.
             let terminal_cmd = format!(
-                " cat > '{}' << 'CFEOF'\n{}\nCFEOF\nclear; source '{}'; rm -f '{}'\n",
-                script_file.replace('\'', "'\\''"),
-                script_content,
+                " clear; source '{}'; rm -f '{}'\n",
                 script_file.replace('\'', "'\\''"),
                 script_file.replace('\'', "'\\''"),
             );
@@ -1701,11 +1717,10 @@ pub async fn start_claude_session(
                 profile.user, profile.host, profile.port
             );
             // Reuse ControlMaster socket if one exists from the main terminal connection
-            let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-            let ctrl_sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+            let ctrl_sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
             if ctrl_sock.exists() {
                 ssh_tail_args.push_str(&format!(
-                    " -o ControlPath={}",
+                    " -o \"ControlPath={}\"",
                     ctrl_sock.to_string_lossy()
                 ));
             }
@@ -1723,8 +1738,8 @@ pub async fn start_claude_session(
             //   2. Use tail --pid or a polling loop so tail exits promptly when done.
             //   3. Read any remaining lines after tail exits (tail -f may miss the last write).
             let tail_script = format!(
-                "i=0; while [ ! -f '{}' ] && [ \"$i\" -lt 150 ]; do sleep 0.2; i=$((i+1)); done; \
-                 if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 30s\"}}}}'; exit 1; fi; \
+                "i=0; while [ ! -f '{}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); done; \
+                 if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
                  if command -v stdbuf >/dev/null 2>&1; then \
                    TAIL_CMD=\"stdbuf -oL tail -f '{}'\"; \
                  else \
@@ -1937,8 +1952,7 @@ pub async fn start_claude_session(
                     "-o".to_string(), "BatchMode=yes".to_string(),
                     "-o".to_string(), "ConnectTimeout=10".to_string(),
                 ];
-                let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-                let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+                let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
                 if sock.exists() {
                     scp_args.push("-o".to_string());
                     scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -2003,11 +2017,10 @@ pub async fn start_claude_session(
             profile.user, profile.host, profile.port
         );
         // Reuse ControlMaster socket if available (avoids re-auth on Duo MFA clusters)
-        let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-        let ctrl_sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+        let ctrl_sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
         if ctrl_sock.exists() {
             ssh_args.push_str(&format!(
-                " -o ControlPath={}",
+                " -o \"ControlPath={}\"",
                 ctrl_sock.to_string_lossy()
             ));
         }

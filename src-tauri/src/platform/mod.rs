@@ -97,8 +97,14 @@ pub fn sessions_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// SSH socket/multiplexing directory.
+/// IMPORTANT: This MUST be a path with no spaces — OpenSSH's ControlPath
+/// breaks on paths containing spaces (like ~/Library/Application Support/).
+/// We use ~/.operon/sockets/ instead of the standard data_dir().
 pub fn ssh_sockets_dir() -> std::path::PathBuf {
-    let dir = data_dir().join("sockets");
+    let dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".operon")
+        .join("sockets");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }

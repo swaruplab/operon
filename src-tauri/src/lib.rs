@@ -31,7 +31,7 @@ use commands::{
     delete_ssh_profile, spawn_ssh_terminal,
     list_remote_directory, get_remote_home, read_remote_file, read_remote_file_base64,
     create_remote_directory, write_remote_file, scp_to_remote, scp_from_remote,
-    scp_dir_from_remote, scp_batch_upload,
+    scp_dir_from_remote, scp_batch_upload, clear_ssh_cache,
     setup_ssh_key, test_ssh_connection, check_control_master, stop_control_master,
     // Settings & System
     get_settings, update_settings, start_dictation, stop_dictation,
@@ -185,6 +185,7 @@ pub fn run() {
             scp_from_remote,
             scp_dir_from_remote,
             scp_batch_upload,
+            clear_ssh_cache,
             setup_ssh_key,
             test_ssh_connection,
             check_control_master,

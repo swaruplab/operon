@@ -109,11 +109,137 @@ fn control_master_args(profile: &SSHProfile, as_master: bool) -> String {
     crate::platform::ssh_mux_args(&profile.host, profile.port, &profile.user, as_master)
 }
 
+// ── Cache ──
+
+/// A single cached value with an expiration time.
+struct CacheEntry<T> {
+    value: T,
+    expires: std::time::Instant,
+}
+
+/// TTL cache for remote SSH operations.
+/// Keyed by "{profile_id}:{path}" — entries expire after `ttl`.
+pub struct SshCache {
+    dir_listings: Mutex<HashMap<String, CacheEntry<Vec<FileEntry>>>>,
+    file_contents: Mutex<HashMap<String, CacheEntry<String>>>,
+    ttl: std::time::Duration,
+}
+
+impl SshCache {
+    fn new(ttl_secs: u64) -> Self {
+        Self {
+            dir_listings: Mutex::new(HashMap::new()),
+            file_contents: Mutex::new(HashMap::new()),
+            ttl: std::time::Duration::from_secs(ttl_secs),
+        }
+    }
+
+    /// Get a cached directory listing if it hasn't expired.
+    fn get_dir(&self, key: &str) -> Option<Vec<FileEntry>> {
+        let cache = self.dir_listings.lock().ok()?;
+        let entry = cache.get(key)?;
+        if std::time::Instant::now() < entry.expires {
+            Some(entry.value.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Store a directory listing in the cache.
+    fn put_dir(&self, key: String, value: Vec<FileEntry>) {
+        if let Ok(mut cache) = self.dir_listings.lock() {
+            cache.insert(key, CacheEntry {
+                value,
+                expires: std::time::Instant::now() + self.ttl,
+            });
+        }
+    }
+
+    /// Get a cached file read if it hasn't expired.
+    fn get_file(&self, key: &str) -> Option<String> {
+        let cache = self.file_contents.lock().ok()?;
+        let entry = cache.get(key)?;
+        if std::time::Instant::now() < entry.expires {
+            Some(entry.value.clone())
+        } else {
+            None
+        }
+    }
+
+    /// Store a file read in the cache.
+    fn put_file(&self, key: String, value: String) {
+        if let Ok(mut cache) = self.file_contents.lock() {
+            // Only cache files under 1MB to avoid memory bloat
+            if value.len() < 1_048_576 {
+                cache.insert(key, CacheEntry {
+                    value,
+                    expires: std::time::Instant::now() + self.ttl,
+                });
+            }
+        }
+    }
+
+    /// Invalidate all cached entries whose key starts with the given profile prefix.
+    /// Called after write operations to ensure fresh data.
+    #[allow(dead_code)]
+    pub fn invalidate_profile(&self, profile_id: &str) {
+        let prefix = format!("{}:", profile_id);
+        if let Ok(mut cache) = self.dir_listings.lock() {
+            cache.retain(|k, _| !k.starts_with(&prefix));
+        }
+        if let Ok(mut cache) = self.file_contents.lock() {
+            cache.retain(|k, _| !k.starts_with(&prefix));
+        }
+    }
+
+    /// Invalidate cached entries for a specific directory (and its parent).
+    /// More targeted than invalidate_profile — used after single-file writes.
+    pub fn invalidate_path(&self, profile_id: &str, path: &str) {
+        let dir_key = format!("{}:{}", profile_id, path);
+        let parent = std::path::Path::new(path).parent()
+            .map(|p| format!("{}:{}", profile_id, p.display()))
+            .unwrap_or_default();
+        let file_key = format!("{}:{}", profile_id, path);
+
+        if let Ok(mut cache) = self.dir_listings.lock() {
+            cache.remove(&dir_key);
+            if !parent.is_empty() {
+                cache.remove(&parent);
+            }
+        }
+        if let Ok(mut cache) = self.file_contents.lock() {
+            cache.remove(&file_key);
+        }
+    }
+
+    /// Clear everything (used by manual refresh).
+    pub fn clear_all(&self) {
+        if let Ok(mut cache) = self.dir_listings.lock() {
+            cache.clear();
+        }
+        if let Ok(mut cache) = self.file_contents.lock() {
+            cache.clear();
+        }
+    }
+
+    /// Evict expired entries to prevent unbounded growth.
+    fn evict_expired(&self) {
+        let now = std::time::Instant::now();
+        if let Ok(mut cache) = self.dir_listings.lock() {
+            cache.retain(|_, v| now < v.expires);
+        }
+        if let Ok(mut cache) = self.file_contents.lock() {
+            cache.retain(|_, v| now < v.expires);
+        }
+    }
+}
+
 // ── Manager State ──
 
 pub struct SSHManager {
     pub profiles: Mutex<Vec<SSHProfile>>,
     pub active_connections: Mutex<HashMap<String, String>>, // profile_id -> terminal_id
+    pub cache: SshCache,
 }
 
 impl SSHManager {
@@ -124,6 +250,7 @@ impl SSHManager {
         Self {
             profiles: Mutex::new(profiles),
             active_connections: Mutex::new(HashMap::new()),
+            cache: SshCache::new(10), // 10-second TTL
         }
     }
 }
@@ -338,9 +465,24 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         .map_err(|e| format!("Failed to run SSH: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Filter out common SSH noise from stderr (post-quantum warnings, MOTD, etc.)
+    let filtered_stderr: String = stderr
+        .lines()
+        .filter(|l| {
+            let lt = l.trim();
+            !lt.is_empty()
+                && !lt.starts_with("Warning: Permanently added")
+                && !lt.contains("sntrup")
+                && !lt.contains("mlkem")
+                && !lt.contains("kex_exchange_identification")
+                && !lt.starts_with("debug")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     if !output.status.success() && stdout.trim().is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         // On Windows without ControlMaster, provide actionable guidance
         if !has_mux && (stderr.contains("Permission denied")
             || stderr.contains("publickey")
@@ -353,7 +495,28 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                     .to_string(),
             );
         }
-        return Err(format!("SSH command failed: {}", stderr));
+
+        // Check if ControlMaster socket exists
+        let mux_active = control_master_active(profile);
+        let sock_path = control_socket_path(profile);
+
+        if has_mux && !mux_active {
+            return Err(format!(
+                "SSH connection not ready for file browsing. The SSH multiplexing socket is not active \
+                 (expected at {}). Try disconnecting and reconnecting the SSH terminal, or set up SSH keys \
+                 using the key icon in the SSH connection panel.",
+                sock_path
+            ));
+        }
+
+        if filtered_stderr.is_empty() {
+            return Err(format!(
+                "SSH command failed (exit code {}). This may be a transient connection issue — try clicking Retry.",
+                output.status.code().unwrap_or(-1)
+            ));
+        }
+
+        return Err(format!("SSH command failed: {}", filtered_stderr));
     }
 
     Ok(stdout)
@@ -377,6 +540,16 @@ pub async fn list_remote_directory(
     show_hidden: Option<bool>,
 ) -> Result<Vec<FileEntry>, String> {
     let show_hidden = show_hidden.unwrap_or(false);
+
+    // Check cache first (include show_hidden in key to avoid mixing results)
+    let cache_key = format!("{}:{}:{}", profile_id, path, show_hidden);
+    if let Some(cached) = state.cache.get_dir(&cache_key) {
+        return Ok(cached);
+    }
+
+    // Periodically evict expired entries (cheap — just a HashMap scan)
+    state.cache.evict_expired();
+
     let profile = {
         let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
         profiles
@@ -456,6 +629,9 @@ pub async fn list_remote_directory(
         b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 
+    // Store in cache for subsequent requests
+    state.cache.put_dir(cache_key, entries.clone());
+
     Ok(entries)
 }
 
@@ -483,6 +659,12 @@ pub async fn read_remote_file(
     profile_id: String,
     path: String,
 ) -> Result<String, String> {
+    // Check cache first
+    let cache_key = format!("{}:{}", profile_id, path);
+    if let Some(cached) = state.cache.get_file(&cache_key) {
+        return Ok(cached);
+    }
+
     let profile = {
         let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
         profiles
@@ -492,7 +674,9 @@ pub async fn read_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    ssh_exec(&profile, &format!("cat {}", shell_escape_inner(&path)))
+    let content = ssh_exec(&profile, &format!("cat {}", shell_escape_inner(&path)))?;
+    state.cache.put_file(cache_key, content.clone());
+    Ok(content)
 }
 
 #[tauri::command]
@@ -532,6 +716,7 @@ pub async fn create_remote_directory(
 
     let cmd = format!("mkdir -p {}", shell_escape_inner(&path));
     ssh_exec(&profile, &cmd)?;
+    state.cache.invalidate_path(&profile_id, &path);
     Ok(())
 }
 
@@ -564,6 +749,7 @@ pub async fn write_remote_file(
     let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
     let cmd = format!("echo {} | base64 -d > {}", b64, shell_escape_inner(&path));
     ssh_exec(&profile, &cmd)?;
+    state.cache.invalidate_path(&profile_id, &path);
     Ok(())
 }
 
@@ -603,8 +789,8 @@ pub async fn scp_to_remote(
     }
 
     // Use ControlMaster socket if available
-    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
         scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -634,6 +820,7 @@ pub async fn scp_to_remote(
         return Err(format!("SCP failed: {}", stderr));
     }
 
+    state.cache.invalidate_path(&profile_id, &remote_path);
     Ok(())
 }
 
@@ -670,8 +857,8 @@ pub async fn scp_from_remote(
         scp_args.push("PreferredAuthentications=publickey".to_string());
     }
 
-    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
         scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -736,8 +923,8 @@ pub async fn scp_dir_from_remote(
         scp_args.push("PreferredAuthentications=publickey".to_string());
     }
 
-    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
         scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -808,8 +995,8 @@ pub async fn scp_batch_upload(
         base_args.push("-o".to_string());
         base_args.push("PreferredAuthentications=publickey".to_string());
     }
-    let ctrl_dir = std::env::temp_dir().join("operon-ssh");
-    let sock = ctrl_dir.join(format!("{}_{}_{}", profile.user, profile.host, profile.port));
+    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         base_args.push("-o".to_string());
         base_args.push(format!("ControlPath={}", sock.to_string_lossy()));
@@ -870,7 +1057,20 @@ pub async fn scp_batch_upload(
         return Err(format!("All transfers failed: {}", errors.join("; ")));
     }
 
+    // Invalidate the target directory cache since new files were uploaded
+    state.cache.invalidate_path(&profile_id, &remote_dir);
+
     Ok(completed)
+}
+
+/// Clear the SSH remote file/directory cache.
+/// Called by the UI refresh button to force fresh data on next load.
+#[tauri::command]
+pub async fn clear_ssh_cache(
+    state: tauri::State<'_, SSHManager>,
+) -> Result<(), String> {
+    state.cache.clear_all();
+    Ok(())
 }
 
 // ── SSH Key Setup: PTY-Based with Duo/MFA Support ──
@@ -1320,7 +1520,7 @@ pub async fn stop_control_master(
 
     let sock = control_socket_path(&profile);
     let cmd = format!(
-        "ssh -o ControlPath={} -O exit {}@{} -p {} 2>/dev/null",
+        "ssh -o \"ControlPath={}\" -O exit {}@{} -p {} 2>/dev/null",
         sock, profile.user, profile.host, profile.port
     );
     let _ = crate::platform::shell_exec(&cmd).output();
