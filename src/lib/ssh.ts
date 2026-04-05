@@ -113,3 +113,8 @@ export async function scpDirFromRemote(profileId: string, remotePath: string, lo
 export async function scpBatchUpload(profileId: string, localPaths: string[], remoteDir: string): Promise<number> {
   return invoke('scp_batch_upload', { profileId, localPaths, remoteDir });
 }
+
+/** Clear the SSH remote file/directory cache. Forces fresh data on next load. */
+export async function clearSshCache(): Promise<void> {
+  return invoke('clear_ssh_cache');
+}

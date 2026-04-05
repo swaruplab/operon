@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 
@@ -326,9 +327,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const newFolderRef = useRef<HTMLInputElement>(null);
   const { openFile, openBinaryFile } = useProject();
 
-  // Drag-and-drop state
+  // Drag-and-drop state (Tauri 2 window-level events)
   const [isDragOver, setIsDragOver] = useState(false);
-  const dragCounter = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Transfer progress
   const [transfer, setTransfer] = useState<TransferProgress | null>(null);
@@ -442,7 +443,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     }
   }, [profileId, loadDir]); // loadDir already depends on showHidden
 
-  const refresh = () => {
+  const refresh = async () => {
+    // Clear the backend SSH cache first so we get truly fresh data
+    try { await invoke('clear_ssh_cache'); } catch { /* ignore */ }
     if (remotePath) {
       loadDir(remotePath);
       setRefreshKey((k) => k + 1);
@@ -490,53 +493,12 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     setIsEditingPath(false);
   };
 
-  // ── Drag & Drop: Local → Remote Upload ──
+  // ── Drag & Drop: Local → Remote Upload (Tauri 2 window-level events) ──
+  // Tauri 2 does NOT populate File.path on dataTransfer — it fires its own
+  // window drag-drop events with native file paths.
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current += 1;
-    if (e.dataTransfer.types.includes('Files')) {
-      setIsDragOver(true);
-    }
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current -= 1;
-    if (dragCounter.current === 0) {
-      setIsDragOver(false);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    dragCounter.current = 0;
-
-    if (!remotePath) return;
-
-    // Tauri 2 file-drop: the dataTransfer.files contains local file paths
-    const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-
-    const localPaths: string[] = [];
-    for (let i = 0; i < files.length; i++) {
-      // In Tauri webview, File.path contains the real filesystem path
-      const file = files[i] as (globalThis.File & { path?: string });
-      if (file.path) {
-        localPaths.push(file.path);
-      }
-    }
-
-    if (localPaths.length === 0) return;
+  const uploadFiles = useCallback(async (localPaths: string[]) => {
+    if (!remotePath || localPaths.length === 0) return;
 
     setTransfer({
       completed: 0,
@@ -562,7 +524,6 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           ? `${completed} file${completed > 1 ? 's' : ''} uploaded`
           : `${completed}/${localPaths.length} uploaded (${localPaths.length - completed} failed)`,
       });
-      // Refresh to show new files
       refresh();
     } catch (err) {
       setTransfer({
@@ -574,7 +535,38 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
         message: `Upload failed: ${err}`,
       });
     }
-  };
+  }, [profileId, remotePath, refresh]);
+
+  // Tauri 2 window-level drag-drop listener.
+  // PhysicalPosition is in physical pixels; getBoundingClientRect() returns
+  // CSS (logical) pixels — scale by devicePixelRatio for hit-testing.
+  const isInsideContainer = useCallback((physX: number, physY: number): boolean => {
+    if (!containerRef.current) return false;
+    const dpr = window.devicePixelRatio || 1;
+    const x = physX / dpr;
+    const y = physY / dpr;
+    const rect = containerRef.current.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }, []);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlisten = win.onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        const { position } = event.payload;
+        setIsDragOver(isInsideContainer(position.x, position.y));
+      } else if (event.payload.type === 'drop') {
+        setIsDragOver(false);
+        const { position, paths } = event.payload;
+        if (isInsideContainer(position.x, position.y) && paths && paths.length > 0) {
+          uploadFiles(paths);
+        }
+      } else if (event.payload.type === 'leave') {
+        setIsDragOver(false);
+      }
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, [uploadFiles, isInsideContainer]);
 
   // Listen for progress events from batch upload
   useEffect(() => {
@@ -669,11 +661,8 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
   return (
     <div
+      ref={containerRef}
       className="flex flex-col h-full relative"
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDragOver={handleDragOver}
-      onDrop={handleDrop}
     >
       {/* Drag overlay */}
       {isDragOver && (

@@ -182,7 +182,7 @@ export function CodeEditor({
       }
       options={{
         readOnly,
-        minimap: { enabled: !isMarkdown },
+        minimap: { enabled: false },
         scrollBeyondLastLine: false,
         fontSize: 13,
         fontFamily: isMarkdown

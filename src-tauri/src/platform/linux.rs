@@ -81,7 +81,7 @@ pub fn open_terminal_with_command(command: &str) -> Result<(), String> {
 pub fn ssh_mux_args(host: &str, port: u16, user: &str) -> String {
     let sock = super::ssh_socket_path(host, port, user);
     format!(
-        " -o ControlMaster=auto -o ControlPath={} -o ControlPersist=4h",
+        " -o ControlMaster=auto -o \"ControlPath={}\" -o ControlPersist=4h",
         sock.display()
     )
 }
@@ -89,7 +89,7 @@ pub fn ssh_mux_args(host: &str, port: u16, user: &str) -> String {
 pub fn ssh_mux_check(host: &str, port: u16, user: &str) -> bool {
     let sock = super::ssh_socket_path(host, port, user);
     let check_cmd = format!(
-        "ssh -o ControlPath={} -O check {}@{} -p {} 2>/dev/null",
+        "ssh -o \"ControlPath={}\" -O check {}@{} -p {} 2>/dev/null",
         sock.display(), user, host, port
     );
     shell_exec(&check_cmd)

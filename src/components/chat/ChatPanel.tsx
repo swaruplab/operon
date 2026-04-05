@@ -1152,7 +1152,7 @@ function PubMedResultsBar({ articles, onClear }: { articles: PubMedArticle[]; on
 // --- Main Chat Panel ---
 
 export function ChatPanel() {
-  const { projectPath } = useProject();
+  const { projectPath, openBinaryFile } = useProject();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1245,6 +1245,10 @@ export function ChatPanel() {
   reportMethodsInfoRef.current = reportMethodsInfo;
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+
+  // Ref for the report generation trigger — defined later, called from both
+  // the `result` event (reliable) and `claude-done` event (backup).
+  const triggerReportGenerationRef = useRef<(() => void) | null>(null);
 
   // @-mention state
   const [mentionActive, setMentionActive] = useState(false);
@@ -1954,9 +1958,10 @@ export function ChatPanel() {
                 if (content.trim()) {
                   setExistingPlan(content);
                   setPlanReady(true);
-                  if (!remoteInfoRef.current) {
-                    emit('open-file', { path: planPath });
-                  }
+                  emit('open-file', {
+                    path: planPath,
+                    ...(remoteInfoRef.current ? { profileId: remoteInfoRef.current.profileId } : {}),
+                  });
                 }
               } catch {
                 // File doesn't exist — extract from chat text as fallback
@@ -1968,7 +1973,16 @@ export function ChatPanel() {
                   if (planText.trim() && planText.length > 100) {
                     setExistingPlan(planText);
                     setPlanReady(true);
-                    if (!remoteInfoRef.current) {
+                    if (remoteInfoRef.current) {
+                      // Remote: write via SSH and open
+                      invoke('write_remote_file', {
+                        profileId: remoteInfoRef.current.profileId,
+                        path: planPath,
+                        content: planText,
+                      }).then(() => {
+                        emit('open-file', { path: planPath, profileId: remoteInfoRef.current!.profileId });
+                      }).catch(() => {});
+                    } else {
                       invoke('write_file', { path: planPath, content: planText }).then(() => {
                         emit('open-file', { path: planPath });
                       }).catch(() => {});
@@ -1978,6 +1992,17 @@ export function ChatPanel() {
                 });
               }
             }, 1000);
+          }
+
+          // Report mode: trigger report generation from the result event.
+          // Only auto-trigger when in 'draft' phase (user already clicked
+          // "Generate Report").  During 'clarify' phase, let the user decide
+          // when they've provided enough context — the button will appear once
+          // streaming finishes.
+          if (modeRef.current === 'report' && reportPhaseRef.current === 'draft') {
+            setTimeout(() => {
+              triggerReportGenerationRef.current?.();
+            }, 500);
           }
         }
 
@@ -2040,10 +2065,10 @@ export function ChatPanel() {
             if (content.trim()) {
               setExistingPlan(content);
               setPlanReady(true);
-              // Open in editor (local only — remote files are already visible via remote explorer)
-              if (!remoteInfoRef.current) {
-                emit('open-file', { path: planPath });
-              }
+              emit('open-file', {
+                path: planPath,
+                ...(remoteInfoRef.current ? { profileId: remoteInfoRef.current.profileId } : {}),
+              });
             }
           } catch {
             // Plan file not found — Claude may have output it as text instead
@@ -2055,8 +2080,15 @@ export function ChatPanel() {
             if (planText.trim()) {
               setExistingPlan(planText);
               setPlanReady(true);
-              // Write the plan locally if not remote
-              if (!remoteInfoRef.current) {
+              if (remoteInfoRef.current) {
+                invoke('write_remote_file', {
+                  profileId: remoteInfoRef.current.profileId,
+                  path: planPath,
+                  content: planText,
+                }).then(() => {
+                  emit('open-file', { path: planPath, profileId: remoteInfoRef.current!.profileId });
+                }).catch(() => {});
+              } else {
                 invoke('write_file', { path: planPath, content: planText }).then(() => {
                   emit('open-file', { path: planPath });
                 }).catch(() => {});
@@ -2068,11 +2100,22 @@ export function ChatPanel() {
         setTimeout(tryReadPlan, 500);
       }
 
-      // Report mode: detect report content and generate output files.
-      // Trigger when phase is 'draft' (user explicitly said "generate report")
-      // OR when phase is 'clarify' but Claude wrote a full report anyway
-      // (detected by checking for ## Abstract or ## Introduction in the response).
-      if (modeRef.current === 'report' && reportPhaseRef.current !== 'render' && reportPhaseRef.current !== 'done') {
+      // Report mode: trigger generation only during draft phase (user clicked Generate Report)
+      if (modeRef.current === 'report' && reportPhaseRef.current === 'draft') {
+        triggerReportGenerationRef.current?.();
+      }
+    }).then((u) => unlisteners.push(u));
+
+    return () => unlisteners.forEach((u) => u());
+  }, [sessionId]);
+
+  // ── Report Generation Logic (extracted so it can be called from both
+  //    the `result` event and `claude-done` event) ──
+  triggerReportGenerationRef.current = () => {
+      // Only generate when the user has explicitly clicked "Generate Report"
+      // (which sets phase to 'draft').  Never auto-trigger during 'clarify'.
+      if (!(modeRef.current === 'report' && reportPhaseRef.current === 'draft')) return;
+      {
         // Extract the latest CLAUDE-generated assistant message (not system-generated ones
         // like the scan summary or clarify prompt). This ensures we get Claude's actual
         // report draft, not the frontend-generated scaffolding messages.
@@ -2087,12 +2130,7 @@ export function ChatPanel() {
             .join('\n\n');
         }
 
-        const isReportContent = draftText.length > 500 && (
-          /##?\s*Abstract/i.test(draftText) ||
-          (/##?\s*Introduction/i.test(draftText) && /##?\s*(Results|Methods)/i.test(draftText))
-        );
-
-        const shouldGenerate = reportPhaseRef.current === 'draft' || isReportContent;
+        const shouldGenerate = draftText.trim().length > 0;
 
         if (shouldGenerate && draftText.trim()) {
           // Guard against duplicate execution: setReportPhase is async (React batching),
@@ -2232,6 +2270,13 @@ export function ChatPanel() {
                       timestamp: Date.now(),
                     },
                   ]);
+                  // Auto-open the locally generated PDF (before SCP) in preview
+                  try {
+                    const pdfBase64 = await invoke<string>('read_file_base64', { path: localResultPath });
+                    openBinaryFile(remotePdfPath, pdfBase64, 'application/pdf', 'pdf', false, remote.profileId);
+                  } catch (openErr) {
+                    console.warn('[Report] Could not auto-open remote PDF:', openErr);
+                  }
                 } else {
                   setReportOutputPath(localResultPath);
                   setReportPhase('done');
@@ -2245,6 +2290,15 @@ export function ChatPanel() {
                       timestamp: Date.now(),
                     },
                   ]);
+                  // Auto-open the generated PDF in the editor preview
+                  try {
+                    const pdfBase64 = await invoke<string>('read_file_base64', { path: localResultPath });
+                    openBinaryFile(localResultPath, pdfBase64, 'application/pdf', 'pdf');
+                  } catch (openErr) {
+                    console.warn('[Report] Could not auto-open PDF:', openErr);
+                    // Try opening markdown as fallback
+                    emit('open-file', { path: mdPath });
+                  }
                 }
               } catch (pdfErr) {
                 // PDF failed — markdown is still saved
@@ -2281,10 +2335,7 @@ export function ChatPanel() {
           }, 1000);
         }
       }
-    }).then((u) => unlisteners.push(u));
-
-    return () => unlisteners.forEach((u) => u());
-  }, [sessionId]);
+  };
 
   // Helper to check remote deps + auth in one go
   const fullRemoteCheck = async (profileId: string) => {
@@ -2422,17 +2473,6 @@ export function ChatPanel() {
     setMessages((prev) => [...prev, systemMsg]);
   }, [reportPhase, reportSelectedFiles, remoteInfo]);
 
-  // Report mode: user clicks "Generate Report" button during clarify phase
-  const reportGenerateFromButton = useCallback(() => {
-    if (reportPhase !== 'clarify') return;
-    setInput('Generate report');
-    // Use a short delay to let the input state update, then trigger send
-    setTimeout(() => {
-      const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
-      sendBtn?.click();
-    }, 50);
-  }, [reportPhase]);
-
   // Report mode: cancel/reset
   const reportCancel = useCallback(() => {
     setReportPhase('idle');
@@ -2516,10 +2556,16 @@ export function ChatPanel() {
     }
   }, [planConflict, existingPlan, projectPath, remoteInfo]);
 
-  const sendMessage = useCallback(async () => {
-    if (!input.trim() || isStreaming) return;
+  const sendMessage = useCallback(async (overrideTextOrEvent?: string | React.MouseEvent) => {
+    const overrideText = typeof overrideTextOrEvent === 'string' ? overrideTextOrEvent : undefined;
+    const textToSend = overrideText || input.trim();
+    // When called with an explicit override string (e.g. from "Generate Report"
+    // button), skip the isStreaming guard — the caller knows the previous turn
+    // is done even if the done-event was missed over SSH.
+    if (!textToSend) return;
+    if (isStreaming && !overrideText) return;
 
-    const rawText = input.trim();
+    const rawText = textToSend;
 
     // ── Plan mode: if existing plan detected, ask user what to do ──
     if (mode === 'plan' && existingPlan && existingPlan.trim().length > 0 && !planConflict && !planReady) {
@@ -2786,6 +2832,7 @@ export function ChatPanel() {
 
       if (wantsGenerate) {
         setReportPhase('draft');
+        reportPhaseRef.current = 'draft'; // Sync ref immediately
         const scopeInstr = reportScope === 'focused'
           ? `Write a FOCUSED summary report — keep it concise with key results, a brief methods overview, and main conclusions. Skip lengthy introductions and exhaustive discussion. Aim for 2-3 pages.\n\n`
           : `Write a COMPREHENSIVE scientific report suitable for publication. Include all standard sections with thorough, publication-quality prose.\n\n`;
@@ -2803,7 +2850,14 @@ export function ChatPanel() {
           `Write thorough, publication-quality prose for each section.\n\n` +
           `User's instructions: ${rawText}`;
       } else {
-        finalText = reportContext + rawText;
+        // User is providing context / answering questions — NOT generating yet.
+        // Do NOT send file contents here — just send the user's answer.
+        // Explicitly instruct Claude to NOT write the report yet.
+        finalText = `The user is providing additional context for an upcoming report. ` +
+          `DO NOT write the report yet. DO NOT create any files. ` +
+          `Just acknowledge their input briefly (1-2 sentences), ask any follow-up questions if needed, ` +
+          `and let them know they can click "Generate Report" or type "generate report" when ready.\n\n` +
+          `User's context: ${rawText}`;
       }
     }
 
@@ -2839,11 +2893,13 @@ export function ChatPanel() {
       // The full context is already in the prompt — resuming would duplicate
       // everything and make Opus extremely slow or hang.
       const isReportDraft = mode === 'report' && reportPhase === 'draft';
+      const isReportClarify = mode === 'report' && reportPhase === 'clarify';
       // Start a FRESH session (no resume) for:
       // - Report drafts (full context already in prompt)
+      // - Report clarify (just acknowledging user context — no tools needed)
       // - Plan mode (always fresh — existing plan context is injected into the prompt,
       //   resuming an old agent session causes Claude to ignore the plan prompt)
-      const shouldStartFresh = isReportDraft || mode === 'plan';
+      const shouldStartFresh = isReportDraft || isReportClarify || mode === 'plan';
       const invokeArgs: Record<string, unknown> = {
         sessionId,
         prompt,
@@ -2853,9 +2909,9 @@ export function ChatPanel() {
         // Send the actual mode — the backend handles plan/report prompt construction,
         // archival, and max-turns based on the mode string.
         mode,
-        // Report draft: all file contents are pre-read and injected into the prompt,
-        // so Claude needs exactly 1 turn to write the report — no tool use needed.
-        ...(isReportDraft ? { maxTurns: 1 } : {}),
+        // Report draft & clarify: limit to 1 turn — no tool use needed.
+        // Draft has full context; clarify is just acknowledging user input.
+        ...((isReportDraft || isReportClarify) ? { maxTurns: 1 } : {}),
       };
 
       // If connected to a remote server, pass SSH context
@@ -2893,6 +2949,18 @@ export function ChatPanel() {
   // sessionProjectPath (pinned on first message) so that sidebar folder
   // navigation does not break an active streaming session.
   }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocol, protocolContent, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady]);
+
+  // Report mode: user clicks "Generate Report" button during clarify phase.
+  // Calls sendMessage with an override string, which bypasses the isStreaming
+  // guard (the previous Claude turn is done even if the done-event was missed).
+  // sendMessage will detect "generate report" and set phase to 'draft'.
+  const reportGenerateFromButton = useCallback(() => {
+    if (reportPhase !== 'clarify') return;
+    console.log('[Report] Generate Report button clicked — moving to draft phase');
+    setIsStreaming(false);   // Reset in case stuck from previous turn
+    setInput('');
+    sendMessage('Generate report');
+  }, [reportPhase, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // @-mention popup keyboard navigation
@@ -3326,7 +3394,7 @@ export function ChatPanel() {
 
       {/* Report mode phase panel */}
       {mode === 'report' && (reportPhase !== 'idle' || reportError) && (
-        <div className="mx-3 mt-2 shrink-0">
+        <div className="mx-3 mt-2 shrink-0 relative z-10">
           <ReportPhasePanel
             phase={reportPhase}
             scan={reportScan}
@@ -3337,6 +3405,7 @@ export function ChatPanel() {
             onRescan={reportRescan}
             onCancel={reportCancel}
             onGenerate={reportGenerateFromButton}
+            isStreaming={isStreaming}
             outputPath={reportOutputPath}
             error={reportError}
             isLoading={reportLoading}
