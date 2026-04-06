@@ -135,7 +135,7 @@ pub fn check_dependencies() -> DependencyStatus {
 
     // Check Node.js
     let node_out = check_cmd("node --version");
-    let mut node = node_out.as_ref().map_or(false, |o| o.status.success());
+    let mut node = node_out.as_ref().is_some_and(|o| o.status.success());
     let mut node_version = node_out
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
@@ -161,7 +161,7 @@ pub fn check_dependencies() -> DependencyStatus {
 
     // Check npm
     let npm_out = check_cmd("npm --version");
-    let mut npm = npm_out.as_ref().map_or(false, |o| o.status.success());
+    let mut npm = npm_out.as_ref().is_some_and(|o| o.status.success());
     let mut npm_version = npm_out
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
@@ -186,7 +186,7 @@ pub fn check_dependencies() -> DependencyStatus {
 
     // Check Claude Code
     let claude_out = check_cmd("claude --version");
-    let claude_code = claude_out.as_ref().map_or(false, |o| o.status.success());
+    let claude_code = claude_out.as_ref().is_some_and(|o| o.status.success());
     let claude_version = claude_out
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
@@ -739,25 +739,23 @@ RunLoop.main.run()
     std::thread::spawn(move || {
         use std::io::BufRead;
         let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.starts_with("PARTIAL:") {
-                    let _ = app1.emit(
-                        "dictation-result",
-                        serde_json::json!({
-                            "text": &line[8..], "isFinal": false
-                        }),
-                    );
-                } else if line.starts_with("FINAL:") {
-                    let _ = app1.emit(
-                        "dictation-result",
-                        serde_json::json!({
-                            "text": &line[6..], "isFinal": true
-                        }),
-                    );
-                } else if line.starts_with("DONE:") {
-                    let _ = app1.emit("dictation-done", "complete");
-                }
+        for line in reader.lines().map_while(Result::ok) {
+            if let Some(text) = line.strip_prefix("PARTIAL:") {
+                let _ = app1.emit(
+                    "dictation-result",
+                    serde_json::json!({
+                        "text": text, "isFinal": false
+                    }),
+                );
+            } else if let Some(text) = line.strip_prefix("FINAL:") {
+                let _ = app1.emit(
+                    "dictation-result",
+                    serde_json::json!({
+                        "text": text, "isFinal": true
+                    }),
+                );
+            } else if line.starts_with("DONE:") {
+                let _ = app1.emit("dictation-done", "complete");
             }
         }
         let _ = app1.emit("dictation-done", "ended");
@@ -770,13 +768,11 @@ RunLoop.main.run()
     std::thread::spawn(move || {
         use std::io::BufRead;
         let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.contains("NOT_AUTHORIZED") {
-                    let _ = app2.emit("dictation-error", "Speech recognition not authorized. Please allow in System Settings → Privacy & Security → Speech Recognition.");
-                } else if line.contains("AUDIO_ERROR") {
-                    let _ = app2.emit("dictation-error", "Could not access microphone. Please allow in System Settings → Privacy & Security → Microphone.");
-                }
+        for line in reader.lines().map_while(Result::ok) {
+            if line.contains("NOT_AUTHORIZED") {
+                let _ = app2.emit("dictation-error", "Speech recognition not authorized. Please allow in System Settings → Privacy & Security → Speech Recognition.");
+            } else if line.contains("AUDIO_ERROR") {
+                let _ = app2.emit("dictation-error", "Could not access microphone. Please allow in System Settings → Privacy & Security → Microphone.");
             }
         }
     });

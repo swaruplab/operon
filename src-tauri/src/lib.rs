@@ -205,12 +205,8 @@ pub fn run() {
         .manage(ExtensionManager::new())
         .setup(|app| {
             // Build platform-appropriate menu
-            let menu = platform::build_menu(app).map_err(|e| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
+            let menu = platform::build_menu(app)
+                .map_err(|e| Box::new(std::io::Error::other(e.to_string())))?;
             app.set_menu(menu)?;
 
             // Handle menu events

@@ -204,11 +204,11 @@ impl ExtensionManager {
         }
     }
 
-    fn registry_path(extensions_dir: &PathBuf) -> PathBuf {
+    fn registry_path(extensions_dir: &std::path::Path) -> PathBuf {
         extensions_dir.join("registry.json")
     }
 
-    fn load_registry(extensions_dir: &PathBuf) -> HashMap<String, InstalledExtension> {
+    fn load_registry(extensions_dir: &std::path::Path) -> HashMap<String, InstalledExtension> {
         let path = Self::registry_path(extensions_dir);
         if let Ok(data) = std::fs::read_to_string(&path) {
             serde_json::from_str(&data).unwrap_or_default()
@@ -218,7 +218,7 @@ impl ExtensionManager {
     }
 
     fn save_registry(
-        extensions_dir: &PathBuf,
+        extensions_dir: &std::path::Path,
         registry: &HashMap<String, InstalledExtension>,
     ) -> Result<(), String> {
         let path = Self::registry_path(extensions_dir);
@@ -1143,10 +1143,8 @@ pub async fn start_language_server(
     std::thread::spawn(move || {
         use std::io::BufRead;
         let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let _ = app2.emit(&format!("lsp-stderr-{}", sid2), &line);
-            }
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = app2.emit(&format!("lsp-stderr-{}", sid2), &line);
         }
     });
 
@@ -1841,7 +1839,7 @@ pub async fn singularity_action(
     }
 
     let output = std::process::Command::new(cmd)
-        .args(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+        .args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>())
         .output()
         .map_err(|e| format!("{} command failed: {}", cmd, e))?;
 
@@ -1856,6 +1854,7 @@ pub async fn singularity_action(
 
 /// Start a language server on a remote machine via SSH.
 /// The LSP server runs on the remote and messages are relayed through SSH.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn start_remote_language_server(
     extension_id: String,
@@ -1984,10 +1983,8 @@ pub async fn start_remote_language_server(
     std::thread::spawn(move || {
         use std::io::BufRead;
         let reader = std::io::BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let _ = app2.emit(&format!("lsp-stderr-{}", sid2), &line);
-            }
+        for line in reader.lines().map_while(Result::ok) {
+            let _ = app2.emit(&format!("lsp-stderr-{}", sid2), &line);
         }
     });
 

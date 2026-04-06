@@ -116,11 +116,7 @@ pub async fn save_attachment_file(data: String, filename: String) -> Result<Stri
         .unwrap_or_default()
         .as_millis();
     // Preserve original filename but prefix with timestamp to avoid collisions
-    let safe_name = format!(
-        "{}-{}",
-        timestamp,
-        filename.replace('/', "_").replace('\\', "_")
-    );
+    let safe_name = format!("{}-{}", timestamp, filename.replace(['/', '\\'], "_"));
     let path = tmp_dir.join(&safe_name);
 
     std::fs::write(&path, &bytes).map_err(|e| format!("Failed to write attachment file: {}", e))?;
@@ -227,7 +223,7 @@ fn index_walk(
     };
 
     let mut children: Vec<_> = read_dir.flatten().collect();
-    children.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    children.sort_by_key(|a| a.file_name());
 
     for entry in children {
         let path = entry.path();
@@ -627,7 +623,7 @@ fn protocols_dir() -> Result<std::path::PathBuf, String> {
 
 /// Convert a folder/file name like "scrna-seq-analysis" → "Scrna Seq Analysis"
 fn id_to_display_name(id: &str) -> String {
-    id.split(|c: char| c == '-' || c == '_')
+    id.split(['-', '_'])
         .map(|word| {
             let mut chars = word.chars();
             match chars.next() {

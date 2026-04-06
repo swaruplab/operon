@@ -10,19 +10,15 @@ use crate::commands::files::FileEntry;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AuthType {
     /// Simple password auth (no MFA)
+    #[default]
     Password,
     /// Key-based auth (key already installed)
     Key,
     /// Keyboard-interactive / Duo MFA (password + push/passcode)
     DuoMfa,
-}
-
-impl Default for AuthType {
-    fn default() -> Self {
-        AuthType::Password
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -602,8 +598,7 @@ pub async fn list_remote_directory(
             continue;
         }
 
-        let clean =
-            line.trim_end_matches(|c| c == '/' || c == '*' || c == '@' || c == '=' || c == '|');
+        let clean = line.trim_end_matches(['/', '*', '@', '=', '|']);
         if clean == "." || clean == ".." {
             continue;
         }
@@ -1159,7 +1154,7 @@ pub async fn setup_ssh_key(
         }
     }
 
-    let safe_host = profile.host.replace('.', "_").replace(':', "_");
+    let safe_host = profile.host.replace(['.', ':'], "_");
     let key_name = format!("operon_{}", safe_host);
     let private_key_path = ssh_dir.join(&key_name);
     let public_key_path = ssh_dir.join(format!("{}.pub", key_name));

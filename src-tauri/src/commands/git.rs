@@ -196,7 +196,7 @@ pub async fn gh_check_auth() -> Result<GhAuthStatus, String> {
         .map_err(|e| e.to_string())?;
 
     let output_text = String::from_utf8_lossy(&auth_output.stdout).to_string()
-        + &String::from_utf8_lossy(&auth_output.stderr).to_string();
+        + String::from_utf8_lossy(&auth_output.stderr).as_ref();
 
     let authenticated = auth_output.status.success() || output_text.contains("Logged in to");
 
@@ -257,7 +257,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
         .output()
         .map(|o| {
             String::from_utf8_lossy(&o.stdout).to_string()
-                + &String::from_utf8_lossy(&o.stderr).to_string()
+                + String::from_utf8_lossy(&o.stderr).as_ref()
         })
         .unwrap_or_default();
     if check.contains("Logged in") {
@@ -278,22 +278,20 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
     std::thread::spawn(move || {
         if let Some(out) = stdout {
             let reader = BufReader::new(out);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    // gh prints something like: "! First copy your one-time code: ABCD-1234"
-                    if line.contains("one-time code:") {
-                        if let Some(code) = line.split("one-time code:").nth(1) {
-                            let one_time_code = code.trim().to_string();
-                            // Emit the code to the frontend so it can be displayed
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _: Result<(), _> = window.emit("gh-login-code", &one_time_code);
-                            }
+            for line in reader.lines().map_while(Result::ok) {
+                // gh prints something like: "! First copy your one-time code: ABCD-1234"
+                if line.contains("one-time code:") {
+                    if let Some(code) = line.split("one-time code:").nth(1) {
+                        let one_time_code = code.trim().to_string();
+                        // Emit the code to the frontend so it can be displayed
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _: Result<(), _> = window.emit("gh-login-code", &one_time_code);
                         }
                     }
-                    // When gh says to open URL, open it
-                    if line.contains("https://github.com/login/device") {
-                        let _ = crate::platform::open_url("https://github.com/login/device");
-                    }
+                }
+                // When gh says to open URL, open it
+                if line.contains("https://github.com/login/device") {
+                    let _ = crate::platform::open_url("https://github.com/login/device");
                 }
             }
         }
@@ -308,7 +306,7 @@ pub async fn gh_login(app_handle: tauri::AppHandle) -> Result<String, String> {
                 .output()
                 .map(|o| {
                     let out = String::from_utf8_lossy(&o.stdout).to_string()
-                        + &String::from_utf8_lossy(&o.stderr).to_string();
+                        + String::from_utf8_lossy(&o.stderr).as_ref();
                     out.contains("Logged in")
                 })
                 .unwrap_or(false);
@@ -627,7 +625,7 @@ pub async fn git_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
         if line.len() < 3 {
             continue;
         }
-        let index_status = line.chars().nth(0).unwrap_or(' ');
+        let index_status = line.chars().next().unwrap_or(' ');
         let worktree_status = line.chars().nth(1).unwrap_or(' ');
         let path = line[3..].trim().to_string();
         // Remove quotes from paths with special chars
@@ -651,20 +649,11 @@ pub async fn git_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
             }
             // If worktree has a status, there are unstaged changes too
             if worktree_status != ' ' && worktree_status != '?' {
-                // Only add as separate unstaged entry if also staged (partially staged)
-                if index_status != ' ' {
-                    files.push(ChangedFile {
-                        path,
-                        status: worktree_status.to_string(),
-                        staged: false,
-                    });
-                } else {
-                    files.push(ChangedFile {
-                        path,
-                        status: worktree_status.to_string(),
-                        staged: false,
-                    });
-                }
+                files.push(ChangedFile {
+                    path,
+                    status: worktree_status.to_string(),
+                    staged: false,
+                });
             }
         }
     }

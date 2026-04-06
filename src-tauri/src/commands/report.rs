@@ -224,7 +224,7 @@ fn count_totals(node: &ScanTreeNode) -> (u64, u64, u64, u64, u64, u64) {
 
 fn scan_dir_recursive(
     dir: &Path,
-    root: &Path,
+    _root: &Path,
     depth: u32,
     show_hidden: bool,
 ) -> Result<ScanTreeNode, String> {
@@ -347,7 +347,7 @@ fn scan_dir_recursive(
     // Recurse into subdirectories
     dirs.sort();
     for d in dirs {
-        let child = scan_dir_recursive(&d, root, depth + 1, show_hidden)?;
+        let child = scan_dir_recursive(&d, _root, depth + 1, show_hidden)?;
         // Only include if it (or descendants) has reportable files
         if child.total_file_count > 0 || !child.files.is_empty() || !child.children.is_empty() {
             node.children.push(child);
@@ -1098,7 +1098,7 @@ fn build_tree_from_flat(
     }
 
     // For each immediate child directory, recursively build a subtree
-    for (child_name, _child_dir_paths) in &child_dirs_map {
+    for child_name in child_dirs_map.keys() {
         let child_path = format!("{}/{}", root_path, child_name);
         // Recursively build the subtree rooted at child_path
         let child_node = build_tree_from_flat(&child_path, files_by_dir);
@@ -1121,7 +1121,7 @@ fn build_tree_from_flat(
         let (child_count, child_size): (u64, u64) = node
             .children
             .iter()
-            .map(|c| sum_files(c))
+            .map(sum_files)
             .fold((0, 0), |(ac, as_), (cc, cs)| (ac + cc, as_ + cs));
         (own_count + child_count, own_size + child_size)
     }

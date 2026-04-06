@@ -101,7 +101,7 @@ fn load_all_sessions_from_disk() -> Vec<SessionMetadata> {
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(data) = std::fs::read_to_string(&path) {
                     if let Ok(meta) = serde_json::from_str::<SessionMetadata>(&data) {
                         sessions.push(meta);
@@ -1118,14 +1118,14 @@ fi
     }
 
     // Provide a helpful error with manual install command
-    return Err(format!(
+    Err(format!(
         "Automatic installation failed on this server.\n\n\
          You can install manually by running this in the terminal:\n  \
          curl -fsSL https://claude.ai/install.sh | bash\n\n\
          Then click Re-check in Operon.\n\n\
          Server output:\n{}",
         result.lines().take(20).collect::<Vec<_>>().join("\n")
-    ));
+    ))
 }
 
 // --- Authentication ---
@@ -1426,6 +1426,7 @@ pub struct RemoteContext {
     pub remote_path: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn start_claude_session(
     state: tauri::State<'_, ClaudeManager>,
@@ -2836,12 +2837,12 @@ pub async fn list_sessions(
         .into_iter()
         .filter(|s| {
             // Filter by project path or profile if provided
-            let path_match = project_path.as_ref().map_or(true, |p| {
+            let path_match = project_path.as_ref().is_none_or(|p| {
                 s.project_path == *p || s.remote_path.as_deref() == Some(p.as_str())
             });
             let profile_match = profile_id
                 .as_ref()
-                .map_or(true, |pid| s.profile_id.as_deref() == Some(pid.as_str()));
+                .is_none_or(|pid| s.profile_id.as_deref() == Some(pid.as_str()));
             path_match && profile_match
         })
         .collect();
