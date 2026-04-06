@@ -279,7 +279,7 @@ pub fn ssh_mux_check(_host: &str, _port: u16, _user: &str) -> bool {
     #[cfg(target_os = "windows")]
     { false }
     #[cfg(target_os = "linux")]
-    { linux::ssh_mux_check(host, port, user) }
+    { linux::ssh_mux_check(_host, _port, _user) }
 }
 
 /// Return the ControlMaster socket path for a given connection.
