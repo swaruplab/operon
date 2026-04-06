@@ -259,6 +259,209 @@ impl SSHManager {
     }
 }
 
+// ── Windows Persistent SSH Exec Channel ──
+// On macOS/Linux, ControlMaster multiplexes all SSH commands through one TCP connection.
+// Windows doesn't support ControlMaster, so university servers that rate-limit SSH
+// connections will reject rapid-fire file browsing commands. This provides the equivalent:
+// a single persistent SSH process with commands piped through stdin/stdout.
+
+#[cfg(target_os = "windows")]
+struct WinSshExecChannel {
+    stdin: std::process::ChildStdin,
+    reader: std::io::BufReader<std::process::ChildStdout>,
+    child: std::process::Child,
+}
+
+#[cfg(target_os = "windows")]
+impl WinSshExecChannel {
+    fn spawn(profile: &SSHProfile) -> Result<Self, String> {
+        use std::io::{BufRead, Read, Write};
+
+        let mut cmd = std::process::Command::new("ssh.exe");
+        cmd.args([
+            "-T", // no PTY allocation on the remote side
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=15",
+            "-o",
+            "LogLevel=ERROR",
+        ]);
+        cmd.args(["-p", &profile.port.to_string()]);
+        if let Some(key) = &profile.key_file {
+            if std::path::Path::new(key).exists() {
+                cmd.args(["-i", key]);
+            }
+        }
+        // Force key-only auth to avoid hanging on password prompts
+        cmd.args(["-o", "PreferredAuthentications=publickey"]);
+        cmd.arg(format!("{}@{}", profile.user, profile.host));
+        // Explicitly start a clean shell to avoid login script noise
+        cmd.arg("bash --norc --noprofile");
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn persistent SSH channel: {}", e))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("Failed to capture SSH channel stdin")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("Failed to capture SSH channel stdout")?;
+        let stderr = child.stderr.take();
+
+        // Quick check: give SSH a moment to fail, then check if it's still alive
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // SSH exited immediately — auth failed
+                let err_msg = if let Some(mut se) = stderr {
+                    let mut buf = String::new();
+                    let _ = se.read_to_string(&mut buf);
+                    buf
+                } else {
+                    String::new()
+                };
+                eprintln!(
+                    "[operon-ssh] Exec channel auth failed (exit {}): {}",
+                    status,
+                    err_msg.trim()
+                );
+                return Err(format!(
+                    "SSH key auth failed for exec channel. Server may require MFA on every connection. Error: {}",
+                    err_msg.trim()
+                ));
+            }
+            Ok(None) => {
+                // Still running — good, auth succeeded
+                eprintln!(
+                    "[operon-ssh] Windows exec channel opened for {}@{}:{}",
+                    profile.user, profile.host, profile.port
+                );
+            }
+            Err(e) => return Err(format!("Failed to check SSH channel status: {}", e)),
+        }
+
+        // Drain stderr in a background thread to prevent pipe buffer deadlock
+        if let Some(se) = stderr {
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(se);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => eprintln!("[operon-ssh-stderr] {}", line.trim()),
+                    }
+                }
+            });
+        }
+
+        // Send a probe command and read back to synchronize the channel
+        // This consumes any MOTD/banner output and confirms the shell is ready
+        let mut channel = Self {
+            stdin,
+            reader: std::io::BufReader::new(stdout),
+            child,
+        };
+        let probe_delim = "__OPERON_READY__";
+        let probe_cmd = format!("echo {}\n", probe_delim);
+        channel
+            .stdin
+            .write_all(probe_cmd.as_bytes())
+            .map_err(|e| format!("Failed to send probe: {}", e))?;
+        channel
+            .stdin
+            .flush()
+            .map_err(|e| format!("Failed to flush probe: {}", e))?;
+
+        // Read until we see the probe delimiter (skip any MOTD/login noise)
+        let mut line = String::new();
+        let start = std::time::Instant::now();
+        loop {
+            if start.elapsed() > std::time::Duration::from_secs(10) {
+                return Err("Exec channel probe timed out — shell not responding".to_string());
+            }
+            line.clear();
+            match channel.reader.read_line(&mut line) {
+                Ok(0) => return Err("Exec channel closed during probe".to_string()),
+                Ok(_) => {
+                    if line.trim() == probe_delim {
+                        break;
+                    }
+                    // Skip MOTD/banner lines
+                }
+                Err(e) => return Err(format!("Exec channel probe read failed: {}", e)),
+            }
+        }
+
+        eprintln!("[operon-ssh] Exec channel ready (probe OK)");
+        Ok(channel)
+    }
+
+    fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    fn exec(&mut self, remote_cmd: &str) -> Result<String, String> {
+        use std::io::{BufRead, Write};
+
+        // Use a unique delimiter that won't appear in command output
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let delim = format!("__OPERON_DONE_{}_{}__", std::process::id(), ts);
+
+        // Send command, capture both stdout and stderr, then print delimiter
+        let wrapped = format!("{} 2>&1; echo \"{}\"\n", remote_cmd, delim);
+
+        self.stdin.write_all(wrapped.as_bytes()).map_err(|e| {
+            format!(
+                "SSH channel write failed (connection may have dropped): {}",
+                e
+            )
+        })?;
+        self.stdin
+            .flush()
+            .map_err(|e| format!("SSH channel flush failed: {}", e))?;
+
+        // Read lines until we see the delimiter
+        let mut output = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return Err("SSH channel closed unexpectedly".to_string()),
+                Ok(_) => {
+                    if line.trim_end() == delim {
+                        break;
+                    }
+                    output.push_str(&line);
+                }
+                Err(e) => return Err(format!("SSH channel read failed: {}", e)),
+            }
+        }
+
+        Ok(output)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WinSshExecChannel {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
 // ── Profile CRUD Commands ──
 
 #[tauri::command]
@@ -355,16 +558,43 @@ pub async fn spawn_ssh_terminal(
         ssh_cmd.push_str(&format!(" -i {}", key));
     }
 
-    let shell = crate::platform::default_shell();
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
-    cmd.arg("-c");
-    cmd.arg(&ssh_cmd);
+    // On Windows, run ssh.exe directly — cmd.exe doesn't accept -l/-c flags.
+    // On macOS/Linux, use a login shell so PATH, aliases, and SSH agent are available.
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = CommandBuilder::new("ssh.exe");
+        c.args([
+            &format!("{}@{}", profile.user, profile.host),
+            "-p",
+            &profile.port.to_string(),
+            "-o",
+            "ServerAliveInterval=30",
+            // Suppress "getsockname failed: Not a socket" ConPTY warning on Windows
+            "-o",
+            "LogLevel=ERROR",
+        ]);
+        // Add key file if set
+        if let Some(key) = &profile.key_file {
+            c.args(["-i", key]);
+        }
+        c
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let shell = crate::platform::default_shell();
+        let mut c = CommandBuilder::new(&shell);
+        c.arg("-l");
+        c.arg("-c");
+        c.arg(&ssh_cmd);
+        c
+    };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
     if let Some(home) = crate::platform::home_dir() {
         cmd.env("HOME", home.to_string_lossy().as_ref());
+        #[cfg(target_os = "windows")]
+        cmd.env("USERPROFILE", home.to_string_lossy().as_ref());
         cmd.cwd(&home);
     }
 
@@ -424,48 +654,91 @@ pub async fn spawn_ssh_terminal(
 
 // ── Remote Command Execution (uses ControlMaster when available) ──
 
-/// Run a command on a remote server via a quick non-interactive SSH subprocess.
+/// Run a command on a remote server via SSH.
 /// On macOS/Linux: uses ControlMaster socket if active, bypassing re-auth.
-/// On Windows: uses key-based auth (ControlMaster unsupported). If keys aren't
-/// set up, SSH will fail with a clear error instead of hanging on Duo prompt.
+/// On Windows: uses a persistent SSH exec channel (single TCP connection reused
+/// for all commands — the Windows equivalent of ControlMaster).
 pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
-    let has_mux = crate::platform::supports_ssh_mux();
+    let _has_mux = crate::platform::supports_ssh_mux();
 
-    let mut ssh_args = if has_mux {
-        // macOS/Linux: BatchMode is fine because ControlMaster socket handles auth
-        format!(
-            "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
-            profile.user, profile.host, profile.port
-        )
-    } else {
-        // Windows: No ControlMaster. Use key-based auth only to avoid hanging on
-        // interactive Duo MFA prompts. If the user has set up SSH keys via the
-        // setup wizard, publickey auth works silently. If not, fail fast with a
-        // clear error rather than blocking on a Duo prompt that can't be answered.
-        format!(
-            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 \
-             -o PreferredAuthentications=publickey {}@{} -p {}",
-            profile.user, profile.host, profile.port
-        )
-    };
+    // ── Windows: persistent exec channel (replaces ControlMaster) ──
+    // Maintains one SSH connection per server and pipes all commands through it.
+    // This avoids opening a new TCP connection for every file operation, which
+    // triggers rate-limiting on university/HPC SSH servers.
+    #[cfg(target_os = "windows")]
+    {
+        use std::sync::OnceLock;
+        static WIN_CHANNELS: OnceLock<Mutex<HashMap<String, WinSshExecChannel>>> = OnceLock::new();
+        let channels_mutex = WIN_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
+        let channel_key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
 
-    // Always include ControlPath so we ride the existing master connection
-    ssh_args.push_str(&control_master_args(profile, false));
-    if let Some(key) = &profile.key_file {
-        if std::path::Path::new(key).exists() {
-            ssh_args.push_str(&format!(" -i {}", key));
+        let mut channels = channels_mutex.lock().map_err(|e| e.to_string())?;
+
+        // Get existing channel or create a new one
+        let need_new = match channels.get_mut(&channel_key) {
+            Some(ch) => !ch.is_alive(),
+            None => true,
+        };
+        if need_new {
+            eprintln!(
+                "[operon-ssh] Opening persistent exec channel for {}",
+                channel_key
+            );
+            let ch = WinSshExecChannel::spawn(profile)?;
+            channels.insert(channel_key.clone(), ch);
+        }
+
+        let channel = channels.get_mut(&channel_key).unwrap();
+        match channel.exec(remote_cmd) {
+            Ok(stdout) => return Ok(stdout),
+            Err(e) => {
+                // Channel died — remove it and try once more with a fresh connection
+                eprintln!("[operon-ssh] Exec channel error: {}. Reconnecting...", e);
+                channels.remove(&channel_key);
+                let ch = WinSshExecChannel::spawn(profile)?;
+                channels.insert(channel_key.clone(), ch);
+                let channel = channels.get_mut(&channel_key).unwrap();
+                return channel.exec(remote_cmd);
+            }
         }
     }
-    ssh_args.push_str(&format!(" -- {}", shell_escape(remote_cmd)));
 
-    let output = crate::platform::shell_exec(&ssh_args)
-        .output()
-        .map_err(|e| format!("Failed to run SSH: {}", e))?;
+    // ── macOS/Linux: use shell_exec with ControlMaster ──
+    #[cfg(not(target_os = "windows"))]
+    let output = {
+        let mut ssh_args = if _has_mux {
+            format!(
+                "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
+                profile.user, profile.host, profile.port
+            )
+        } else {
+            format!(
+                "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 \
+                 -o PreferredAuthentications=publickey {}@{} -p {}",
+                profile.user, profile.host, profile.port
+            )
+        };
 
+        ssh_args.push_str(&control_master_args(profile, false));
+        if let Some(key) = &profile.key_file {
+            if std::path::Path::new(key).exists() {
+                ssh_args.push_str(&format!(" -i {}", key));
+            }
+        }
+        ssh_args.push_str(&format!(" -- {}", shell_escape(remote_cmd)));
+
+        crate::platform::shell_exec(&ssh_args)
+            .output()
+            .map_err(|e| format!("Failed to run SSH: {}", e))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    #[cfg(not(target_os = "windows"))]
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     // Filter out common SSH noise from stderr (post-quantum warnings, MOTD, etc.)
+    #[cfg(not(target_os = "windows"))]
     let filtered_stderr: String = stderr
         .lines()
         .filter(|l| {
@@ -480,26 +753,13 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         .collect::<Vec<_>>()
         .join("\n");
 
+    #[cfg(not(target_os = "windows"))]
     if !output.status.success() && stdout.trim().is_empty() {
-        // On Windows without ControlMaster, provide actionable guidance
-        if !has_mux
-            && (stderr.contains("Permission denied")
-                || stderr.contains("publickey")
-                || stderr.contains("no more authentication methods"))
-        {
-            return Err(
-                "SSH key authentication failed. On Windows, Operon requires SSH keys \
-                 for file operations because SSH multiplexing (ControlMaster) is not supported. \
-                 Please set up SSH keys using the key icon in the SSH connection panel."
-                    .to_string(),
-            );
-        }
-
         // Check if ControlMaster socket exists
         let mux_active = control_master_active(profile);
         let sock_path = control_socket_path(profile);
 
-        if has_mux && !mux_active {
+        if _has_mux && !mux_active {
             return Err(format!(
                 "SSH connection not ready for file browsing. The SSH multiplexing socket is not active \
                  (expected at {}). Try disconnecting and reconnecting the SSH terminal, or set up SSH keys \
@@ -518,7 +778,13 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         return Err(format!("SSH command failed: {}", filtered_stderr));
     }
 
-    Ok(stdout)
+    #[cfg(not(target_os = "windows"))]
+    return Ok(stdout);
+
+    // Unreachable on non-Windows, but needed for Windows cfg where the function
+    // returns early from the #[cfg(target_os = "windows")] block above.
+    #[cfg(target_os = "windows")]
+    unreachable!()
 }
 
 fn shell_escape(s: &str) -> String {
@@ -1224,14 +1490,37 @@ pub async fn setup_ssh_key(
         shell_escape(&install_script)
     );
 
-    let shell = crate::platform::default_shell();
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.arg("-l");
-    cmd.arg("-c");
-    cmd.arg(&ssh_cmd);
+    // On Windows, run ssh.exe directly — cmd.exe doesn't accept -l/-c flags.
+    // On macOS/Linux, use a login shell so PATH and aliases are available.
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = CommandBuilder::new("ssh.exe");
+        c.args([
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "-o",
+            "ConnectTimeout=15",
+            "-p",
+            &profile.port.to_string(),
+            &format!("{}@{}", profile.user, profile.host),
+            &install_script,
+        ]);
+        c
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let shell = crate::platform::default_shell();
+        let mut c = CommandBuilder::new(&shell);
+        c.arg("-l");
+        c.arg("-c");
+        c.arg(&ssh_cmd);
+        c
+    };
     cmd.env("TERM", "xterm-256color");
     if let Some(h) = crate::platform::home_dir() {
         cmd.env("HOME", h.to_string_lossy().as_ref());
+        #[cfg(target_os = "windows")]
+        cmd.env("USERPROFILE", h.to_string_lossy().as_ref());
         cmd.cwd(&h);
     }
 
@@ -1255,6 +1544,56 @@ pub async fn setup_ssh_key(
         Failed,
     }
 
+    // Strip ANSI escape sequences from PTY output.
+    // ConPTY on Windows injects cursor positioning, bracketed paste markers,
+    // OSC title sequences, and other control codes that break pattern matching.
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                match chars.peek() {
+                    // ESC [ ... (letter)  — CSI sequence (cursor, colors, etc.)
+                    Some(&'[') => {
+                        chars.next(); // consume '['
+                        while let Some(&next) = chars.peek() {
+                            chars.next();
+                            if next.is_ascii_alphabetic() || next == '~' {
+                                break;
+                            }
+                        }
+                    }
+                    // ESC ] ... BEL/ST  — OSC sequence (window title, etc.)
+                    // Terminates with BEL (\x07) or ST (\x1b\\)
+                    Some(&']') => {
+                        chars.next(); // consume ']'
+                        while let Some(&next) = chars.peek() {
+                            chars.next();
+                            if next == '\x07' {
+                                break;
+                            }
+                            if next == '\x1b' {
+                                if chars.peek() == Some(&'\\') {
+                                    chars.next();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    _ => {
+                        chars.next();
+                    } // ESC + one char
+                }
+            } else if c == '\r' || c == '\x07' {
+                // Strip carriage returns and stray BEL characters
+                continue;
+            } else {
+                result.push(c);
+            }
+        }
+        result
+    }
+
     let mut state_machine = State::WaitingForPrompt;
     let mut accumulated = String::new();
     let mut buf = vec![0u8; 4096];
@@ -1267,7 +1606,7 @@ pub async fn setup_ssh_key(
     // (portable-pty doesn't support non-blocking reads directly, so we use
     //  a thread with a channel)
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let reader_thread = std::thread::spawn(move || loop {
+    let _reader_thread = std::thread::spawn(move || loop {
         match reader.read(&mut buf) {
             Ok(0) => {
                 let _ = tx.send(Vec::new());
@@ -1296,8 +1635,9 @@ pub async fn setup_ssh_key(
                 if data.is_empty() {
                     // EOF — process exited
                     if state_machine != State::Done {
-                        // Check if we got the success marker before EOF
-                        if accumulated.contains("OPERON_KEY_INSTALLED_OK") {
+                        // Check if we got the success marker before EOF (strip ANSI for Windows)
+                        let clean_acc = strip_ansi(&accumulated);
+                        if clean_acc.contains("OPERON_KEY_INSTALLED_OK") {
                             state_machine = State::Done;
                         } else {
                             state_machine = State::Failed;
@@ -1307,7 +1647,9 @@ pub async fn setup_ssh_key(
                 }
                 let text = String::from_utf8_lossy(&data).to_string();
                 accumulated.push_str(&text);
-                let lower = accumulated.to_lowercase();
+                // Strip ANSI escapes + \r (ConPTY on Windows) before pattern matching
+                let clean = strip_ansi(&accumulated);
+                let lower = clean.to_lowercase();
 
                 match state_machine {
                     State::WaitingForPrompt => {
@@ -1456,8 +1798,8 @@ pub async fn setup_ssh_key(
                 continue;
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                // Reader thread exited
-                if accumulated.contains("OPERON_KEY_INSTALLED_OK") {
+                // Reader thread exited — strip ANSI before checking success marker
+                if strip_ansi(&accumulated).contains("OPERON_KEY_INSTALLED_OK") {
                     state_machine = State::Done;
                 } else {
                     state_machine = State::Failed;
@@ -1471,10 +1813,14 @@ pub async fn setup_ssh_key(
         }
     }
 
-    // Clean up the PTY
+    // Clean up the PTY — drop child FIRST to terminate the SSH process,
+    // which causes the PTY to close and the reader thread to eventually get EOF.
+    // On Windows ConPTY, reader.read() can block indefinitely after the child exits
+    // unless we drop the child first. Don't join the reader thread — it will self-terminate
+    // when the PTY master is dropped and the read returns EOF/error.
     drop(writer);
-    let _ = reader_thread.join();
     drop(child);
+    // Don't reader_thread.join() — on Windows ConPTY it can hang.
 
     if state_machine != State::Done {
         cleanup_keys(&private_key_path, &public_key_path);
@@ -1487,13 +1833,24 @@ pub async fn setup_ssh_key(
 
     // 4. Verify key-based auth works (quick non-interactive test)
     emit_progress(&app, "verifying", "Verifying key-based authentication...");
-    let verify_cmd = format!(
-        "ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i {} -p {} {}@{} echo OPERON_KEY_VERIFY_OK",
-        private_key_path.to_string_lossy(), profile.port, profile.user, profile.host
-    );
-    let verify_output = crate::platform::shell_exec(&verify_cmd)
-        .output()
-        .map_err(|e| format!("Verification failed: {}", e))?;
+    // Run ssh directly (not through cmd.exe) to avoid path resolution issues on Windows
+    let verify_output = {
+        let mut cmd = std::process::Command::new("ssh");
+        cmd.args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+        ]);
+        cmd.args(["-i", &private_key_path.to_string_lossy()]);
+        cmd.args(["-p", &profile.port.to_string()]);
+        cmd.arg(format!("{}@{}", profile.user, profile.host));
+        cmd.arg("echo OPERON_KEY_VERIFY_OK");
+        cmd.output()
+            .map_err(|e| format!("Verification failed: {}", e))?
+    };
 
     let verify_stdout = String::from_utf8_lossy(&verify_output.stdout);
 

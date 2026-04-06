@@ -1707,21 +1707,31 @@ pub async fn start_claude_session(
             );
 
             // Write prompt to a local temp file — this bypasses all shell escaping issues
-            let prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+            let prompt_file =
+                std::env::temp_dir().join(format!("operon-report-prompt-{}.txt", session_id));
+            let prompt_file_str = prompt_file.to_string_lossy().to_string();
             std::fs::write(&prompt_file, &report_prompt)
                 .map_err(|e| format!("Failed to write report prompt file: {}", e))?;
             eprintln!(
                 "[operon] Report prompt written to {} ({} bytes)",
-                prompt_file,
+                prompt_file_str,
                 report_prompt.len()
             );
 
             // Pipe prompt from file via stdin. -p enables print mode (non-interactive),
             // and the positional prompt argument comes from stdin.
-            format!(
+            // Use platform-appropriate file-to-stdin command
+            #[cfg(target_os = "windows")]
+            let pipe_cmd = format!(
+                "type \"{}\" | claude {} -p --verbose --output-format stream-json",
+                prompt_file_str, permission_flag
+            );
+            #[cfg(not(target_os = "windows"))]
+            let pipe_cmd = format!(
                 "cat '{}' | claude {} -p --verbose --output-format stream-json",
-                prompt_file, permission_flag
-            )
+                prompt_file_str, permission_flag
+            );
+            pipe_cmd
         }
         "ask" => {
             // Ask mode: no tool use, answer questions with scientific rigor
@@ -1896,7 +1906,10 @@ pub async fn start_claude_session(
             // so the `cat prompt | claude` command works on the compute node.
             // Uses SCP (with ControlMaster reuse) — reliable for any file size, no encoding issues.
             if mode == "report" {
-                let local_prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+                let local_prompt_file = std::env::temp_dir()
+                    .join(format!("operon-report-prompt-{}.txt", session_id))
+                    .to_string_lossy()
+                    .to_string();
                 let remote_prompt_file = format!(
                     "{}/.operon-report-prompt-{}.txt",
                     ctx.remote_path, session_id
@@ -2295,7 +2308,10 @@ pub async fn start_claude_session(
 
         // For report mode, upload the prompt file to the remote server via SCP
         if mode == "report" {
-            let local_prompt_file = format!("/tmp/operon-report-prompt-{}.txt", session_id);
+            let local_prompt_file = std::env::temp_dir()
+                .join(format!("operon-report-prompt-{}.txt", session_id))
+                .to_string_lossy()
+                .to_string();
             let remote_prompt_file = format!(
                 "{}/.operon-report-prompt-{}.txt",
                 ctx.remote_path, session_id
