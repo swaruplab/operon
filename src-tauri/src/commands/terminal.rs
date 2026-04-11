@@ -162,6 +162,58 @@ pub async fn resize_terminal(
     Ok(())
 }
 
+/// Get the current working directory of a terminal's shell process.
+/// Uses platform-specific methods to read the CWD from the child PID.
+/// Only works for local terminals — SSH terminals return an error.
+#[tauri::command]
+pub async fn get_terminal_cwd(
+    state: tauri::State<'_, TerminalManager>,
+    terminal_id: String,
+) -> Result<String, String> {
+    let terminals = state.terminals.lock().map_err(|e| e.to_string())?;
+    let handle = terminals
+        .get(&terminal_id)
+        .ok_or_else(|| format!("Terminal {} not found", terminal_id))?;
+
+    let child = handle.child.lock().map_err(|e| e.to_string())?;
+    let pid = child
+        .process_id()
+        .ok_or_else(|| "Could not get process ID (process may have exited)".to_string())?;
+
+    get_cwd_of_pid(pid)
+}
+
+/// Read the current working directory of a process by PID.
+fn get_cwd_of_pid(pid: u32) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("lsof")
+            .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
+            .output()
+            .map_err(|e| format!("lsof failed: {}", e))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Some(path) = line.strip_prefix('n') {
+                if !path.is_empty() {
+                    return Ok(path.to_string());
+                }
+            }
+        }
+        Err("Could not determine CWD from lsof".to_string())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_link(format!("/proc/{}/cwd", pid))
+            .map(|p| p.to_string_lossy().to_string())
+            .map_err(|e| format!("Failed to read /proc/{}/cwd: {}", pid, e))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = pid;
+        Err("CWD detection not yet supported on Windows".to_string())
+    }
+}
+
 #[tauri::command]
 pub async fn kill_terminal(
     state: tauri::State<'_, TerminalManager>,

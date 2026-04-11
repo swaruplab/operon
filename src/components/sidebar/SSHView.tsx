@@ -178,6 +178,27 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
       profileName: profile.name,
     });
     onConnectSSH?.(profile.id, terminalId);
+
+    // Auto-detect server config on first connect if not yet configured
+    const hasConfig = profile.server_config && Object.values(profile.server_config).some(v => v?.trim());
+    if (!hasConfig) {
+      // Run in background after a short delay to let the SSH connection establish
+      setTimeout(async () => {
+        try {
+          const detected = await invoke<Record<string, string>>('detect_server_config', { profileId: profile.id });
+          if (Object.keys(detected).length > 0) {
+            const updated: SSHProfile = {
+              ...profile,
+              server_config: { ...profile.server_config, ...detected },
+            };
+            await invoke('save_ssh_profile', { profile: updated });
+            await loadProfiles();
+          }
+        } catch {
+          // Detection failed silently — user can still configure manually
+        }
+      }, 5000);
+    }
   };
 
   const handleEdit = (profile: SSHProfile) => {

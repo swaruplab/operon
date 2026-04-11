@@ -32,6 +32,8 @@ import {
   Stethoscope,
   DollarSign,
   Lightbulb,
+  Download,
+  Copy,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
@@ -108,6 +110,44 @@ export function ProtocolsView({ activeProtocolId, onActivate }: ProtocolsViewPro
 
   // Delete confirmation
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Right-click context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; protocol: ProtocolEntry } | null>(null);
+
+  // Auto-close context menu on any click
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [contextMenu]);
+
+  const handleDownload = async (p: ProtocolEntry) => {
+    try {
+      const content = await invoke<string>('read_protocol', { protocolId: p.id });
+      const blob = new Blob([content], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${p.id}.md`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      emit('show-notification', { message: `Failed to download: ${e}` });
+    }
+  };
+
+  const handleCopyContent = async (p: ProtocolEntry) => {
+    try {
+      const content = await invoke<string>('read_protocol', { protocolId: p.id });
+      await navigator.clipboard.writeText(content);
+      emit('show-notification', { message: `Copied "${p.name}" to clipboard` });
+    } catch (e) {
+      emit('show-notification', { message: `Failed to copy: ${e}` });
+    }
+  };
 
   const loadProtocols = async () => {
     setLoading(true);
@@ -648,6 +688,11 @@ export function ProtocolsView({ activeProtocolId, onActivate }: ProtocolsViewPro
                                 className={`flex items-start gap-2 px-3 py-1.5 ml-2 hover:bg-zinc-800/50 transition-colors cursor-pointer ${
                                   isActive ? 'bg-teal-950/30' : ''
                                 }`}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setContextMenu({ x: e.clientX, y: e.clientY, protocol: p });
+                                }}
                               >
                                 {/* Activate button */}
                                 <button
@@ -709,6 +754,13 @@ export function ProtocolsView({ activeProtocolId, onActivate }: ProtocolsViewPro
                                     </button>
                                   )}
                                   <button
+                                    onClick={() => handleDownload(p)}
+                                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-400 transition-colors"
+                                    title="Download protocol"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                  </button>
+                                  <button
                                     onClick={() => handleTogglePreview(p)}
                                     className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-400 transition-colors"
                                     title="Preview protocol"
@@ -740,6 +792,58 @@ export function ProtocolsView({ activeProtocolId, onActivate }: ProtocolsViewPro
           </div>
         )}
       </div>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 180),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
+          }}
+        >
+          <button
+            onClick={() => { handleDownload(contextMenu.protocol); setContextMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Download className="w-3.5 h-3.5 pointer-events-none" />
+            Download to Local
+          </button>
+          <button
+            onClick={() => { handleCopyContent(contextMenu.protocol); setContextMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Copy className="w-3.5 h-3.5 pointer-events-none" />
+            Copy to Clipboard
+          </button>
+          <button
+            onClick={() => { handleTogglePreview(contextMenu.protocol); setContextMenu(null); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Info className="w-3.5 h-3.5 pointer-events-none" />
+            Preview
+          </button>
+          {contextMenu.protocol.source === 'user' && !contextMenu.protocol.is_folder && (
+            <>
+              <div className="border-t border-zinc-700 my-1" />
+              <button
+                onClick={() => { handleEdit(contextMenu.protocol); setContextMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+              >
+                <Pencil className="w-3.5 h-3.5 pointer-events-none" />
+                Edit
+              </button>
+              <button
+                onClick={() => { setDeletingId(contextMenu.protocol.id); setContextMenu(null); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+              >
+                <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Footer info */}
       <div className="px-3 py-2 border-t border-zinc-800">

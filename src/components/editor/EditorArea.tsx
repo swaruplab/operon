@@ -1,5 +1,5 @@
-import { useCallback } from 'react';
-import { X, FileText, Code2, Image as ImageIcon, Globe } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { X, FileText, Code2, Image as ImageIcon, Globe, Pencil, Save, Check, Server } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { CodeEditor } from './CodeEditor';
 import { DiffViewer } from './DiffViewer';
@@ -16,8 +16,11 @@ export function EditorArea() {
     closeTab,
     updateTabContent,
     saveTab,
+    promoteTab,
     closeDiff,
   } = useProject();
+
+  const [saveFlash, setSaveFlash] = useState<string | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -38,6 +41,8 @@ export function EditorArea() {
           await writeFile(tab.filePath, content);
         }
         saveTab(tabId, content);
+        setSaveFlash(tabId);
+        setTimeout(() => setSaveFlash(null), 1500);
       } catch (err) {
         console.error('Failed to save file:', err);
       }
@@ -122,6 +127,60 @@ export function EditorArea() {
               </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Editor Toolbar — shown for text files (not binary, not diff) */}
+      {activeTab && !activeTab.binaryType && activeTab.mode !== 'diff' && (
+        <div className="flex items-center justify-between px-3 py-1 bg-zinc-900 border-b border-zinc-800 shrink-0">
+          <div className="flex items-center gap-2 text-xs text-zinc-400">
+            <FileText className={`w-3.5 h-3.5 ${getFileColor(activeTab.fileName)}`} />
+            <span className="font-medium text-zinc-300">{activeTab.fileName}</span>
+            {activeTab.remoteProfileId && (
+              <span className="flex items-center gap-1 text-[10px] text-cyan-400/70 bg-cyan-400/10 px-1.5 py-0.5 rounded">
+                <Server className="w-2.5 h-2.5 pointer-events-none" />
+                Remote
+              </span>
+            )}
+            {activeTab.isPreview && (
+              <span className="text-[10px] text-zinc-600">Read-only</span>
+            )}
+            {activeTab.isModified && (
+              <span className="text-[10px] text-blue-400">Modified</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {activeTab.isPreview ? (
+              <button
+                onClick={() => promoteTab(activeTab.id)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-zinc-300 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                title="Switch to edit mode"
+              >
+                <Pencil className="w-3 h-3 pointer-events-none" />
+                Edit
+              </button>
+            ) : (
+              <button
+                onClick={() => handleSave(activeTab.id, activeTab.content)}
+                disabled={!activeTab.isModified && saveFlash !== activeTab.id}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
+                  saveFlash === activeTab.id
+                    ? 'text-green-400 bg-green-400/10'
+                    : activeTab.isModified
+                      ? 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20'
+                      : 'text-zinc-600 bg-zinc-800 cursor-default'
+                }`}
+                title={`Save (${modSymbol}S)`}
+              >
+                {saveFlash === activeTab.id ? (
+                  <Check className="w-3 h-3 pointer-events-none" />
+                ) : (
+                  <Save className="w-3 h-3 pointer-events-none" />
+                )}
+                {saveFlash === activeTab.id ? 'Saved' : 'Save'}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

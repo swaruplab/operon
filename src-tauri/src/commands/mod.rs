@@ -15,8 +15,9 @@ pub use claude::{
     check_session_files, delete_api_key, delete_session, get_api_key, install_all_dependencies,
     install_claude, install_node, install_phase_claude, install_phase_tools, install_phase_xcode,
     install_remote_claude, install_xcode_cli, launch_claude_login, list_plan_history,
+    remote_claude_login,
     list_sessions, read_plan_history_entry, read_session_output, reconnect_session,
-    refresh_environment, rename_session, save_session_metadata, start_claude_session,
+    reconnect_tail, refresh_environment, rename_session, save_session_metadata, start_claude_session,
     stop_claude_session, store_api_key, update_session_claude_id, update_session_status,
 };
 pub use extensions::{
@@ -57,13 +58,13 @@ pub use report::{
 };
 pub use settings::{get_settings, start_dictation, stop_dictation, update_settings};
 pub use ssh::{
-    check_control_master, clear_ssh_cache, create_remote_directory, delete_ssh_profile,
-    detect_server_config, get_remote_home, get_server_config, list_remote_directory,
-    list_ssh_profiles, read_remote_file, read_remote_file_base64, save_ssh_profile,
-    scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key,
-    spawn_ssh_terminal, stop_control_master, test_ssh_connection, write_remote_file,
+    check_control_master, clear_ssh_cache, create_remote_directory, delete_remote_file,
+    delete_ssh_profile, detect_server_config, get_remote_home, get_server_config,
+    list_remote_directory, list_ssh_profiles, read_remote_file, read_remote_file_base64,
+    save_ssh_profile, scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote,
+    setup_ssh_key, spawn_ssh_terminal, stop_control_master, test_ssh_connection, write_remote_file,
 };
-pub use terminal::{kill_terminal, resize_terminal, spawn_terminal, write_terminal};
+pub use terminal::{get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal};
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

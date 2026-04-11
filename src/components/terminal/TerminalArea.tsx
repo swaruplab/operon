@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Plus, X, Terminal as TerminalIcon } from 'lucide-react';
 import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalInstance } from './TerminalInstance';
+import { Tooltip } from '../ui/Tooltip';
 
 interface TerminalTab {
   id: string;
@@ -64,6 +65,35 @@ export function TerminalArea() {
     }
   }, [activeTab, tabs]);
 
+  // --- CWD polling for local terminals (terminal → sidebar sync) ---
+  const lastCwd = useRef<string>('');
+  useEffect(() => {
+    const activeTabObj = tabs.find((t) => t.id === activeTab);
+    if (!activeTabObj || activeTabObj.type !== 'local' || activeTabObj.exited) {
+      return;
+    }
+
+    const pollCwd = async () => {
+      try {
+        const cwd = await invoke<string>('get_terminal_cwd', { terminalId: activeTabObj.id });
+        if (cwd && cwd !== lastCwd.current) {
+          lastCwd.current = cwd;
+          emit('terminal-cwd-changed', { terminalId: activeTabObj.id, cwd });
+        }
+      } catch {
+        // Terminal may have exited or CWD detection not supported — silently ignore
+      }
+    };
+
+    // Poll every 2 seconds — fast enough to feel responsive,
+    // slow enough to not waste resources
+    const interval = setInterval(pollCwd, 2000);
+    // Also check immediately on tab switch
+    pollCwd();
+
+    return () => clearInterval(interval);
+  }, [activeTab, tabs]);
+
   const createTab = useCallback((type: 'local' | 'ssh' = 'local') => {
     const id = crypto.randomUUID();
     const newTab: TerminalTab = {
@@ -123,6 +153,7 @@ export function TerminalArea() {
     <div className="flex flex-col h-full bg-[#09090b]">
       {/* Tab bar */}
       <div className="flex items-center h-[33px] bg-zinc-900 border-b border-zinc-800 shrink-0">
+
         <div className="flex items-center gap-0.5 px-1 flex-1 overflow-x-auto">
           {tabs.map((tab) => (
             <button
@@ -154,13 +185,16 @@ export function TerminalArea() {
           ))}
         </div>
 
-        <button
-          onClick={() => createTab()}
-          className="p-1.5 mr-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
-          title="New Terminal"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-0.5 mr-1">
+          <Tooltip label="New terminal" position="top">
+            <button
+              onClick={() => createTab()}
+              className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Terminal instances — all rendered, only active visible */}

@@ -29,6 +29,7 @@ use commands::{
     create_remote_directory,
     delete_api_key,
     delete_path,
+    delete_remote_file,
     delete_protocol,
     delete_session,
     delete_ssh_profile,
@@ -55,6 +56,8 @@ use commands::{
     get_extension_reviews,
     get_extension_settings,
     get_home_dir,
+    // Terminal
+    get_terminal_cwd,
     // MCP
     get_mcp_catalog,
     get_namespace_extensions,
@@ -103,6 +106,7 @@ use commands::{
     install_phase_tools,
     install_phase_xcode,
     install_remote_claude,
+    remote_claude_login,
     install_remote_extension,
     install_remote_mcp_server,
     install_xcode_cli,
@@ -131,6 +135,7 @@ use commands::{
     read_remote_file_base64,
     read_session_output,
     reconnect_session,
+    reconnect_tail,
     refresh_environment,
     remove_mcp_server,
     rename_path,
@@ -227,6 +232,7 @@ pub fn run() {
             write_terminal,
             resize_terminal,
             kill_terminal,
+            get_terminal_cwd,
             // Files
             list_directory,
             read_file,
@@ -271,6 +277,7 @@ pub fn run() {
             check_session_files,
             read_session_output,
             reconnect_session,
+            reconnect_tail,
             delete_session,
             rename_session,
             // Setup / Dependencies
@@ -285,6 +292,7 @@ pub fn run() {
             check_remote_claude,
             check_remote_claude_auth,
             install_remote_claude,
+            remote_claude_login,
             // SSH
             save_ssh_profile,
             list_ssh_profiles,
@@ -297,6 +305,7 @@ pub fn run() {
             read_remote_file,
             read_remote_file_base64,
             create_remote_directory,
+            delete_remote_file,
             write_remote_file,
             scp_to_remote,
             scp_from_remote,

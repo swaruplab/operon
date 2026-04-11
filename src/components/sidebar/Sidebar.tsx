@@ -14,6 +14,8 @@ import {
   PinOff,
   Star,
   FolderPlus,
+  Trash2,
+  Copy,
 } from 'lucide-react';
 import { SSHView } from './SSHView';
 import { RemoteExplorer } from './RemoteExplorer';
@@ -55,9 +57,10 @@ interface TreeNodeProps {
   onNavigateDir?: (path: string) => void;
   isPinned?: boolean;
   onTogglePin?: (path: string, name: string, isDir: boolean) => void;
+  onContextMenu?: (e: React.MouseEvent, entry: FileEntry) => void;
 }
 
-function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNodeProps) {
+function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContextMenu }: TreeNodeProps) {
   const [hovered, setHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -170,6 +173,7 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
+          onContextMenu={(e) => onContextMenu?.(e, entry)}
         >
           {entry.is_dir ? (
             expanded ? (
@@ -227,7 +231,7 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin }: TreeNo
       {entry.is_dir &&
         expanded &&
         children.map((child) => (
-          <TreeNode key={child.path} entry={child} depth={depth + 1} onNavigateDir={onNavigateDir} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} />
+          <TreeNode key={child.path} entry={child} depth={depth + 1} onNavigateDir={onNavigateDir} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} />
         ))}
     </div>
   );
@@ -269,6 +273,36 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const newFolderRef = useRef<HTMLInputElement>(null);
+
+  // Context menu for file operations
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<FileEntry | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [contextMenu]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, entry: FileEntry) => {
+    if (entry.is_dir) return; // Files only
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, entry });
+  }, []);
+
+  const handleDeleteLocalFile = async (entry: FileEntry) => {
+    try {
+      await invoke('delete_path', { path: entry.path });
+      setDeleteConfirm(null);
+      setRefreshKey(k => k + 1);
+      if (projectPath) loadDir(projectPath);
+    } catch (err) {
+      console.error('Failed to delete file:', err);
+      setDeleteConfirm(null);
+    }
+  };
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -368,8 +402,27 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
     }
   };
 
+  // Suppress auto-cd when navigation was triggered by terminal CWD sync
+  const syncedFromTerminal = useRef(false);
+
+  const cdToTerminalPath = (path: string) => {
+    if (!path || !localTerminalId) return;
+    const encoded = Array.from(
+      new TextEncoder().encode(`cd '${path.replace(/'/g, "'\\''")}'\n`)
+    );
+    invoke('write_terminal', {
+      terminalId: localTerminalId,
+      data: encoded,
+    }).catch((err) => console.error('Failed to cd in terminal:', err));
+  };
+
   const navigateTo = (path: string) => {
     setProjectPath(path);
+    // Auto-cd terminal unless this navigation was triggered by terminal sync
+    if (!syncedFromTerminal.current) {
+      cdToTerminalPath(path);
+    }
+    syncedFromTerminal.current = false;
   };
 
   const navigateUp = () => {
@@ -379,15 +432,22 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   };
 
   const cdToTerminal = () => {
-    if (!projectPath || !localTerminalId) return;
-    const encoded = Array.from(
-      new TextEncoder().encode(`cd '${projectPath.replace(/'/g, "'\\''")}'\n`)
-    );
-    invoke('write_terminal', {
-      terminalId: localTerminalId,
-      data: encoded,
-    }).catch((err) => console.error('Failed to cd in terminal:', err));
+    if (!projectPath) return;
+    cdToTerminalPath(projectPath);
   };
+
+  // Listen for terminal CWD changes → update sidebar (terminal → sidebar sync)
+  useEffect(() => {
+    const unlisten = listen<{ terminalId: string; cwd: string }>('terminal-cwd-changed', (event) => {
+      const { terminalId, cwd } = event.payload;
+      // Only sync if the event is from our active local terminal
+      if (terminalId === localTerminalId && cwd && cwd !== projectPath) {
+        syncedFromTerminal.current = true;
+        setProjectPath(cwd);
+      }
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, [localTerminalId, projectPath, setProjectPath]);
 
   const folderName = projectPath?.split('/').pop() || 'Project';
 
@@ -559,10 +619,67 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               onNavigateDir={navigateTo}
               isPinned={isPinned(entry.path)}
               onTogglePin={togglePin}
+              onContextMenu={handleContextMenu}
             />
           ))
         )}
       </div>
+
+      {/* Context menu for files */}
+      {contextMenu && (
+        <div
+          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 180),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
+          }}
+        >
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.entry.path);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Copy className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            Copy path
+          </button>
+          <div className="border-t border-zinc-700 my-1" />
+          <button
+            onClick={() => {
+              setDeleteConfirm(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
+            Delete
+          </button>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteConfirm && (
+        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
+          <p className="text-[11px] text-red-300 mb-2">
+            Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleDeleteLocalFile(deleteConfirm)}
+              className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setDeleteConfirm(null)}
+              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

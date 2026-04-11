@@ -1161,7 +1161,7 @@ export function ChatPanel() {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [totalCost, setTotalCost] = useState(0);
-  const [model, setModel] = useState('claude-sonnet-4-20250514');
+  const [model, setModel] = useState('claude-opus-4-20250514');
 
   // Load default model from user settings
   useEffect(() => {
@@ -1211,6 +1211,11 @@ export function ChatPanel() {
     installing: boolean;
     error: string | null;
   } | null>(null);
+
+  // Remote OAuth login flow
+  const [loginUrl, setLoginUrl] = useState<string | null>(null);
+  const [loginStatus, setLoginStatus] = useState<'idle' | 'fetching' | 'ready' | 'error'>('idle');
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Voice dictation via native macOS speech recognition
   const [isDictating, setIsDictating] = useState(false);
@@ -1774,15 +1779,15 @@ export function ChatPanel() {
   // Watchdog: detect stalled remote streams.
   // On remote SSH, the connection can drop silently (network hiccup, SSH timeout,
   // NFS stall) leaving the UI stuck in streaming mode with no way to recover.
-  // Agent mode gets a longer timeout (5 min) because tool calls like package
-  // installation or long Bash commands can legitimately produce no output for
-  // extended periods.  Other modes use 90 seconds.
+  // Agent mode gets 8 min because tool calls like package installation or long
+  // Bash commands can legitimately produce no output for extended periods.
+  // Ask and report modes use 90 seconds.
   useEffect(() => {
     if (!isStreaming || !remoteInfo) {
       setStreamStalled(false);
       return;
     }
-    const stallThreshold = mode === 'agent' ? 300_000 : 90_000; // 5 min vs 90s
+    const stallThreshold = mode === 'agent' ? 480_000 : 90_000; // 8 min vs 90s
     const interval = setInterval(() => {
       if (lastEventTime.current > 0 && Date.now() - lastEventTime.current > stallThreshold) {
         setStreamStalled(true);
@@ -2032,8 +2037,16 @@ export function ChatPanel() {
     listen(`claude-done-${sessionId}`, () => {
       setIsStreaming(false);
       // Mark all remaining running/pending tool blocks as complete
-      setMessages((prev) =>
-        prev.map((msg) => ({
+      setMessages((prev) => {
+        // Detect silent failure: Claude exited without producing any assistant response.
+        // This typically happens when --resume fails on a stale/large session, or when
+        // the prompt is too large for the shell command.  Show an actionable error so
+        // the user isn't left staring at a dead chat.
+        const lastMsg = prev[prev.length - 1];
+        const claudeProducedNothing =
+          lastMsg?.role === 'user' && seenMsgIds.current.size === 0;
+
+        const updated = prev.map((msg) => ({
           ...msg,
           isStreaming: false,
           content: msg.content.map((block) =>
@@ -2041,8 +2054,23 @@ export function ChatPanel() {
               ? { ...block, status: 'complete' as const }
               : block,
           ),
-        })),
-      );
+        }));
+
+        if (claudeProducedNothing) {
+          updated.push({
+            id: crypto.randomUUID(),
+            role: 'system' as const,
+            isStreaming: false,
+            content: [{
+              type: 'text' as const,
+              text: 'Claude exited without responding. This can happen when the conversation history is too long. Try starting a new chat.',
+            }],
+            timestamp: Date.now(),
+          });
+        }
+
+        return updated;
+      });
       invoke('update_session_status', {
         sessionId,
         status: 'completed',
@@ -3116,8 +3144,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           onChange={(e) => setModel(e.target.value)}
           className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-400 outline-none"
         >
-          <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
           <option value="claude-opus-4-20250514">claude-opus-4-20250514</option>
+          <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
           <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
         </select>
       </div>
@@ -3232,39 +3260,73 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 Claude Code is installed but needs to be authenticated. Choose one option:
               </p>
 
-              {/* Option A: claude login in terminal */}
+              {/* Option A: One-click OAuth login */}
               <div className="mt-2 p-2 bg-zinc-900/60 rounded border border-zinc-700/50">
-                <p className="text-[10px] text-zinc-300 font-medium mb-1">Option A: Log in with your Claude subscription</p>
-                <div className="flex items-center gap-2 mt-1.5">
-                  <button
-                    onClick={() => {
-                      if (sshTerminalId) {
-                        // Send the login command directly to the active SSH terminal
-                        const cmd = 'TERM=dumb claude login\n';
-                        invoke('write_terminal', {
-                          terminalId: sshTerminalId,
-                          data: Array.from(new TextEncoder().encode(cmd)),
-                        }).catch(console.error);
-                      }
-                    }}
-                    disabled={!sshTerminalId}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-[11px] text-white font-medium transition-colors"
-                  >
-                    <LogIn className="w-3 h-3 pointer-events-none" />
-                    Login on Server
-                  </button>
-                  <span className="text-[9px] text-zinc-600">or</span>
-                  <div className="flex items-center gap-1.5 bg-zinc-800/80 rounded px-2 py-1 border border-zinc-700/30">
-                    <code className="text-[10px] text-zinc-300 font-mono select-all">TERM=dumb claude login</code>
+                <p className="text-[10px] text-zinc-300 font-medium mb-1">Option A: Log in with your Claude account</p>
+                {loginStatus === 'idle' && (
+                  <div className="flex items-center gap-2 mt-1.5">
                     <button
-                      onClick={() => navigator.clipboard.writeText('TERM=dumb claude login')}
-                      className="text-[9px] text-zinc-500 hover:text-zinc-300 shrink-0 px-1"
+                      onClick={async () => {
+                        setLoginStatus('fetching');
+                        setLoginError(null);
+                        setLoginUrl(null);
+                        try {
+                          const url = await invoke<string>('remote_claude_login', { profileId: remoteInfo!.profileId });
+                          setLoginUrl(url);
+                          setLoginStatus('ready');
+                          // Auto-open in local browser
+                          invoke('open_url', { url }).catch(() => {});
+                        } catch (err) {
+                          setLoginError(String(err));
+                          setLoginStatus('error');
+                        }
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-500 rounded text-[11px] text-white font-medium transition-colors"
                     >
-                      Copy
+                      <LogIn className="w-3 h-3 pointer-events-none" />
+                      Login on Server
                     </button>
                   </div>
-                </div>
-                <p className="text-[9px] text-zinc-500 mt-1.5">The OAuth link will automatically open in your local browser — sign in and paste the code back in the terminal.</p>
+                )}
+                {loginStatus === 'fetching' && (
+                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Running claude login on server...
+                  </div>
+                )}
+                {loginStatus === 'ready' && loginUrl && (
+                  <div className="mt-1.5 space-y-2">
+                    <p className="text-[10px] text-green-400">Opening in your browser. If it didn't open, click the link below:</p>
+                    <div className="flex items-center gap-1.5 bg-zinc-800/80 rounded px-2 py-1.5 border border-zinc-700/30">
+                      <a
+                        href={loginUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-blue-400 hover:text-blue-300 underline break-all font-mono"
+                      >
+                        {loginUrl}
+                      </a>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(loginUrl)}
+                        className="text-[9px] text-zinc-500 hover:text-zinc-300 shrink-0 px-1"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-zinc-500">After signing in, click Re-check Auth below.</p>
+                  </div>
+                )}
+                {loginStatus === 'error' && (
+                  <div className="mt-1.5 space-y-1.5">
+                    <p className="text-[10px] text-red-400">{loginError}</p>
+                    <button
+                      onClick={() => { setLoginStatus('idle'); setLoginError(null); }}
+                      className="text-[10px] text-zinc-400 hover:text-zinc-300 underline"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Option B: API key */}
@@ -3281,7 +3343,11 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
               <div className="flex items-center gap-2 mt-2">
                 <button
-                  onClick={recheckRemoteDeps}
+                  onClick={() => {
+                    setLoginStatus('idle');
+                    setLoginUrl(null);
+                    recheckRemoteDeps();
+                  }}
                   disabled={remoteDeps?.installing}
                   className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-wait rounded text-[11px] text-white font-medium transition-colors"
                 >
@@ -3561,32 +3627,61 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {isStreaming && streamStalled && (
           <div className="my-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[12px]">
             <p className="text-amber-300 font-medium mb-1">
-              No response received for over {mode === 'agent' ? '5 minutes' : '90 seconds'}
+              No response received for over {mode === 'agent' ? '8 minutes' : '90 seconds'}
             </p>
             <p className="text-amber-200/60 mb-2">
-              {mode === 'agent'
-                ? 'A long-running command may still be executing on the compute node. You can wait, or stop and retry.'
+              {(mode === 'agent' || mode === 'plan')
+                ? 'The SSH stream may have stalled while the agent continues working. Try reconnecting first.'
                 : 'The remote SSH connection may have stalled. You can wait, or stop and retry.'}
             </p>
-            <button
-              onClick={() => {
-                invoke('stop_claude_session', { sessionId }).catch(() => {});
-                setIsStreaming(false);
-                setStreamStalled(false);
-                setMessages((prev) => [
-                  ...prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
-                  {
-                    id: crypto.randomUUID(),
-                    role: 'system' as const,
-                    content: [{ type: 'text' as const, text: 'Session stopped due to stalled connection. You can send a new message to retry.' }],
-                    timestamp: Date.now(),
-                  },
-                ]);
-              }}
-              className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
-            >
-              Stop session
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Reconnect button — kills stalled tail SSH, spawns fresh one. Agent keeps running.
+                  Only shown for terminal-mode sessions (agent/plan) where the tail is a separate SSH channel.
+                  Report/ask modes use direct SSH (single channel) so reconnecting the tail doesn't apply. */}
+              {remoteInfo && (mode === 'agent' || mode === 'plan') && (
+                <button
+                  onClick={() => {
+                    setStreamStalled(false);
+                    invoke('reconnect_tail', {
+                      sessionId,
+                      remote: { profileId: remoteInfo.profileId, remotePath: remoteInfo.remotePath },
+                    }).catch((err) => {
+                      setMessages((prev) => [
+                        ...prev,
+                        {
+                          id: crypto.randomUUID(),
+                          role: 'system' as const,
+                          content: [{ type: 'text' as const, text: `Reconnect failed: ${err}. You may need to stop and retry.` }],
+                          timestamp: Date.now(),
+                        },
+                      ]);
+                    });
+                  }}
+                  className="px-2.5 py-1 rounded bg-blue-800/40 hover:bg-blue-800/60 text-blue-200 text-[11px] font-medium transition-colors"
+                >
+                  Reconnect
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  invoke('stop_claude_session', { sessionId }).catch(() => {});
+                  setIsStreaming(false);
+                  setStreamStalled(false);
+                  setMessages((prev) => [
+                    ...prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+                    {
+                      id: crypto.randomUUID(),
+                      role: 'system' as const,
+                      content: [{ type: 'text' as const, text: 'Session stopped due to stalled connection. You can send a new message to retry.' }],
+                      timestamp: Date.now(),
+                    },
+                  ]);
+                }}
+                className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
+              >
+                Stop session
+              </button>
+            </div>
           </div>
         )}
         {/* Plan conflict resolution UI */}

@@ -76,7 +76,7 @@ fn load_profiles_from_disk() -> Vec<SSHProfile> {
     serde_json::from_str(&data).unwrap_or_default()
 }
 
-fn save_profiles_to_disk(profiles: &[SSHProfile]) -> Result<(), String> {
+pub(crate) fn save_profiles_to_disk(profiles: &[SSHProfile]) -> Result<(), String> {
     let path = profiles_path()?;
     let json = serde_json::to_string_pretty(profiles)
         .map_err(|e| format!("Failed to serialize profiles: {}", e))?;
@@ -986,6 +986,35 @@ pub async fn create_remote_directory(
     let cmd = format!("mkdir -p {}", shell_escape_inner(&path));
     ssh_exec(&profile, &cmd)?;
     state.cache.invalidate_path(&profile_id, &path);
+    Ok(())
+}
+
+/// Delete a file on the remote server via SSH.
+/// Only deletes files, not directories, for safety.
+#[tauri::command]
+pub async fn delete_remote_file(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Safety: only delete files, refuse directories
+    let check_cmd = format!("test -f {} && echo FILE || echo NOTFILE", shell_escape_inner(&path));
+    let result = ssh_exec(&profile, &check_cmd)?;
+    if result.trim() != "FILE" {
+        return Err("Path is not a file or does not exist".to_string());
+    }
+
+    let cmd = format!("rm {}", shell_escape_inner(&path));
+    ssh_exec(&profile, &cmd)?;
     Ok(())
 }
 

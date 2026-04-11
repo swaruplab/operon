@@ -1,4 +1,5 @@
 import { Files, Search, MonitorSmartphone, Settings, BookOpen, HelpCircle, GitBranch, Blocks } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 
 interface ActivityBarProps {
   activeView: string;
@@ -6,14 +7,14 @@ interface ActivityBarProps {
 }
 
 const items = [
-  { id: "files", icon: Files, label: "Explorer" },
-  { id: "search", icon: Search, label: "Search" },
-  { id: "git", icon: GitBranch, label: "Git & GitHub" },
-  { id: "ssh", icon: MonitorSmartphone, label: "Remote SSH" },
-  { id: "extensions", icon: Blocks, label: "Extensions" },
-  { id: "protocols", icon: BookOpen, label: "Protocols" },
-  { id: "help", icon: HelpCircle, label: "Help" },
-  { id: "settings", icon: Settings, label: "Settings" },
+  { id: "files", icon: Files, label: "Explorer", shortcut: undefined, description: "Browse project files" },
+  { id: "search", icon: Search, label: "Search", shortcut: undefined, description: "Search across files" },
+  { id: "git", icon: GitBranch, label: "Git & GitHub", shortcut: undefined, description: "Version control and GitHub" },
+  { id: "ssh", icon: MonitorSmartphone, label: "Remote SSH", shortcut: undefined, description: "Connect to remote servers" },
+  { id: "extensions", icon: Blocks, label: "Extensions", shortcut: undefined, description: "Manage extensions" },
+  { id: "protocols", icon: BookOpen, label: "Protocols", shortcut: undefined, description: "Analysis protocols" },
+  { id: "help", icon: HelpCircle, label: "Help", shortcut: undefined, description: "Documentation and guides" },
+  { id: "settings", icon: Settings, label: "Settings", shortcut: "\u2318,", description: "App preferences" },
 ];
 
 export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
@@ -24,23 +25,29 @@ export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
         const isActive = activeView === item.id;
 
         return (
-          <button
+          <Tooltip
             key={item.id}
-            onClick={() => onViewChange(item.id)}
-            className={`
-              relative w-10 h-10 flex items-center justify-center rounded-md transition-colors
-              ${isActive
-                ? "text-zinc-50"
-                : "text-zinc-500 hover:text-zinc-300"
-              }
-            `}
-            title={item.label}
+            label={item.description}
+            shortcut={item.shortcut}
+            position="right"
+            delay={80}
           >
-            {isActive && (
-              <div className="absolute left-0 top-2 bottom-2 w-[2px] bg-blue-500 rounded-r" />
-            )}
-            <Icon className="w-5 h-5" strokeWidth={1.5} />
-          </button>
+            <button
+              onClick={() => onViewChange(item.id)}
+              className={`
+                relative w-10 h-10 flex items-center justify-center rounded-md transition-colors
+                ${isActive
+                  ? "text-zinc-50"
+                  : "text-zinc-500 hover:text-zinc-300"
+                }
+              `}
+            >
+              {isActive && (
+                <div className="absolute left-0 top-2 bottom-2 w-[2px] bg-blue-500 rounded-r" />
+              )}
+              <Icon className="w-5 h-5" strokeWidth={1.5} />
+            </button>
+          </Tooltip>
         );
       })}
     </div>

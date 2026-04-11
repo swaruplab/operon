@@ -27,6 +27,11 @@ import {
   Package,
   Settings2,
   FileText,
+  FlaskConical,
+  BookOpen,
+  AtSign,
+  Pencil,
+  Save,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -1617,7 +1622,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {step === 'tour-modes' && (
           <div className="space-y-5">
             <div>
-              <h2 className="text-lg font-semibold text-zinc-100">Three Ways to Work with Claude</h2>
+              <h2 className="text-lg font-semibold text-zinc-100">Four Ways to Work with Claude</h2>
               <p className="text-zinc-500 text-sm mt-1">Switch between modes using the selector above the chat input.</p>
             </div>
             <div className="space-y-2.5">
@@ -1639,7 +1644,14 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="w-8 h-8 rounded-lg bg-green-900/30 flex items-center justify-center shrink-0"><MessageSquare className="w-4 h-4 text-green-400" /></div>
                 <div>
                   <p className="text-sm font-medium text-zinc-200">Ask Mode</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude answers questions and explains code without making changes. Best for: understanding code, learning.</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude answers questions with optional PubMed-grounded citations. No file changes. Best for: understanding code, scientific Q&A.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
+                <div className="w-8 h-8 rounded-lg bg-purple-900/30 flex items-center justify-center shrink-0"><FlaskConical className="w-4 h-4 text-purple-400" /></div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">Report Mode</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude generates a publication-ready PDF report from your analysis files with PubMed citations and formatted figures. Best for: summarizing results, drafting manuscripts.</p>
                 </div>
               </div>
             </div>
@@ -1662,13 +1674,13 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="flex items-center gap-2"><Server className="w-4 h-4 text-teal-400" /><span className="text-sm font-medium text-zinc-200">How it works</span></div>
                 <div className="space-y-2 text-xs text-zinc-400 leading-relaxed">
                   <p><span className="text-zinc-300 font-medium">1.</span> Add your SSH server in the sidebar (host, username, key).</p>
-                  <p><span className="text-zinc-300 font-medium">2.</span> Select "Remote" next to the mode selector. Pick your server.</p>
-                  <p><span className="text-zinc-300 font-medium">3.</span> Claude runs inside a tmux session on the remote machine. Sessions persist even if you close the app.</p>
+                  <p><span className="text-zinc-300 font-medium">2.</span> Connect — Operon auto-detects SLURM accounts, partitions, conda envs and saves them to your profile.</p>
+                  <p><span className="text-zinc-300 font-medium">3.</span> Claude runs inside a tmux session on the remote machine. Your server config is injected into every generated script.</p>
                 </div>
               </div>
               <div className="p-3 bg-teal-950/20 rounded-lg border border-teal-900/30">
                 <p className="text-xs text-teal-300/80 leading-relaxed">
-                  <span className="font-medium">For HPC users:</span> Great for running bioinformatics pipelines on Slurm/PBS nodes. Supports Duo MFA — authenticate once, then Operon keeps the connection alive.
+                  <span className="font-medium">For HPC users:</span> Supports Duo MFA, SSH key setup, and persistent sessions. Authenticate once — Operon keeps the connection alive across app restarts.
                 </p>
               </div>
             </div>
@@ -1683,36 +1695,43 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {step === 'tour-features' && (
           <div className="space-y-5">
             <div>
-              <h2 className="text-lg font-semibold text-zinc-100">Built for Biologists</h2>
-              <p className="text-zinc-500 text-sm mt-1">Operon includes features designed specifically for bioinformatics research.</p>
+              <h2 className="text-lg font-semibold text-zinc-100">Built for Researchers</h2>
+              <p className="text-zinc-500 text-sm mt-1">Tools designed specifically for bioinformatics and scientific computing.</p>
             </div>
             <div className="space-y-2.5">
               <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-emerald-900/30 flex items-center justify-center shrink-0"><BookMarked className="w-4 h-4 text-emerald-400" /></div>
+                <div className="w-8 h-8 rounded-lg bg-teal-900/30 flex items-center justify-center shrink-0"><BookOpen className="w-4 h-4 text-teal-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">PubMed Literature Search</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">In Ask mode, enable the PubMed toggle to ground Claude's answers in peer-reviewed literature with citations.</p>
+                  <p className="text-sm font-medium text-zinc-200">181+ Protocols</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Pre-built analysis protocols for genomics, ML, visualization, and more. Activate one to guide Claude with domain-specific instructions. Create your own or generate them with AI.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-red-900/30 flex items-center justify-center shrink-0"><Mic className="w-4 h-4 text-red-400" /></div>
+                <div className="w-8 h-8 rounded-lg bg-blue-900/30 flex items-center justify-center shrink-0"><AtSign className="w-4 h-4 text-blue-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Voice Dictation</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Click the microphone button in chat to dictate. Great for describing complex analyses hands-free.</p>
+                  <p className="text-sm font-medium text-zinc-200">File Mentions</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Type <code className="text-[10px] bg-zinc-800 px-1 rounded">@</code> in the chat to reference files by name. Claude will know exactly which files you're talking about.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
+                <div className="w-8 h-8 rounded-lg bg-emerald-900/30 flex items-center justify-center shrink-0"><BookMarked className="w-4 h-4 text-emerald-400" /></div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">PubMed Literature</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Toggle PubMed search in Ask or Report mode to ground answers in peer-reviewed articles with inline citations and references.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
+                <div className="w-8 h-8 rounded-lg bg-zinc-700/30 flex items-center justify-center shrink-0"><Pencil className="w-4 h-4 text-zinc-400" /></div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">Edit & Save Files</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Click any file to preview it, then click <span className="font-medium text-zinc-300">Edit</span> to modify and <span className="font-medium text-zinc-300">Save</span> to write changes — works for both local and remote files.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
                 <div className="w-8 h-8 rounded-lg bg-orange-900/30 flex items-center justify-center shrink-0"><GitBranch className="w-4 h-4 text-orange-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">GitHub Integration</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Publish to GitHub with one click. Git panel handles setup, auth, and versioning.</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-cyan-900/30 flex items-center justify-center shrink-0"><Settings2 className="w-4 h-4 text-cyan-400" /></div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">Server Configuration</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Save SLURM accounts, partitions, conda envs per server. Auto-injected into every script.</p>
+                  <p className="text-sm font-medium text-zinc-200">Git & GitHub</p>
+                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Built-in Git panel for staging, committing, branching, stash, and one-click GitHub publishing.</p>
                 </div>
               </div>
             </div>
@@ -1733,23 +1752,23 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             <div className="space-y-2">
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <Keyboard className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+K</kbd> to start a new conversation</p>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Keyboard className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+Shift+P</kbd> to open the command palette</p>
+                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+K</kbd> to start a new chat, <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+S</kbd> to save files</p>
               </div>
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300">Use <span className="font-medium text-amber-300">Plan mode</span> for complex tasks — review and iterate on the plan before Claude writes any code.</p>
+                <p className="text-xs text-zinc-300">Use <span className="font-medium text-amber-300">Plan</span> first, then switch to <span className="font-medium text-blue-300">Agent</span> to execute — Claude auto-tracks progress in the plan file.</p>
               </div>
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Globe className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><span className="font-medium text-teal-300">Protocols</span> are reusable prompt templates. Add them to <code className="text-[10px] bg-zinc-800 px-1 rounded">~/.operon/protocols/</code></p>
+                <FlaskConical className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-zinc-300"><span className="font-medium text-purple-300">Report mode</span> reads your analysis files and generates a formatted PDF report with methods, results, and PubMed references.</p>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
+                <Mic className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-zinc-300">Click the <span className="font-medium text-red-300">microphone</span> button to dictate prompts. Right-click files to delete or download them.</p>
               </div>
               <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
                 <MonitorSmartphone className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300">Resize panels by dragging their borders. Terminal, editor, and chat are all independently adjustable.</p>
+                <p className="text-xs text-zinc-300">Drag panel borders to resize. Operon auto-updates — you'll always have the latest version.</p>
               </div>
             </div>
             <div className="flex gap-3">

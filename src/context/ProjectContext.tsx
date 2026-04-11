@@ -36,6 +36,7 @@ interface ProjectContextType {
   setActiveTabId: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
   saveTab: (tabId: string, newContent: string) => void;
+  promoteTab: (tabId: string) => void;
   showDiff: (tabId: string, original: string) => void;
   closeDiff: (tabId: string) => void;
 }
@@ -207,6 +208,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const promoteTab = useCallback((tabId: string) => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === tabId ? { ...t, isPreview: false } : t,
+      ),
+    );
+  }, []);
+
   const showDiff = useCallback((tabId: string, original: string) => {
     setTabs((prev) =>
       prev.map((t) =>
@@ -259,6 +268,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setActiveTabId,
         updateTabContent,
         saveTab,
+        promoteTab,
         showDiff,
         closeDiff,
       }}

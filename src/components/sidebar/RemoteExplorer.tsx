@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
+  Trash2,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -452,14 +453,28 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     }
   };
 
-  const cdToTerminal = () => {
-    if (!remotePath || !terminalId) return;
-    const encoded = Array.from(new TextEncoder().encode(`cd '${remotePath.replace(/'/g, "'\\''")}'\n`));
+  const cdToTerminalPath = (path: string) => {
+    if (!path || !terminalId) return;
+    const encoded = Array.from(new TextEncoder().encode(`cd '${path.replace(/'/g, "'\\''")}'\n`));
     invoke('write_terminal', {
       terminalId,
       data: encoded,
     }).catch((err) => console.error('Failed to cd in terminal:', err));
   };
+
+  const cdToTerminal = () => {
+    if (!remotePath) return;
+    cdToTerminalPath(remotePath);
+  };
+
+  // Auto-cd remote terminal when navigating in the sidebar
+  const prevRemotePath = useRef(remotePath);
+  useEffect(() => {
+    if (remotePath && remotePath !== prevRemotePath.current) {
+      cdToTerminalPath(remotePath);
+      prevRemotePath.current = remotePath;
+    }
+  }, [remotePath, terminalId]);
 
   const navigateUp = () => {
     if (!remotePath || remotePath === '/') return;
@@ -608,6 +623,21 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     return () => window.removeEventListener('click', close);
   }, [contextMenu]);
 
+  const [deleteConfirm, setDeleteConfirm] = useState<FileEntry | null>(null);
+
+  const handleDeleteRemoteFile = async (entry: FileEntry) => {
+    try {
+      await invoke('delete_remote_file', { profileId, path: entry.path });
+      setDeleteConfirm(null);
+      // Refresh the current directory
+      const items = await invoke<FileEntry[]>('list_remote_directory', { profileId, path: remotePath });
+      setEntries(items);
+    } catch (err) {
+      console.error('Failed to delete remote file:', err);
+      setDeleteConfirm(null);
+    }
+  };
+
   const downloadToLocal = async (entry: FileEntry) => {
     setContextMenu(null);
 
@@ -735,17 +765,53 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             Download to local
           </button>
           {!contextMenu.entry.is_dir && (
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(contextMenu.entry.path);
-                setContextMenu(null);
-              }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
-            >
-              <File className="w-3.5 h-3.5 text-zinc-500" />
-              Copy remote path
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(contextMenu.entry.path);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+              >
+                <File className="w-3.5 h-3.5 text-zinc-500" />
+                Copy remote path
+              </button>
+              <div className="border-t border-zinc-700 my-1" />
+              <button
+                onClick={() => {
+                  setDeleteConfirm(contextMenu.entry);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+              >
+                <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
+                Delete
+              </button>
+            </>
           )}
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteConfirm && (
+        <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
+          <p className="text-[11px] text-red-300 mb-2">
+            Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleDeleteRemoteFile(deleteConfirm)}
+              className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setDeleteConfirm(null)}
+              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

@@ -41,7 +41,7 @@ impl Default for AppSettings {
             tab_size: 2,
             word_wrap: false,
             minimap_enabled: true,
-            model: "claude-sonnet-4-20250514".to_string(),
+            model: "claude-opus-4-20250514".to_string(),
             max_turns: 25,
             max_budget_usd: 5.0,
             permission_mode: "full_auto".to_string(),

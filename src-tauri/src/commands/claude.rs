@@ -50,6 +50,11 @@ pub struct SessionFileStatus {
     pub is_completed: bool, // both exist
 }
 
+/// PATH prefix applied to every remote SSH command that invokes `claude`.
+/// Covers all known install locations so `claude` is found regardless of shell or rc files.
+const REMOTE_PATH_PREFIX: &str =
+    r#"export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"; "#;
+
 pub struct ClaudeSession {
     pub child: tokio::process::Child,
 }
@@ -1032,6 +1037,9 @@ pub async fn install_remote_claude(
     // Use the official Claude Code installer (no Node.js dependency).
     // Falls back to npm if curl installer fails.
     let install_script = "
+# Ensure common install locations are in PATH
+export PATH=\"$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH\"
+
 # Method 1: Official Claude Code installer (recommended, no Node.js needed)
 echo '>>> Installing Claude Code via official installer...'
 if command -v curl >/dev/null 2>&1; then
@@ -1091,6 +1099,43 @@ echo OPERON_INSTALL_FAILED
         .map_err(|e| format!("Remote install failed: {}", e))?;
 
     if result.contains("OPERON_INSTALL_SUCCESS") {
+        // Probe for the actual claude binary path and store it in server_config
+        let probe_script = r#"
+export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+for p in "$HOME/.claude/local/bin/claude" "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude"; do
+    [ -x "$p" ] && { echo "CLAUDE_PATH:$p"; exit 0; }
+done
+# fallback: which claude
+WHICH=$(command -v claude 2>/dev/null)
+[ -n "$WHICH" ] && echo "CLAUDE_PATH:$WHICH" || echo "CLAUDE_PATH:claude"
+"#;
+        if let Ok(probe_result) = super::ssh::ssh_exec(&profile, probe_script) {
+            if let Some(path_line) = probe_result.lines().find(|l| l.starts_with("CLAUDE_PATH:")) {
+                let claude_path = path_line.strip_prefix("CLAUDE_PATH:").unwrap_or("claude").trim().to_string();
+                eprintln!("[operon] Detected remote claude path: {}", claude_path);
+                // Store in server_config
+                {
+                    let mut profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+                    if let Some(prof) = profiles.iter_mut().find(|p| p.id == profile_id) {
+                        prof.server_config.insert("claude_path".to_string(), claude_path);
+                        let _ = super::ssh::save_profiles_to_disk(&profiles);
+                    }
+                }
+            }
+        }
+
+        // Ensure PATH is in all common shell rc files so `claude` works in interactive terminals
+        let patch_rc_script = r#"
+LINE='export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"'
+MARKER='# Added by Operon'
+for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc"; do
+    [ -f "$rc" ] || continue
+    grep -q '.claude/local/bin\|.local/bin.*claude\|.npm-global/bin' "$rc" 2>/dev/null && continue
+    printf '\n%s\n%s\n' "$MARKER" "$LINE" >> "$rc"
+done
+"#;
+        let _ = super::ssh::ssh_exec(&profile, patch_rc_script);
+
         // Also install reportlab for PDF report generation on the remote server
         let reportlab_script = r#"
 if python3 -c 'import reportlab' 2>/dev/null; then
@@ -1126,6 +1171,76 @@ fi
          Server output:\n{}",
         result.lines().take(20).collect::<Vec<_>>().join("\n")
     ))
+}
+
+// --- Remote OAuth Login ---
+
+/// Run `claude login` on a remote server via SSH, extract the OAuth URL,
+/// and return it so the frontend can display it as a clickable link.
+/// After the user authenticates in their browser, they paste the code back,
+/// which is sent via `remote_claude_login_code`.
+#[tauri::command]
+pub async fn remote_claude_login(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Resolve the claude binary path from server_config or fall back to common locations
+    let claude_bin = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .and_then(|p| p.server_config.get("claude_path").cloned())
+            .unwrap_or_else(|| "claude".to_string())
+    };
+
+    // Run `claude login` and capture the OAuth URL from output.
+    // The login command prints a URL like https://claude.ai/oauth/... that the user
+    // needs to open in their browser. We extract it and return it to the frontend.
+    let login_script = format!(
+        r#"{}TERM=dumb {} login 2>&1 | head -50"#,
+        REMOTE_PATH_PREFIX,
+        claude_bin,
+    );
+
+    let result = super::ssh::ssh_exec(&profile, &login_script)
+        .map_err(|e| format!("Failed to run claude login: {}", e))?;
+
+    eprintln!("[operon] remote_claude_login output: {}", result);
+
+    // Extract URL from the output — look for https:// URLs
+    let url = result
+        .lines()
+        .filter_map(|line| {
+            // Find any https URL in the line
+            let line = line.trim();
+            if let Some(start) = line.find("https://") {
+                let url_part = &line[start..];
+                // Take until whitespace or end of line
+                let end = url_part.find(|c: char| c.is_whitespace()).unwrap_or(url_part.len());
+                Some(url_part[..end].to_string())
+            } else {
+                None
+            }
+        })
+        .find(|url| url.contains("claude.ai") || url.contains("anthropic.com"));
+
+    match url {
+        Some(url) => Ok(url),
+        None => Err(format!(
+            "Could not find OAuth URL in claude login output. You may need to run it manually in the terminal.\n\nOutput:\n{}",
+            result.lines().take(10).collect::<Vec<_>>().join("\n")
+        )),
+    }
 }
 
 // --- Authentication ---
@@ -2001,7 +2116,8 @@ pub async fn start_claude_session(
                 String::new()
             };
             let script_content = format!(
-                "{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
+                REMOTE_PATH_PREFIX,
                 api_key_line,
                 ctx.remote_path.replace('\'', "'\\''"),
                 claude_cmd,
@@ -2055,7 +2171,7 @@ pub async fn start_claude_session(
             // Reuse ControlMaster socket if available — avoids re-authentication (critical
             // for HPC clusters with Duo MFA where a second auth would block/fail).
             let mut ssh_tail_args = format!(
-                "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 {}@{} -p {}",
+                "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
                 profile.user, profile.host, profile.port
             );
             // Reuse ControlMaster socket if one exists from the main terminal connection
@@ -2397,7 +2513,7 @@ pub async fn start_claude_session(
 
         // No -tt flag! We need clean stdout for JSON parsing, not a PTY.
         let mut ssh_args = format!(
-            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 {}@{} -p {}",
+            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
             profile.user, profile.host, profile.port
         );
         // Reuse ControlMaster socket if available (avoids re-auth on Duo MFA clusters)
@@ -2985,7 +3101,7 @@ pub async fn reconnect_session(
 
         // Build SSH command to tail the output file
         let mut ssh_tail_args = format!(
-            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=6 {}@{} -p {}",
+            "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
             profile.user, profile.host, profile.port
         );
         if let Some(key) = &profile.key_file {
@@ -3065,6 +3181,121 @@ pub async fn reconnect_session(
         );
         Ok(())
     }
+}
+
+/// Reconnect a stalled tail SSH connection without stopping the agent.
+/// Kills the existing tail process for this session and spawns a fresh one
+/// that cats existing output then tail -f's for new lines.
+#[tauri::command]
+pub async fn reconnect_tail(
+    state: tauri::State<'_, ClaudeManager>,
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    app: tauri::AppHandle,
+    session_id: String,
+    remote: Option<RemoteContext>,
+) -> Result<(), String> {
+    // 1. Kill the stalled tail process (but NOT the agent on the compute node)
+    let old_session = {
+        let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        sessions.remove(&session_id)
+    };
+    if let Some(mut old) = old_session {
+        let _ = old.child.kill().await;
+    }
+
+    // 2. Figure out the file paths from session metadata or remote context
+    let ctx = remote.ok_or("Reconnect tail is only supported for remote sessions")?;
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == ctx.profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", ctx.profile_id))?
+    };
+
+    let output_file = format!("{}/.operon-{}.jsonl", ctx.remote_path, session_id);
+    let done_file = format!("{}/.operon-{}.done", ctx.remote_path, session_id);
+    let shell = crate::platform::default_shell();
+
+    // 3. Build a fresh SSH tail command with tighter keepalives
+    let mut ssh_tail_args = format!(
+        "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
+        profile.user, profile.host, profile.port
+    );
+    let ctrl_sock =
+        crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
+    if ctrl_sock.exists() {
+        ssh_tail_args.push_str(&format!(
+            " -o \"ControlPath={}\"",
+            ctrl_sock.to_string_lossy()
+        ));
+    }
+    if let Some(key) = &profile.key_file {
+        ssh_tail_args.push_str(&format!(" -i {}", key));
+    }
+
+    // Tail script: cat existing content, then tail -f for new lines.
+    // If the done file already exists the session finished while we were stalled — just cat.
+    // Uses stdbuf -oL to force line-buffered output and prevent SSH pipe buffering.
+    let tail_script = format!(
+        "if [ -f '{}' ]; then cat '{}'; exit 0; fi; \
+         if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found — the agent may have finished or the file was cleaned up.\"}}}}'; exit 1; fi; \
+         if command -v stdbuf >/dev/null 2>&1; then \
+           stdbuf -oL cat '{}'; stdbuf -oL tail -f -n +$(($(wc -l < '{}' | tr -d ' ') + 1)) '{}' & TAIL_PID=$!; \
+         else \
+           cat '{}'; tail -f -n +$(($(wc -l < '{}' | tr -d ' ') + 1)) '{}' & TAIL_PID=$!; \
+         fi; \
+         while [ ! -f '{}' ]; do sleep 0.5; done; \
+         sleep 0.5; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null; \
+         cat '{}'",
+        done_file, output_file,
+        output_file,
+        output_file, output_file, output_file,
+        output_file, output_file, output_file,
+        done_file,
+        output_file,
+    );
+    let b64_tail = base64::engine::general_purpose::STANDARD.encode(tail_script.as_bytes());
+    ssh_tail_args.push_str(&format!(" \"echo {} | base64 -d | bash\"", b64_tail));
+
+    let mut tail_cmd = AsyncCommand::new(&shell);
+    tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
+    tail_cmd.stdout(std::process::Stdio::piped());
+    tail_cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = tail_cmd
+        .spawn()
+        .map_err(|e| format!("Failed to reconnect tail: {}", e))?;
+    let stdout = child.stdout.take().ok_or("Failed to capture tail stdout")?;
+
+    // 4. Store the new tail process as the session's child
+    state
+        .sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(session_id.clone(), ClaudeSession { child });
+
+    // 5. Stream output to frontend — the dedup logic in the frontend handles
+    //    re-sent lines gracefully (same message ID = replace, not duplicate).
+    let app_handle = app.clone();
+    let sid = session_id.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let _ = app_handle.emit(
+                &format!("claude-event-{}", sid),
+                serde_json::json!({ "line": line }),
+            );
+        }
+        let _ = app_handle.emit(&format!("claude-done-{}", sid), serde_json::json!({}));
+    });
+
+    Ok(())
 }
 
 /// Rename a session (update its human-readable name).
