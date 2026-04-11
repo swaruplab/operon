@@ -483,18 +483,18 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
     return false;
   };
 
-  // Stepper bar
+  // Stepper bar — compact pill layout that fits within max-w-2xl
   const StepIndicator = () => (
-    <div className="flex items-center justify-center gap-1 mb-6">
+    <div className="flex items-center justify-center gap-0.5 mb-6 flex-wrap">
       {allSteps.map((s, i) => {
         const isPast = i < currentStepIndex;
         const isCurrent = i === currentStepIndex;
         const hasFailed = isPast && isStepFailed(s.key);
 
         return (
-          <div key={s.key} className="flex items-center gap-1">
+          <div key={s.key} className="flex items-center gap-0.5">
             <div
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium transition-colors ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap ${
                 hasFailed
                   ? 'bg-red-900/30 text-red-400'
                   : isPast
@@ -505,16 +505,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               }`}
             >
               {hasFailed ? (
-                <XCircle className="w-3 h-3" />
+                <XCircle className="w-3 h-3 shrink-0" />
               ) : isPast ? (
-                <CheckCircle className="w-3 h-3" />
+                <CheckCircle className="w-3 h-3 shrink-0" />
               ) : (
-                <span className="w-3 h-3 flex items-center justify-center text-[9px]">{i + 1}</span>
+                <span className="w-3 h-3 flex items-center justify-center text-[9px] shrink-0">{i + 1}</span>
               )}
               {s.label}
             </div>
             {i < allSteps.length - 1 && (
-              <div className={`w-4 h-px ${
+              <div className={`w-3 h-px shrink-0 ${
                 hasFailed ? 'bg-red-800' : isPast ? 'bg-green-800' : 'bg-zinc-800'
               }`} />
             )}
@@ -574,13 +574,13 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
   return (
     <div className={mode === 'modal'
-      ? 'fixed inset-0 z-50 flex items-center justify-center'
+      ? 'fixed inset-0 z-[60] flex items-center justify-center'
       : 'h-screen w-screen bg-zinc-950 flex items-center justify-center'
     }>
       {mode === 'modal' && (
         <div className="absolute inset-0 bg-black/60" onClick={onComplete} />
       )}
-      <div className={`w-full max-w-lg mx-auto p-8 ${mode === 'modal' ? 'relative bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl' : ''}`}>
+      <div className={`w-full max-w-2xl mx-auto p-8 ${mode === 'modal' ? 'relative bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl max-h-[85vh] overflow-y-auto' : ''}`}>
         {mode === 'modal' && (
           <button
             onClick={onComplete}
@@ -1274,6 +1274,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {step === 'installing' && (
           <div className="space-y-5">
             <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
+                {installDone && !installHadErrors
+                  ? <CheckCircle className="w-6 h-6 text-green-400" />
+                  : <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                }
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">
                 {installDone && !installHadErrors
                   ? 'All set!'
@@ -1327,7 +1333,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== DEPENDENCIES (Manual fallback — shown on error) ========== */}
         {step === 'dependencies' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-red-900/30 flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">System Check</h2>
               <p className="text-zinc-500 text-sm mt-1">
                 We couldn't automatically detect your system configuration.
@@ -1362,7 +1371,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== AUTHENTICATION ========== */}
         {step === 'auth' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
+                <Key className="w-6 h-6 text-blue-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Authentication</h2>
               <p className="text-zinc-500 text-sm mt-1">
                 Choose how to authenticate with Claude. You can change this later in settings.
@@ -1583,7 +1595,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== TOUR: OVERVIEW ========== */}
         {step === 'tour-overview' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
+                <MonitorSmartphone className="w-6 h-6 text-blue-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Your Workspace</h2>
               <p className="text-zinc-500 text-sm mt-1">Here's what you'll find in Operon.</p>
             </div>
@@ -1621,7 +1636,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== TOUR: AI MODES ========== */}
         {step === 'tour-modes' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-purple-900/30 flex items-center justify-center mx-auto mb-3">
+                <Bot className="w-6 h-6 text-purple-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Four Ways to Work with Claude</h2>
               <p className="text-zinc-500 text-sm mt-1">Switch between modes using the selector above the chat input.</p>
             </div>
@@ -1665,7 +1683,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== TOUR: REMOTE SSH ========== */}
         {step === 'tour-remote' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-teal-900/30 flex items-center justify-center mx-auto mb-3">
+                <Server className="w-6 h-6 text-teal-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Run on HPC & Remote Servers</h2>
               <p className="text-zinc-500 text-sm mt-1">Operon can run Claude agents on remote compute nodes via SSH.</p>
             </div>
@@ -1694,7 +1715,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== TOUR: KEY FEATURES ========== */}
         {step === 'tour-features' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-green-900/30 flex items-center justify-center mx-auto mb-3">
+                <FlaskConical className="w-6 h-6 text-green-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Built for Researchers</h2>
               <p className="text-zinc-500 text-sm mt-1">Tools designed specifically for bioinformatics and scientific computing.</p>
             </div>
@@ -1745,7 +1769,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== TOUR: TIPS & SHORTCUTS ========== */}
         {step === 'tour-shortcuts' && (
           <div className="space-y-5">
-            <div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
+                <Keyboard className="w-6 h-6 text-amber-400" />
+              </div>
               <h2 className="text-lg font-semibold text-zinc-100">Tips & Shortcuts</h2>
               <p className="text-zinc-500 text-sm mt-1">A few things to help you get the most out of Operon.</p>
             </div>
