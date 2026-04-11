@@ -437,17 +437,18 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   };
 
   // Listen for terminal CWD changes → update sidebar (terminal → sidebar sync)
+  const projectPathRef = useRef(projectPath);
+  projectPathRef.current = projectPath;
   useEffect(() => {
     const unlisten = listen<{ terminalId: string; cwd: string }>('terminal-cwd-changed', (event) => {
-      const { terminalId, cwd } = event.payload;
-      // Only sync if the event is from our active local terminal
-      if (terminalId === localTerminalId && cwd && cwd !== projectPath) {
+      const { cwd } = event.payload;
+      if (cwd && cwd !== projectPathRef.current) {
         syncedFromTerminal.current = true;
         setProjectPath(cwd);
       }
     });
     return () => { unlisten.then((u) => u()); };
-  }, [localTerminalId, projectPath, setProjectPath]);
+  }, [setProjectPath]);
 
   const folderName = projectPath?.split('/').pop() || 'Project';
 

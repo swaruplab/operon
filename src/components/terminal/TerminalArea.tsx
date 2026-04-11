@@ -85,9 +85,8 @@ export function TerminalArea() {
       }
     };
 
-    // Poll every 2 seconds — fast enough to feel responsive,
-    // slow enough to not waste resources
-    const interval = setInterval(pollCwd, 2000);
+    // Poll every 1 second for responsive terminal → sidebar sync
+    const interval = setInterval(pollCwd, 1000);
     // Also check immediately on tab switch
     pollCwd();
 
