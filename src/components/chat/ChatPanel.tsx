@@ -1160,7 +1160,6 @@ export function ChatPanel() {
   const lastEventTime = useRef<number>(0);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
-  const [totalCost, setTotalCost] = useState(0);
   const [model, setModel] = useState('claude-opus-4-20250514');
 
   // Load default model from user settings
@@ -1321,7 +1320,6 @@ export function ChatPanel() {
     setIsStreaming(false);
     setSessionId(crypto.randomUUID());
     setClaudeSessionId(null);
-    setTotalCost(0);
     setMentions([]);
     setMentionActive(false);
     setMentionItems([]);
@@ -1930,7 +1928,6 @@ export function ChatPanel() {
         if (data.type === 'result') {
           setIsStreaming(false);
           if ('cost_usd' in data && data.cost_usd) {
-            setTotalCost((prev) => prev + data.cost_usd!);
           }
           // Mark ALL remaining running/pending tool blocks as complete
           // (some tool result events may have been missed or arrived out of order)
@@ -3133,7 +3130,6 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               API
             </span>
           )}
-          <span className="text-[11px] text-zinc-600">${totalCost.toFixed(4)}</span>
         </div>
       </div>
 

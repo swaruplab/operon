@@ -3,7 +3,7 @@ import { Download, X, Loader2, CheckCircle, RefreshCw } from 'lucide-react';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
-type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date';
+type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date';
 
 interface UpdateInfo {
   version: string;
@@ -14,7 +14,6 @@ export function UpdateChecker() {
   const [state, setState] = useState<UpdateState>('idle');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   // Skip update checks in dev mode
@@ -23,7 +22,6 @@ export function UpdateChecker() {
   const checkForUpdate = useCallback(async () => {
     if (isDev) return;
     setState('checking');
-    setError(null);
     try {
       const update = await check();
       if (update) {
@@ -38,7 +36,6 @@ export function UpdateChecker() {
         setTimeout(() => setState('idle'), 3000);
       }
     } catch (err) {
-      // Silently ignore update check failures (e.g. no release published yet, no internet)
       console.warn('Update check failed:', err);
       setState('idle');
     }
@@ -84,9 +81,8 @@ export function UpdateChecker() {
 
       setState('ready');
     } catch (err) {
-      console.error('Update download failed:', err);
-      setError(err instanceof Error ? err.message : 'Failed to download update');
-      setState('error');
+      console.warn('Update download failed:', err);
+      setState('idle');
     }
   }, []);
 
@@ -110,20 +106,6 @@ export function UpdateChecker() {
     );
   }
 
-  // Error state
-  if (state === 'error') {
-    return (
-      <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-red-400">
-        <span className="truncate max-w-[180px]">{error}</span>
-        <button
-          onClick={() => { setDismissed(true); }}
-          className="p-0.5 rounded hover:bg-zinc-700"
-        >
-          <X className="w-3 h-3 pointer-events-none" />
-        </button>
-      </div>
-    );
-  }
 
   // Update available
   if (state === 'available' && updateInfo) {
