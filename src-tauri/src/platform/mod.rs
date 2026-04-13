@@ -661,18 +661,6 @@ pub fn supports_ssh_mux() -> bool {
     }
 }
 
-/// Returns the path to Git Bash on Windows, or None on other platforms.
-pub fn find_git_bash() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        windows::find_git_bash()
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        None
-    }
-}
-
 /// Whether Xcode CLI tools are relevant on this platform.
 pub fn requires_xcode() -> bool {
     cfg!(target_os = "macos")

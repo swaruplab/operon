@@ -53,23 +53,13 @@ pub async fn spawn_terminal(
     // Detect user's shell via platform abstraction
     let shell = crate::platform::default_shell();
 
-    //let mut cmd = if let Some(args) = &ssh_args {
-    //    // Spawn SSH directly as the PTY process — no shell wrapper.
-    //    // SSH becomes the root process. -t forces TTY allocation.
-    //    let mut c = CommandBuilder::new("ssh");
-    //    c.arg("-t"); // Force interactive TTY
-    //    for arg in args {
-    //        c.arg(arg);
-    //    }
-    //    c
-    //} else {
-    //    CommandBuilder::new(&shell)
-    //};
-    
     let mut cmd = if let Some(args) = &ssh_args {
         #[cfg(target_os = "windows")]
         {
-            if let Some(bash_path) = crate::platform::find_git_bash() {
+            // On Windows, route SSH through Git Bash to avoid ConPTY stall/deadlock bug.
+            // Also strip ControlMaster/ControlPath/ControlPersist options which fail on Windows
+            // (no Unix domain socket support), and normalize backslashes to forward slashes.
+            if let Some(bash_path) = crate::platform::find_git_bash_path() {
                 let mut clean_args: Vec<String> = Vec::new();
                 let mut i = 0;
                 while i < args.len() {
@@ -92,23 +82,29 @@ pub async fn spawn_terminal(
                 c.arg(&ssh_cmd);
                 c
             } else {
+                // Fallback: direct ssh.exe (ConPTY path)
                 let mut c = CommandBuilder::new("ssh.exe");
                 c.arg("-t");
-                for arg in args { c.arg(arg); }
+                for arg in args {
+                    c.arg(arg);
+                }
                 c
             }
         }
         #[cfg(not(target_os = "windows"))]
         {
+            // Spawn SSH directly as the PTY process — no shell wrapper.
+            // SSH becomes the root process. -t forces TTY allocation.
             let mut c = CommandBuilder::new("ssh");
             c.arg("-t");
-            for arg in args { c.arg(arg); }
+            for arg in args {
+                c.arg(arg);
+            }
             c
         }
     } else {
         CommandBuilder::new(&shell)
     };
-    
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     // Tell macOS zsh to source /etc/zshrc_Apple_Terminal which emits OSC 7

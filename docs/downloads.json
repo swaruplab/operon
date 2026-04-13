@@ -1,15 +1,15 @@
 {
-  "version": "0.5.1",
+  "version": "0.5.4",
   "protocol_count": "180+",
   "downloads": {
     "apple_silicon": {
-      "url": "https://dl.dropboxusercontent.com/scl/fi/d73ktq43xbpdwxg7m7yd2/Operon_0.5.1_aarch64.dmg?rlkey=ij8tmex4nvyrbwwqlbiq5xwly&dl=1",
-      "filename": "Operon_0.5.1_aarch64.dmg",
+      "url": "https://dl.dropboxusercontent.com/scl/fi/bj2ro264kmx155btqdopw/Operon_0.5.4_aarch64.dmg?rlkey=7kqmpal39dzrb5j61zg9jthdj&dl=1",
+      "filename": "Operon_0.5.4_aarch64.dmg",
       "label": "Apple Silicon (M1/M2/M3/M4)"
     },
     "intel": {
-      "url": "https://dl.dropboxusercontent.com/scl/fi/2q6e4kziqimue0hvmupht/Operon_0.5.1_x64.dmg?rlkey=1orgld381ye3875ehmdex2t0t&dl=1",
-      "filename": "Operon_0.5.1_x64.dmg",
+      "url": "https://dl.dropboxusercontent.com/scl/fi/0esvmwd9aq8mcr4srp292/Operon_0.5.4_x64.dmg?rlkey=u4fhx1n4mbtly4tglelu9t5pl&dl=1",
+      "filename": "Operon_0.5.4_x64.dmg",
       "label": "Intel Mac"
     }
   }

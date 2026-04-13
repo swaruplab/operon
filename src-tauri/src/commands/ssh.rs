@@ -558,7 +558,9 @@ pub async fn spawn_ssh_terminal(
         ssh_cmd.push_str(&format!(" -i {}", key));
     }
 
-    // On Windows, run ssh.exe directly — cmd.exe doesn't accept -l/-c flags.
+    // On Windows, route SSH through Git Bash to avoid the ConPTY stall/deadlock bug
+    // with interactive SSH sessions. Also disable ControlMaster options which fail on
+    // Windows (no Unix domain socket support). Falls back to direct ssh.exe if no Git Bash.
     // On macOS/Linux, use a login shell so PATH, aliases, and SSH agent are available.
     //#[cfg(target_os = "windows")]
     //let mut cmd = {
@@ -580,53 +582,44 @@ pub async fn spawn_ssh_terminal(
     //    c
     //};
 
-    // Added in to avoid ConPty, if possible (by routing the command through git bash).
-    // This is a workaround for the notorious "ConPTY stall" bug in Windows 10/11's SSH client, 
-    // where interactive sessions can freeze indefinitely due to a deadlock in the pseudo-terminal implementation.
-    // By running ssh.exe inside Git Bash, we get a proper POSIX PTY environment that avoids this issue.
-    // If Git Bash isn't available, we fall back to direct ssh.exe with ConPTY, which is less stable but still functional for non-interactive use.
-    // This also introduced a fix for the "not a socket" message.
     #[cfg(target_os = "windows")]
     let mut cmd = {
-        // Explicitly disable ControlMaster in case ~/.ssh/config enables it —
-        // Windows doesn't support Unix domain sockets for control paths.
+        // Disable ControlMaster — Windows doesn't support Unix domain sockets for control paths.
+        // Also add StrictHostKeyChecking=accept-new and ConnectTimeout for better UX.
         let win_ssh_cmd = format!(
             "{} -o ControlMaster=no -o ControlPath=none -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15",
-            ssh_cmd  // reuse the already-built ssh_cmd string
+            ssh_cmd
         );
-        let bash = crate::platform::find_git_bash();
-        eprintln!("[operon-ssh] find_git_bash() = {:?}", bash);
-        if let Some(bash_path) = bash {
-            eprintln!("[operon-ssh] Using Git Bash at {}", bash_path);
-
-
-            // Git Bash gives ssh.exe a proper POSIX PTY environment — 
+        if let Some(bash_path) = crate::platform::find_git_bash_path() {
+            // Git Bash gives ssh a proper POSIX PTY environment —
             // avoids the ConPTY stall bug with interactive SSH sessions
             let mut c = CommandBuilder::new(&bash_path);
             c.arg("-c");
             c.arg(&win_ssh_cmd);
-
-            eprintln!("[operon-ssh] No Git Bash found, falling back to ConPTY");
-
             c
         } else {
-            // Fallback: direct ssh.exe (ConPTY path, known to be flaky)
+            // Fallback: direct ssh.exe (ConPTY path, less stable for interactive sessions)
             let mut c = CommandBuilder::new("ssh.exe");
             c.args([
                 &format!("{}@{}", profile.user, profile.host),
-                "-p", &profile.port.to_string(),
-                "-o", "ServerAliveInterval=30",
-                "-o", "ControlMaster=no",
-                "-o", "ControlPath=none",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "ConnectTimeout=15",
+                "-p",
+                &profile.port.to_string(),
+                "-o",
+                "ServerAliveInterval=30",
+                "-o",
+                "LogLevel=ERROR",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                "-o",
+                "ConnectTimeout=15",
             ]);
             if let Some(key) = &profile.key_file {
                 c.args(["-i", key]);
             }
-
-            println!("Using ConPTY");
-
             c
         }
     };
