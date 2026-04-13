@@ -61,8 +61,9 @@ pub use ssh::{
     check_control_master, clear_ssh_cache, create_remote_directory, delete_remote_file,
     delete_ssh_profile, detect_server_config, get_remote_home, get_server_config,
     list_remote_directory, list_ssh_profiles, read_remote_file, read_remote_file_base64,
-    save_ssh_profile, scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote,
-    setup_ssh_key, spawn_ssh_terminal, stop_control_master, test_ssh_connection, write_remote_file,
+    rename_remote_path, save_ssh_profile, scp_batch_upload, scp_dir_from_remote, scp_from_remote,
+    scp_to_remote, setup_ssh_key, spawn_ssh_terminal, stop_control_master, test_ssh_connection,
+    write_remote_file,
 };
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,

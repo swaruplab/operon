@@ -22,6 +22,7 @@ import {
   XCircle,
   AlertCircle,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -467,14 +468,34 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     cdToTerminalPath(remotePath);
   };
 
+  // Suppress auto-cd when navigation was triggered by terminal CWD sync
+  const syncedFromTerminal = useRef(false);
+
   // Auto-cd remote terminal when navigating in the sidebar
   const prevRemotePath = useRef(remotePath);
   useEffect(() => {
     if (remotePath && remotePath !== prevRemotePath.current) {
-      cdToTerminalPath(remotePath);
+      if (!syncedFromTerminal.current) {
+        cdToTerminalPath(remotePath);
+      }
+      syncedFromTerminal.current = false;
       prevRemotePath.current = remotePath;
     }
   }, [remotePath, terminalId]);
+
+  // Listen for remote terminal CWD changes → update explorer
+  const remotePathRef = useRef(remotePath);
+  remotePathRef.current = remotePath;
+  useEffect(() => {
+    const unlisten = listen<{ terminalId: string; cwd: string }>('remote-terminal-cwd-changed', (event) => {
+      const { cwd } = event.payload;
+      if (cwd && cwd !== remotePathRef.current) {
+        syncedFromTerminal.current = true;
+        navigateTo(cwd);
+      }
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
 
   const navigateUp = () => {
     if (!remotePath || remotePath === '/') return;
@@ -624,6 +645,29 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   }, [contextMenu]);
 
   const [deleteConfirm, setDeleteConfirm] = useState<FileEntry | null>(null);
+  const [renaming, setRenaming] = useState<FileEntry | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const renameRef = useRef<HTMLInputElement>(null);
+
+  const handleRenameRemote = async () => {
+    if (!renaming || !renameInput.trim()) {
+      setRenaming(null);
+      return;
+    }
+    const dir = renaming.path.replace(/\/[^/]+$/, '');
+    const newPath = `${dir}/${renameInput.trim()}`;
+    try {
+      await invoke('rename_remote_path', { profileId, oldPath: renaming.path, newPath });
+      setRenaming(null);
+      if (remotePath) {
+        const items = await invoke<FileEntry[]>('list_remote_directory', { profileId, path: remotePath });
+        setEntries(items);
+      }
+    } catch (err) {
+      console.error('Failed to rename remote path:', err);
+      setRenaming(null);
+    }
+  };
 
   const handleDeleteRemoteFile = async (entry: FileEntry) => {
     try {
@@ -758,37 +802,69 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           }}
         >
           <button
+            onClick={() => {
+              setRenaming(contextMenu.entry);
+              setRenameInput(contextMenu.entry.name);
+              setContextMenu(null);
+              setTimeout(() => renameRef.current?.select(), 50);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Pencil className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            Rename
+          </button>
+          <button
             onClick={() => downloadToLocal(contextMenu.entry)}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
           >
             <Download className="w-3.5 h-3.5 text-blue-400" />
             Download to local
           </button>
-          {!contextMenu.entry.is_dir && (
-            <>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(contextMenu.entry.path);
-                  setContextMenu(null);
-                }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
-              >
-                <File className="w-3.5 h-3.5 text-zinc-500" />
-                Copy remote path
-              </button>
-              <div className="border-t border-zinc-700 my-1" />
-              <button
-                onClick={() => {
-                  setDeleteConfirm(contextMenu.entry);
-                  setContextMenu(null);
-                }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
-              >
-                <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
-                Delete
-              </button>
-            </>
-          )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(contextMenu.entry.path);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <File className="w-3.5 h-3.5 text-zinc-500" />
+            Copy remote path
+          </button>
+          <div className="border-t border-zinc-700 my-1" />
+          <button
+            onClick={() => {
+              setDeleteConfirm(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
+            Delete
+          </button>
+        </div>
+      )}
+
+      {/* Rename inline input */}
+      {renaming && (
+        <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-zinc-800 border border-zinc-600 rounded-lg shadow-lg">
+          <p className="text-[11px] text-zinc-400 mb-1.5">
+            Rename <span className="font-medium text-zinc-200">{renaming.name}</span>
+          </p>
+          <input
+            ref={renameRef}
+            value={renameInput}
+            onChange={(e) => setRenameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameRemote();
+              if (e.key === 'Escape') setRenaming(null);
+            }}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-500"
+            autoFocus
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={handleRenameRemote} className="px-2 py-0.5 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white">Rename</button>
+            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300">Cancel</button>
+          </div>
         </div>
       )}
 

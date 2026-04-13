@@ -62,9 +62,10 @@ interface TerminalInstanceProps {
   initialCommand?: string;
   onTitleChange?: (title: string) => void;
   onExit?: () => void;
+  onCwdChange?: (cwd: string) => void;
 }
 
-export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitleChange, onExit }: TerminalInstanceProps) {
+export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -77,6 +78,8 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
   onTitleChangeRef.current = onTitleChange;
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  const onCwdChangeRef = useRef(onCwdChange);
+  onCwdChangeRef.current = onCwdChange;
 
   // Debounced resize handler — fit first, then sync to backend
   const handleResize = useCallback(() => {
@@ -185,6 +188,14 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
       const data = event.payload.output;
       term.write(data);
 
+      // --- OSC 7 CWD detection (shell reports working directory) ---
+      // Format: \x1b]7;file://hostname/path\x07  or  \x1b]7;file://hostname/path\x1b\\
+      const osc7Match = data.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]+)(?:\x07|\x1b\\)/);
+      if (osc7Match) {
+        const cwd = decodeURIComponent(osc7Match[1]);
+        onCwdChangeRef.current?.(cwd);
+      }
+
       // --- OAuth URL auto-open for `claude login` (local or remote) ---
       if (!oauthOpened) {
         // Accumulate output to handle URLs split across chunks
@@ -278,6 +289,32 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
 
     invoke('spawn_terminal', { terminalId, sshArgs })
       .then(() => {
+        // For SSH terminals, inject OSC 7 hook so CWD changes are reported back.
+        // This makes terminal→explorer sync work for remote sessions.
+        if (sshArgs) {
+          setTimeout(() => {
+            // Inject OSC 7 hook into the remote shell for CWD tracking.
+            // The command echoes in the PTY, so we clear the xterm buffer
+            // after a short delay to hide it completely.
+            const hookScript = `if [ -n "$ZSH_VERSION" ]; then autoload -Uz add-zsh-hook 2>/dev/null; __operon_osc7() { printf '\\033]7;file://%s%s\\a' "$(hostname)" "$(pwd)"; }; add-zsh-hook precmd __operon_osc7 2>/dev/null; elif [ -n "$BASH_VERSION" ]; then __operon_osc7() { printf '\\033]7;file://%s%s\\a' "$(hostname)" "$(pwd)"; }; PROMPT_COMMAND="__operon_osc7;\${PROMPT_COMMAND}"; fi`;
+            const b64 = btoa(hookScript);
+            const cmd = ` eval "$(echo '${b64}' | base64 -d)"\n`;
+            invoke('write_terminal', {
+              terminalId,
+              data: Array.from(new TextEncoder().encode(cmd)),
+            }).catch(console.error);
+            // Clear the xterm buffer to hide the injected command
+            setTimeout(() => {
+              term.clear();
+              // Send 'clear' to also reset the remote terminal
+              invoke('write_terminal', {
+                terminalId,
+                data: Array.from(new TextEncoder().encode('clear\n')),
+              }).catch(console.error);
+            }, 500);
+          }, 1500);
+        }
+
         // For non-SSH initialCommands (e.g. `claude login`), send the command
         // as stdin input after a short delay so the shell has time to start.
         // Prefix `claude login` with TERM=dumb to avoid TUI rendering issues

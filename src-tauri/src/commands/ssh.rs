@@ -989,8 +989,7 @@ pub async fn create_remote_directory(
     Ok(())
 }
 
-/// Delete a file on the remote server via SSH.
-/// Only deletes files, not directories, for safety.
+/// Delete a file or directory on the remote server via SSH.
 #[tauri::command]
 pub async fn delete_remote_file(
     state: tauri::State<'_, SSHManager>,
@@ -1006,23 +1005,58 @@ pub async fn delete_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    // Safety: only delete files, refuse directories
+    // Check if path is a file or directory
+    let escaped = shell_escape_inner(&path);
     let check_cmd = format!(
-        "test -f {} && echo FILE || echo NOTFILE",
-        shell_escape_inner(&path)
+        "if [ -d {} ]; then echo DIR; elif [ -f {} ]; then echo FILE; else echo NONE; fi",
+        escaped, escaped
     );
     let result = ssh_exec(&profile, &check_cmd)?;
-    if result.trim() != "FILE" {
-        return Err("Path is not a file or does not exist".to_string());
-    }
+    let kind = result.trim();
 
-    let cmd = format!("rm {}", shell_escape_inner(&path));
+    match kind {
+        "FILE" => {
+            let cmd = format!("rm {}", escaped);
+            ssh_exec(&profile, &cmd)?;
+        }
+        "DIR" => {
+            let cmd = format!("rm -rf {}", escaped);
+            ssh_exec(&profile, &cmd)?;
+        }
+        _ => return Err("Path does not exist".to_string()),
+    }
+    Ok(())
+}
+
+/// Rename a file or directory on the remote server via SSH.
+#[tauri::command]
+pub async fn rename_remote_path(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    let cmd = format!(
+        "mv {} {}",
+        shell_escape_inner(&old_path),
+        shell_escape_inner(&new_path)
+    );
     ssh_exec(&profile, &cmd)?;
     Ok(())
 }
 
 /// Write a file to the remote server via SSH.
 /// For text files, pipes content through base64 to avoid quoting issues.
+/// Uses chunked transfer to avoid ControlMaster socket message size limits.
 /// For binary files (like PDFs), use scp_to_remote instead.
 #[tauri::command]
 pub async fn write_remote_file(
@@ -1046,10 +1080,46 @@ pub async fn write_remote_file(
         let _ = ssh_exec(&profile, &mkdir_cmd);
     }
 
-    // Encode content as base64 and decode on the remote side to avoid quoting issues
+    let escaped_path = shell_escape_inner(&path);
+
+    // Encode content as base64 and write in chunks to avoid ControlMaster
+    // socket message size limits (~256KB). Each chunk is appended to a temp
+    // b64 file, then decoded in one shot.
     let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
-    let cmd = format!("echo {} | base64 -d > {}", b64, shell_escape_inner(&path));
-    ssh_exec(&profile, &cmd)?;
+    let tmp_b64 = format!("{}.__operon_tmp_b64__", escaped_path);
+
+    // Max chunk size ~100KB to stay well under the socket limit
+    const CHUNK_SIZE: usize = 100_000;
+
+    if b64.len() <= CHUNK_SIZE {
+        // Small file — single command, no temp file needed
+        let cmd = format!("printf %s {} | base64 -d > {}", b64, escaped_path);
+        ssh_exec(&profile, &cmd)?;
+    } else {
+        // Large file — write base64 in chunks, then decode
+        // First chunk: truncate (>)
+        let first_chunk = &b64[..CHUNK_SIZE];
+        let cmd = format!("printf %s {} > {}", first_chunk, tmp_b64);
+        ssh_exec(&profile, &cmd)?;
+
+        // Remaining chunks: append (>>)
+        let mut offset = CHUNK_SIZE;
+        while offset < b64.len() {
+            let end = std::cmp::min(offset + CHUNK_SIZE, b64.len());
+            let chunk = &b64[offset..end];
+            let cmd = format!("printf %s {} >> {}", chunk, tmp_b64);
+            ssh_exec(&profile, &cmd)?;
+            offset = end;
+        }
+
+        // Decode the assembled base64 file and clean up
+        let cmd = format!(
+            "base64 -d {} > {} && rm -f {}",
+            tmp_b64, escaped_path, tmp_b64
+        );
+        ssh_exec(&profile, &cmd)?;
+    }
+
     state.cache.invalidate_path(&profile_id, &path);
     Ok(())
 }

@@ -65,8 +65,27 @@ export function TerminalArea() {
     }
   }, [activeTab, tabs]);
 
-  // --- CWD polling for local terminals (terminal → sidebar sync) ---
+  // --- CWD tracking for terminals (terminal → explorer sync) ---
   const lastCwd = useRef<string>('');
+  const lastRemoteCwd = useRef<string>('');
+
+  const handleCwdChange = useCallback((id: string, cwd: string) => {
+    const tab = tabs.find((t) => t.id === id);
+    if (!tab || !cwd) return;
+    if (tab.type === 'local') {
+      if (cwd !== lastCwd.current) {
+        lastCwd.current = cwd;
+        emit('terminal-cwd-changed', { terminalId: id, cwd });
+      }
+    } else {
+      if (cwd !== lastRemoteCwd.current) {
+        lastRemoteCwd.current = cwd;
+        emit('remote-terminal-cwd-changed', { terminalId: id, cwd });
+      }
+    }
+  }, [tabs]);
+
+  // Fallback: poll via lsof for shells that don't emit OSC 7
   useEffect(() => {
     const activeTabObj = tabs.find((t) => t.id === activeTab);
     if (!activeTabObj || activeTabObj.type !== 'local' || activeTabObj.exited) {
@@ -76,22 +95,18 @@ export function TerminalArea() {
     const pollCwd = async () => {
       try {
         const cwd = await invoke<string>('get_terminal_cwd', { terminalId: activeTabObj.id });
-        if (cwd && cwd !== lastCwd.current) {
-          lastCwd.current = cwd;
-          emit('terminal-cwd-changed', { terminalId: activeTabObj.id, cwd });
-        }
+        handleCwdChange(activeTabObj.id, cwd);
       } catch {
-        // Terminal may have exited or CWD detection not supported — silently ignore
+        // Terminal may have exited or CWD detection not supported
       }
     };
 
-    // Poll every 1 second for responsive terminal → sidebar sync
-    const interval = setInterval(pollCwd, 1000);
-    // Also check immediately on tab switch
+    // Poll every 3 seconds as fallback (OSC 7 is the primary mechanism)
+    const interval = setInterval(pollCwd, 3000);
     pollCwd();
 
     return () => clearInterval(interval);
-  }, [activeTab, tabs]);
+  }, [activeTab, tabs, handleCwdChange]);
 
   const createTab = useCallback((type: 'local' | 'ssh' = 'local') => {
     const id = crypto.randomUUID();
@@ -210,6 +225,7 @@ export function TerminalArea() {
               initialCommand={tab.initialCommand}
               onTitleChange={(title) => handleTitleChange(tab.id, title)}
               onExit={() => handleExit(tab.id)}
+              onCwdChange={(cwd) => handleCwdChange(tab.id, cwd)}
             />
           </div>
         ))}

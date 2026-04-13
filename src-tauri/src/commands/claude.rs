@@ -2133,23 +2133,47 @@ pub async fn start_claude_session(
             );
 
             // Upload the script to the remote via ssh_exec + base64.
-            // This is more reliable than both:
-            //   - heredoc through terminal PTY (corrupts on large content due to buffer limits)
-            //   - SCP (can fail with "dest open Failure" on some HPC filesystems)
-            // ssh_exec rides the ControlMaster socket, so no re-auth needed.
+            // Uses chunked transfer to avoid ControlMaster socket message size
+            // limits (~256KB). Each chunk is appended to a temp b64 file on the
+            // remote, then decoded in one shot.
             {
                 let b64_script =
                     base64::engine::general_purpose::STANDARD.encode(script_content.as_bytes());
-                // Use printf instead of echo for portability, and base64 is shell-safe
-                // (only A-Za-z0-9+/=) so no quoting needed around it.
-                // Use double quotes for the path (safe inside ssh_exec's outer single quotes).
-                let write_cmd = format!(
-                    "printf %s {} | base64 -d > \"{}\"",
-                    b64_script,
-                    script_file.replace('"', "\\\""),
-                );
-                crate::commands::ssh::ssh_exec(&profile, &write_cmd)
-                    .map_err(|e| format!("Failed to create run script on remote: {}", e))?;
+                let escaped_script = script_file.replace('"', "\\\"");
+                let tmp_b64 = format!("{}.__b64__", escaped_script);
+                const CHUNK_SIZE: usize = 100_000;
+
+                if b64_script.len() <= CHUNK_SIZE {
+                    // Small script — single command
+                    let write_cmd = format!(
+                        "printf %s {} | base64 -d > \"{}\"",
+                        b64_script, escaped_script,
+                    );
+                    crate::commands::ssh::ssh_exec(&profile, &write_cmd)
+                        .map_err(|e| format!("Failed to create run script on remote: {}", e))?;
+                } else {
+                    // Large script — write base64 in chunks, then decode
+                    let mut offset = 0;
+                    let mut first = true;
+                    while offset < b64_script.len() {
+                        let end = std::cmp::min(offset + CHUNK_SIZE, b64_script.len());
+                        let chunk = &b64_script[offset..end];
+                        let redirect = if first { ">" } else { ">>" };
+                        let cmd = format!("printf %s {} {} \"{}\"", chunk, redirect, tmp_b64,);
+                        crate::commands::ssh::ssh_exec(&profile, &cmd).map_err(|e| {
+                            format!("Failed to upload script chunk to remote: {}", e)
+                        })?;
+                        first = false;
+                        offset = end;
+                    }
+                    // Decode the assembled base64 and clean up
+                    let decode_cmd = format!(
+                        "base64 -d \"{}\" > \"{}\" && rm -f \"{}\"",
+                        tmp_b64, escaped_script, tmp_b64,
+                    );
+                    crate::commands::ssh::ssh_exec(&profile, &decode_cmd)
+                        .map_err(|e| format!("Failed to decode run script on remote: {}", e))?;
+                }
             }
 
             // Send a short source command to the terminal (the script is already on the remote)

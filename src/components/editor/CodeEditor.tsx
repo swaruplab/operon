@@ -118,6 +118,8 @@ export function CodeEditor({
   onSave,
 }: CodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
   const { projectPath } = useProject();
   const languageId = detectLanguage(filePath);
   const isMarkdown = languageId === 'markdown';
@@ -143,15 +145,15 @@ export function CodeEditor({
       // Ensure theme is applied (belt-and-suspenders)
       monaco.editor.setTheme('operon-dark');
 
-      // Register Cmd+S to save
+      // Register Cmd+S to save — uses ref so the handler always calls the latest onSave
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         const value = editor.getValue();
-        onSave?.(value);
+        onSaveRef.current?.(value);
       });
 
       editor.focus();
     },
-    [onSave],
+    [],
   );
 
   const handleChange: OnChange = useCallback(

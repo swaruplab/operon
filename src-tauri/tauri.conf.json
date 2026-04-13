@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicollassilva/tauri/main/crates/tauri-config-schema/schema.json",
   "productName": "Operon",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "identifier": "com.operon.app",
   "build": {
     "beforeBuildCommand": "npm run build",

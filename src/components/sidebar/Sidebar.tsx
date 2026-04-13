@@ -16,6 +16,7 @@ import {
   FolderPlus,
   Trash2,
   Copy,
+  Pencil,
 } from 'lucide-react';
 import { SSHView } from './SSHView';
 import { RemoteExplorer } from './RemoteExplorer';
@@ -285,12 +286,32 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
     return () => window.removeEventListener('click', close);
   }, [contextMenu]);
 
+  const [renaming, setRenaming] = useState<FileEntry | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const renameRef = useRef<HTMLInputElement>(null);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, entry: FileEntry) => {
-    if (entry.is_dir) return; // Files only
     e.preventDefault();
     e.stopPropagation();
     setContextMenu({ x: e.clientX, y: e.clientY, entry });
   }, []);
+
+  const handleRenameLocal = async () => {
+    if (!renaming || !renameInput.trim()) {
+      setRenaming(null);
+      return;
+    }
+    const dir = renaming.path.replace(/\/[^/]+$/, '');
+    const newPath = `${dir}/${renameInput.trim()}`;
+    try {
+      await invoke('rename_path', { oldPath: renaming.path, newPath });
+      setRenaming(null);
+      if (projectPath) loadDir(projectPath);
+    } catch (err) {
+      console.error('Failed to rename:', err);
+      setRenaming(null);
+    }
+  };
 
   const handleDeleteLocalFile = async (entry: FileEntry) => {
     try {
@@ -626,7 +647,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
         )}
       </div>
 
-      {/* Context menu for files */}
+      {/* Context menu */}
       {contextMenu && (
         <div
           className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
@@ -635,6 +656,18 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             top: Math.min(contextMenu.y, window.innerHeight - 200),
           }}
         >
+          <button
+            onClick={() => {
+              setRenaming(contextMenu.entry);
+              setRenameInput(contextMenu.entry.name);
+              setContextMenu(null);
+              setTimeout(() => renameRef.current?.select(), 50);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <Pencil className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            Rename
+          </button>
           <button
             onClick={() => {
               navigator.clipboard.writeText(contextMenu.entry.path);
@@ -656,6 +689,30 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
             Delete
           </button>
+        </div>
+      )}
+
+      {/* Rename inline input */}
+      {renaming && (
+        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-zinc-800 border border-zinc-600 rounded-lg shadow-lg">
+          <p className="text-[11px] text-zinc-400 mb-1.5">
+            Rename <span className="font-medium text-zinc-200">{renaming.name}</span>
+          </p>
+          <input
+            ref={renameRef}
+            value={renameInput}
+            onChange={(e) => setRenameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameLocal();
+              if (e.key === 'Escape') setRenaming(null);
+            }}
+            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-500"
+            autoFocus
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button onClick={handleRenameLocal} className="px-2 py-0.5 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white">Rename</button>
+            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300">Cancel</button>
+          </div>
         </div>
       )}
 

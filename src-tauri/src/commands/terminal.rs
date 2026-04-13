@@ -67,6 +67,9 @@ pub async fn spawn_terminal(
     };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Tell macOS zsh to source /etc/zshrc_Apple_Terminal which emits OSC 7
+    // (current working directory) after every command — enables terminal→explorer sync.
+    cmd.env("TERM_PROGRAM", "Apple_Terminal");
 
     // Set working directory to home
     if let Some(home) = crate::platform::home_dir() {
