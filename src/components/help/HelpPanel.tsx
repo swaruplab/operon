@@ -788,7 +788,7 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
   );
 }
 
-// Small card component for search results
+// Expandable card component for search results
 function ItemCard({
   item,
   sectionTitle,
@@ -798,17 +798,34 @@ function ItemCard({
   sectionTitle: string;
   onAction: (view: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-800">
+    <div
+      className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-800 cursor-pointer hover:bg-zinc-800/70 transition-colors"
+      onClick={() => setExpanded(!expanded)}
+    >
       <div className="flex items-center gap-2 mb-1">
+        {expanded ? (
+          <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        )}
         <span className="text-sm text-zinc-200">{item.title}</span>
-        <span className="text-[10px] text-zinc-600 ml-auto">{sectionTitle}</span>
+        <span className="text-[10px] text-zinc-600 ml-auto shrink-0">{sectionTitle}</span>
       </div>
-      <p className="text-[11px] text-zinc-500 leading-relaxed line-clamp-2">{adaptShortcut(item.content)}</p>
+      <p className={`text-[11px] text-zinc-500 leading-relaxed ml-5 ${expanded ? '' : 'line-clamp-2'}`}>
+        {adaptShortcut(item.content)}
+      </p>
+      {expanded && item.tip && (
+        <div className="flex gap-2 p-2.5 mt-2 ml-5 bg-blue-950/20 rounded-lg border border-blue-900/20">
+          <Zap className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-blue-300/80 leading-relaxed">{item.tip}</p>
+        </div>
+      )}
       {item.action && (
         <button
-          onClick={() => onAction(item.action!.view)}
-          className="inline-flex items-center gap-1 mt-2 text-[10px] text-blue-400 hover:text-blue-300"
+          onClick={(e) => { e.stopPropagation(); onAction(item.action!.view); }}
+          className="inline-flex items-center gap-1 mt-2 ml-5 text-[10px] text-blue-400 hover:text-blue-300"
         >
           <PlayCircle className="w-3 h-3" />
           {item.action.label}

@@ -1213,13 +1213,13 @@ export function ChatPanel() {
 
   // Remote OAuth login flow
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
-  const [loginStatus, setLoginStatus] = useState<'idle' | 'fetching' | 'ready' | 'ready_no_url' | 'error'>('idle');
+  const [loginStatus, setLoginStatus] = useState<'idle' | 'fetching' | 'ready' | 'ready_no_url' | 'code_sent' | 'error'>('idle');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authCode, setAuthCode] = useState('');
 
   // Auto-poll for auth completion after OAuth URL is shown
   useEffect(() => {
-    if (!['ready', 'ready_no_url', 'fetching'].includes(loginStatus) || !remoteInfo?.profileId) return;
+    if (!['ready', 'ready_no_url', 'fetching', 'code_sent'].includes(loginStatus) || !remoteInfo?.profileId) return;
     const interval = setInterval(async () => {
       try {
         const authResult = await invoke<string>('check_remote_claude_auth', { profileId: remoteInfo.profileId });
@@ -3446,10 +3446,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                                 data: Array.from(new TextEncoder().encode(authCode.trim() + '\n')),
                               }).catch(console.error);
                               setAuthCode('');
-                              setLoginStatus('idle');
+                              setLoginStatus('code_sent');
                               setLoginUrl(null);
                               // Re-check auth after a short delay
-                              setTimeout(() => recheckRemoteDeps(), 3000);
+                              setTimeout(() => recheckRemoteDeps(), 5000);
                             }
                           }}
                           placeholder="Paste authentication code..."
@@ -3463,9 +3463,9 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                                 data: Array.from(new TextEncoder().encode(authCode.trim() + '\n')),
                               }).catch(console.error);
                               setAuthCode('');
-                              setLoginStatus('idle');
+                              setLoginStatus('code_sent');
                               setLoginUrl(null);
-                              setTimeout(() => recheckRemoteDeps(), 3000);
+                              setTimeout(() => recheckRemoteDeps(), 5000);
                             }
                           }}
                           disabled={!authCode.trim()}
@@ -3478,6 +3478,19 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       <p className="text-[9px] text-zinc-600 mt-1">
                         The code will be sent to the terminal where <code className="bg-zinc-800 px-0.5 rounded">claude login</code> is waiting.
                       </p>
+                    </div>
+                  </div>
+                )}
+                {loginStatus === 'code_sent' && (
+                  <div className="mt-1.5 space-y-2">
+                    <p className="text-[10px] text-green-400">Authentication code sent!</p>
+                    <div className="p-2 bg-zinc-800/60 rounded border border-green-700/30 space-y-1.5">
+                      <p className="text-[10px] text-zinc-300 font-medium">To finish, switch to the terminal and:</p>
+                      <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal list-inside leading-relaxed">
+                        <li>Press <kbd className="px-1.5 py-0.5 bg-zinc-700 rounded text-zinc-200 font-mono text-[10px]">Enter</kbd> to confirm the authentication</li>
+                        <li>Once logged in, type <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">/exit</code> to exit the Claude TUI</li>
+                      </ol>
+                      <p className="text-[9px] text-zinc-500 mt-1">Operon will auto-detect when authentication is complete.</p>
                     </div>
                   </div>
                 )}
