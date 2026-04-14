@@ -109,6 +109,7 @@ pub async fn spawn_terminal(
     cmd.env("COLORTERM", "truecolor");
     // Tell macOS zsh to source /etc/zshrc_Apple_Terminal which emits OSC 7
     // (current working directory) after every command — enables terminal→explorer sync.
+    #[cfg(target_os = "macos")]
     cmd.env("TERM_PROGRAM", "Apple_Terminal");
 
     // Set working directory to home
@@ -252,8 +253,34 @@ fn get_cwd_of_pid(pid: u32) -> Result<String, String> {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = pid;
-        Err("CWD detection not yet supported on Windows".to_string())
+        // Query the working directory of child processes via PowerShell.
+        // The terminal shell spawns child processes whose CWD reflects the user's current directory.
+        use std::os::windows::process::CommandExt;
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "$p = Get-CimInstance Win32_Process -Filter 'ParentProcessId={}' -ErrorAction SilentlyContinue | \
+                     Sort-Object CreationDate -Descending | Select-Object -First 1; \
+                     if ($p) {{ \
+                         $cp = Get-CimInstance Win32_Process -Filter \"ProcessId=$($p.ProcessId)\" -ErrorAction SilentlyContinue; \
+                         if ($cp.ExecutablePath) {{ Split-Path $cp.ExecutablePath -Parent }} \
+                     }}",
+                    pid
+                ),
+            ])
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|e| format!("PowerShell CWD query failed: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return Ok(stdout);
+        }
+
+        // Fallback: not available
+        Err("Could not determine terminal CWD".to_string())
     }
 }
 

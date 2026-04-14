@@ -1,10 +1,16 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
+/// Platform-aware shell escaping for embedding values in shell commands.
+/// Uses single quotes on macOS/Linux, double quotes on Windows.
+fn esc(s: &str) -> String {
+    crate::platform::common::shell_escape(s)
+}
+
 /// Run a shell command in a specific directory, return stdout or error
 fn run_in_dir(command: &str, dir: &str) -> Result<String, String> {
-    let escaped_dir = dir.replace('\'', "'\\''");
-    let full_cmd = format!("cd '{}' && {}", escaped_dir, command);
+    let escaped_dir = esc(dir);
+    let full_cmd = format!("cd {} && {}", escaped_dir, command);
     let output = crate::platform::shell_exec(&full_cmd)
         .output()
         .map_err(|e| format!("Failed to run command: {}", e))?;
@@ -142,8 +148,7 @@ pub async fn git_commit_all(project_path: String, message: String) -> Result<Str
     run_in_dir("git add -A", &project_path)?;
 
     // Commit
-    let safe_message = message.replace('\'', "'\\''");
-    let result = run_in_dir(&format!("git commit -m '{}'", safe_message), &project_path)?;
+    let result = run_in_dir(&format!("git commit -m {}", esc(&message)), &project_path)?;
     Ok(result)
 }
 
@@ -329,13 +334,13 @@ pub async fn gh_create_repo(
     let desc_flag = if description.is_empty() {
         String::new()
     } else {
-        format!("--description '{}'", description.replace('\'', "'\\''"))
+        format!("--description {}", esc(&description))
     };
 
     // Create repo and set it as remote
     let cmd = format!(
-        "gh repo create '{}' {} {} --source='.' --remote=origin --push",
-        repo_name.replace('\'', "'\\''"),
+        "gh repo create {} {} {} --source='.' --remote=origin --push",
+        esc(&repo_name),
         visibility,
         desc_flag,
     );
@@ -388,14 +393,9 @@ pub async fn git_version_info(project_path: String) -> Result<VersionInfo, Strin
 
 #[tauri::command]
 pub async fn git_tag_version(project_path: String, version: String) -> Result<(), String> {
-    let safe_version = version.replace('\'', "'\\''");
-    run_in_dir(&format!("git tag '{}'", safe_version), &project_path)?;
+    run_in_dir(&format!("git tag {}", esc(&version)), &project_path)?;
     // Push the tag
-    run_in_dir(
-        &format!("git push origin '{}'", safe_version),
-        &project_path,
-    )
-    .ok();
+    run_in_dir(&format!("git push origin {}", esc(&version)), &project_path).ok();
     Ok(())
 }
 
@@ -418,41 +418,32 @@ pub async fn git_publish(
     }
 
     // Commit
-    let safe_message = message.replace('\'', "'\\''");
-    run_in_dir(&format!("git commit -m '{}'", safe_message), &project_path)?;
+    run_in_dir(&format!("git commit -m {}", esc(&message)), &project_path)?;
 
     // Tagging: explicit tag overrides auto-version
     if let Some(tag) = version_tag {
         if !tag.is_empty() {
-            run_in_dir(
-                &format!("git tag '{}'", tag.replace('\'', "'\\''")),
-                &project_path,
-            )
-            .ok();
+            run_in_dir(&format!("git tag {}", esc(&tag)), &project_path).ok();
         }
     } else if auto_version {
         let version_info = git_version_info(project_path.clone()).await?;
         let new_tag = version_info.next_patch;
-        run_in_dir(
-            &format!("git tag '{}'", new_tag.replace('\'', "'\\''")),
-            &project_path,
-        )
-        .ok();
+        run_in_dir(&format!("git tag {}", esc(&new_tag)), &project_path).ok();
     }
 
     // Determine which branch to push
     let local_branch = run_in_dir("git branch --show-current", &project_path)
         .unwrap_or_else(|_| "main".to_string());
     let push_target = target_branch.unwrap_or_else(|| local_branch.clone());
-    let safe_target = push_target.replace('\'', "'\\''");
 
     // Push (with tags). If local and remote branch names differ, use refspec.
     let push_cmd = if local_branch == push_target {
-        format!("git push -u origin '{}' --follow-tags", safe_target)
+        format!("git push -u origin {} --follow-tags", esc(&push_target))
     } else {
         format!(
-            "git push -u origin '{}:{}' --follow-tags",
-            local_branch, safe_target
+            "git push -u origin {}:{} --follow-tags",
+            esc(&local_branch),
+            esc(&push_target)
         )
     };
 
@@ -517,14 +508,13 @@ pub async fn gh_add_remote(
     remote_name: Option<String>,
 ) -> Result<(), String> {
     let name = remote_name.unwrap_or_else(|| "origin".to_string());
-    let safe_url = remote_url.replace('\'', "'\\''");
-    let safe_name = name.replace('\'', "'\\''");
-
     // Remove existing remote if it exists, then add the new one
     run_in_dir(
         &format!(
-            "git remote remove '{}' 2>/dev/null; git remote add '{}' '{}'",
-            safe_name, safe_name, safe_url
+            "git remote remove {} 2>/dev/null; git remote add {} {}",
+            esc(&name),
+            esc(&name),
+            esc(&remote_url)
         ),
         &project_path,
     )?;
@@ -590,11 +580,10 @@ pub async fn git_switch_branch(
     branch: String,
     create: bool,
 ) -> Result<(), String> {
-    let safe_branch = branch.replace('\'', "'\\''");
     if create {
-        run_in_dir(&format!("git checkout -b '{}'", safe_branch), &project_path)?;
+        run_in_dir(&format!("git checkout -b {}", esc(&branch)), &project_path)?;
     } else {
-        run_in_dir(&format!("git checkout '{}'", safe_branch), &project_path)?;
+        run_in_dir(&format!("git checkout {}", esc(&branch)), &project_path)?;
     }
     Ok(())
 }
@@ -664,8 +653,7 @@ pub async fn git_changed_files(project_path: String) -> Result<Vec<ChangedFile>,
 #[tauri::command]
 pub async fn git_stage_files(project_path: String, paths: Vec<String>) -> Result<(), String> {
     for path in &paths {
-        let safe_path = path.replace('\'', "'\\''");
-        run_in_dir(&format!("git add '{}'", safe_path), &project_path)?;
+        run_in_dir(&format!("git add {}", esc(path)), &project_path)?;
     }
     Ok(())
 }
@@ -674,8 +662,7 @@ pub async fn git_stage_files(project_path: String, paths: Vec<String>) -> Result
 #[tauri::command]
 pub async fn git_unstage_files(project_path: String, paths: Vec<String>) -> Result<(), String> {
     for path in &paths {
-        let safe_path = path.replace('\'', "'\\''");
-        run_in_dir(&format!("git reset HEAD -- '{}'", safe_path), &project_path)?;
+        run_in_dir(&format!("git reset HEAD -- {}", esc(path)), &project_path)?;
     }
     Ok(())
 }
@@ -684,18 +671,17 @@ pub async fn git_unstage_files(project_path: String, paths: Vec<String>) -> Resu
 #[tauri::command]
 pub async fn git_discard_files(project_path: String, paths: Vec<String>) -> Result<(), String> {
     for path in &paths {
-        let safe_path = path.replace('\'', "'\\''");
         // For untracked files, remove them; for tracked, checkout from HEAD
         let is_untracked = run_in_dir(
-            &format!("git ls-files --error-unmatch '{}' 2>/dev/null", safe_path),
+            &format!("git ls-files --error-unmatch {} 2>/dev/null", esc(path)),
             &project_path,
         )
         .is_err();
         if is_untracked {
-            run_in_dir(&format!("rm -f '{}'", safe_path), &project_path)?;
+            run_in_dir(&format!("rm -f {}", esc(path)), &project_path)?;
         } else {
             run_in_dir(
-                &format!("git checkout HEAD -- '{}'", safe_path),
+                &format!("git checkout HEAD -- {}", esc(path)),
                 &project_path,
             )?;
         }
@@ -743,7 +729,7 @@ pub async fn git_stash_list(project_path: String) -> Result<Vec<StashEntry>, Str
 pub async fn git_stash_save(project_path: String, message: Option<String>) -> Result<(), String> {
     let cmd = match message {
         Some(msg) if !msg.is_empty() => {
-            format!("git stash push -m '{}'", msg.replace('\'', "'\\''"))
+            format!("git stash push -m {}", esc(&msg))
         }
         _ => "git stash push".to_string(),
     };
@@ -862,9 +848,8 @@ pub async fn git_log(project_path: String, count: Option<u32>) -> Result<Vec<Com
 /// Get diff for a specific commit.
 #[tauri::command]
 pub async fn git_show_commit(project_path: String, hash: String) -> Result<String, String> {
-    let safe_hash = hash.replace('\'', "'\\''");
     run_in_dir(
-        &format!("git show --stat '{}' 2>/dev/null", safe_hash),
+        &format!("git show --stat {} 2>/dev/null", esc(&hash)),
         &project_path,
     )
 }
@@ -874,7 +859,7 @@ pub async fn git_show_commit(project_path: String, hash: String) -> Result<Strin
 pub async fn git_amend(project_path: String, message: Option<String>) -> Result<(), String> {
     let cmd = match message {
         Some(msg) if !msg.is_empty() => {
-            format!("git commit --amend -m '{}'", msg.replace('\'', "'\\''"))
+            format!("git commit --amend -m {}", esc(&msg))
         }
         _ => "git commit --amend --no-edit".to_string(),
     };

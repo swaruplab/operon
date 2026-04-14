@@ -6,6 +6,17 @@ use tauri::Emitter;
 
 use crate::commands::files::FileEntry;
 
+/// Suppress console window creation on Windows for subprocess calls.
+#[cfg(windows)]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000)
+}
+#[cfg(not(windows))]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    cmd
+}
+
 // ── Profile Model ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -277,6 +288,8 @@ impl WinSshExecChannel {
     fn spawn(profile: &SSHProfile) -> Result<Self, String> {
         use std::io::{BufRead, Read, Write};
 
+        use std::os::windows::process::CommandExt;
+
         let mut cmd = std::process::Command::new("ssh.exe");
         cmd.args([
             "-T", // no PTY allocation on the remote side
@@ -298,8 +311,10 @@ impl WinSshExecChannel {
         // Force key-only auth to avoid hanging on password prompts
         cmd.args(["-o", "PreferredAuthentications=publickey"]);
         cmd.arg(format!("{}@{}", profile.user, profile.host));
-        // Explicitly start a clean shell to avoid login script noise
-        cmd.arg("bash --norc --noprofile");
+        // Start a login shell so PATH and user environment are loaded,
+        // matching macOS/Linux behavior where shell_exec uses `-l`.
+        cmd.arg("bash -l");
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         cmd.stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
@@ -1228,8 +1243,7 @@ pub async fn scp_to_remote(
     scp_args.push(local_path);
     scp_args.push(format!("{}:{}", host_str, remote_path));
 
-    let output = std::process::Command::new("scp")
-        .args(&scp_args)
+    let output = hide_window(std::process::Command::new("scp").args(&scp_args))
         .output()
         .map_err(|e| format!("Failed to run scp: {}", e))?;
 
@@ -1298,8 +1312,7 @@ pub async fn scp_from_remote(
     scp_args.push(format!("{}:{}", host_str, remote_path));
     scp_args.push(local_path);
 
-    let output = std::process::Command::new("scp")
-        .args(&scp_args)
+    let output = hide_window(std::process::Command::new("scp").args(&scp_args))
         .output()
         .map_err(|e| format!("Failed to run scp: {}", e))?;
 
@@ -1366,8 +1379,7 @@ pub async fn scp_dir_from_remote(
     scp_args.push(format!("{}:{}", host_str, remote_path));
     scp_args.push(local_path);
 
-    let output = std::process::Command::new("scp")
-        .args(&scp_args)
+    let output = hide_window(std::process::Command::new("scp").args(&scp_args))
         .output()
         .map_err(|e| format!("Failed to run scp: {}", e))?;
 
@@ -1457,8 +1469,7 @@ pub async fn scp_batch_upload(
         args.push(local_path.clone());
         args.push(format!("{}:{}", host_str, remote_dest));
 
-        let output = std::process::Command::new("scp")
-            .args(&args)
+        let output = hide_window(std::process::Command::new("scp").args(&args))
             .output()
             .map_err(|e| format!("Failed to run scp: {}", e))?;
 
@@ -1573,19 +1584,18 @@ pub async fn setup_ssh_key(
     let public_key_path = ssh_dir.join(format!("{}.pub", key_name));
 
     if !private_key_path.exists() {
-        let output = std::process::Command::new("ssh-keygen")
-            .args([
-                "-t",
-                "ed25519",
-                "-f",
-                &private_key_path.to_string_lossy(),
-                "-N",
-                "",
-                "-C",
-                &format!("operon@{}", profile.host),
-            ])
-            .output()
-            .map_err(|e| format!("Failed to run ssh-keygen: {}", e))?;
+        let output = hide_window(std::process::Command::new("ssh-keygen").args([
+            "-t",
+            "ed25519",
+            "-f",
+            &private_key_path.to_string_lossy(),
+            "-N",
+            "",
+            "-C",
+            &format!("operon@{}", profile.host),
+        ]))
+        .output()
+        .map_err(|e| format!("Failed to run ssh-keygen: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1995,7 +2005,8 @@ pub async fn setup_ssh_key(
         cmd.args(["-p", &profile.port.to_string()]);
         cmd.arg(format!("{}@{}", profile.user, profile.host));
         cmd.arg("echo OPERON_KEY_VERIFY_OK");
-        cmd.output()
+        hide_window(&mut cmd)
+            .output()
             .map_err(|e| format!("Verification failed: {}", e))?
     };
 

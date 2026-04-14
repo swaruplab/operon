@@ -5,6 +5,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::Emitter;
 
+/// Suppress console window creation on Windows for subprocess calls.
+#[cfg(windows)]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000)
+}
+#[cfg(not(windows))]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    cmd
+}
+
 // ── Data Structures ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1045,19 +1056,23 @@ pub async fn start_language_server(
     let server_id = uuid::Uuid::new_v4().to_string();
 
     // Spawn the language server process with stdin/stdout pipes
-    let mut child = Command::new(&server_command)
-        .args(&server_args)
+    let mut cmd = Command::new(&server_command);
+    cmd.args(&server_args)
         .current_dir(&workspace_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            format!(
-                "Failed to start language server '{}': {}",
-                server_command, e
-            )
-        })?;
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let mut child = cmd.spawn().map_err(|e| {
+        format!(
+            "Failed to start language server '{}': {}",
+            server_command, e
+        )
+    })?;
 
     // Take stdout for reading LSP responses
     let stdout = child
@@ -1559,10 +1574,14 @@ pub struct DockerVolume {
 
 #[tauri::command]
 pub async fn docker_list_containers() -> Result<Vec<DockerContainer>, String> {
-    let output = std::process::Command::new("docker")
-        .args(["ps", "-a", "--format", "{{json .}}"])
-        .output()
-        .map_err(|e| format!("Docker not available: {}", e))?;
+    let output = hide_window(std::process::Command::new("docker").args([
+        "ps",
+        "-a",
+        "--format",
+        "{{json .}}",
+    ]))
+    .output()
+    .map_err(|e| format!("Docker not available: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -1590,10 +1609,13 @@ pub async fn docker_list_containers() -> Result<Vec<DockerContainer>, String> {
 
 #[tauri::command]
 pub async fn docker_list_images() -> Result<Vec<DockerImage>, String> {
-    let output = std::process::Command::new("docker")
-        .args(["images", "--format", "{{json .}}"])
-        .output()
-        .map_err(|e| format!("Docker not available: {}", e))?;
+    let output = hide_window(std::process::Command::new("docker").args([
+        "images",
+        "--format",
+        "{{json .}}",
+    ]))
+    .output()
+    .map_err(|e| format!("Docker not available: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -1620,10 +1642,14 @@ pub async fn docker_list_images() -> Result<Vec<DockerImage>, String> {
 
 #[tauri::command]
 pub async fn docker_list_volumes() -> Result<Vec<DockerVolume>, String> {
-    let output = std::process::Command::new("docker")
-        .args(["volume", "ls", "--format", "{{json .}}"])
-        .output()
-        .map_err(|e| format!("Docker not available: {}", e))?;
+    let output = hide_window(std::process::Command::new("docker").args([
+        "volume",
+        "ls",
+        "--format",
+        "{{json .}}",
+    ]))
+    .output()
+    .map_err(|e| format!("Docker not available: {}", e))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -1660,8 +1686,7 @@ pub async fn docker_container_action(
         _ => return Err(format!("Unknown action: {}", action)),
     };
 
-    let output = std::process::Command::new("docker")
-        .args(&args)
+    let output = hide_window(std::process::Command::new("docker").args(&args))
         .output()
         .map_err(|e| format!("Docker command failed: {}", e))?;
 
@@ -1691,18 +1716,17 @@ pub struct SingularityInstance {
 #[tauri::command]
 pub async fn singularity_list_images(search_dir: String) -> Result<Vec<SingularityImage>, String> {
     // Find .sif files in the search directory
-    let output = std::process::Command::new("find")
-        .args([
-            &search_dir,
-            "-maxdepth",
-            "3",
-            "-name",
-            "*.sif",
-            "-type",
-            "f",
-        ])
-        .output()
-        .map_err(|e| format!("Failed to search for images: {}", e))?;
+    let output = hide_window(std::process::Command::new("find").args([
+        &search_dir,
+        "-maxdepth",
+        "3",
+        "-name",
+        "*.sif",
+        "-type",
+        "f",
+    ]))
+    .output()
+    .map_err(|e| format!("Failed to search for images: {}", e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut images = Vec::new();
@@ -1762,8 +1786,7 @@ pub async fn singularity_list_images(search_dir: String) -> Result<Vec<Singulari
 #[tauri::command]
 pub async fn singularity_list_instances() -> Result<Vec<SingularityInstance>, String> {
     // Try apptainer first, then singularity
-    let cmd = if std::process::Command::new("apptainer")
-        .arg("--version")
+    let cmd = if hide_window(std::process::Command::new("apptainer").arg("--version"))
         .output()
         .is_ok()
     {
@@ -1772,8 +1795,7 @@ pub async fn singularity_list_instances() -> Result<Vec<SingularityInstance>, St
         "singularity"
     };
 
-    let output = std::process::Command::new(cmd)
-        .args(["instance", "list", "--json"])
+    let output = hide_window(std::process::Command::new(cmd).args(["instance", "list", "--json"]))
         .output()
         .map_err(|e| format!("{} not available: {}", cmd, e))?;
 
@@ -1804,8 +1826,7 @@ pub async fn singularity_action(
     image_path: String,
     instance_name: Option<String>,
 ) -> Result<String, String> {
-    let cmd = if std::process::Command::new("apptainer")
-        .arg("--version")
+    let cmd = if hide_window(std::process::Command::new("apptainer").arg("--version"))
         .output()
         .is_ok()
     {
@@ -1838,10 +1859,11 @@ pub async fn singularity_action(
         _ => return Err(format!("Unknown singularity action: {}", action)),
     }
 
-    let output = std::process::Command::new(cmd)
-        .args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>())
-        .output()
-        .map_err(|e| format!("{} command failed: {}", cmd, e))?;
+    let output = hide_window(
+        std::process::Command::new(cmd).args(args.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+    )
+    .output()
+    .map_err(|e| format!("{} command failed: {}", cmd, e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1912,13 +1934,15 @@ pub async fn start_remote_language_server(
     ssh_args.push(host_str);
     ssh_args.push(remote_cmd);
 
-    let mut child = std::process::Command::new("ssh")
-        .args(&ssh_args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start remote language server via SSH: {}", e))?;
+    let mut child = hide_window(
+        std::process::Command::new("ssh")
+            .args(&ssh_args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .spawn()
+    .map_err(|e| format!("Failed to start remote language server via SSH: {}", e))?;
 
     let stdout = child.stdout.take().ok_or("Failed to capture SSH stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture SSH stderr")?;
@@ -2060,8 +2084,7 @@ pub async fn install_remote_extension(
     scp_args.push(tmp_path.to_string_lossy().to_string());
     scp_args.push(format!("{}:{}/{}.vsix", host_str, remote_ext_dir, ext_id));
 
-    std::process::Command::new("scp")
-        .args(&scp_args)
+    hide_window(std::process::Command::new("scp").args(&scp_args))
         .output()
         .map_err(|e| format!("SCP failed: {}", e))?;
 

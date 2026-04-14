@@ -3,6 +3,18 @@ use std::collections::HashMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
+/// Helper to suppress console windows on Windows for subprocess calls.
+#[cfg(windows)]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000) // CREATE_NO_WINDOW
+}
+
+#[cfg(not(windows))]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    cmd
+}
+
 // ── Types ──
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -768,14 +780,13 @@ pub async fn generate_report_pdf(config: ReportConfig) -> Result<String, String>
 
     // Run the Python generator
     let python = crate::platform::python_command();
-    let output = std::process::Command::new(python)
-        .args([
-            script_file.to_string_lossy().as_ref(),
-            config_file.to_string_lossy().as_ref(),
-            output_path.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run report generator: {}", e))?;
+    let output = hide_window(std::process::Command::new(python).args([
+        script_file.to_string_lossy().as_ref(),
+        config_file.to_string_lossy().as_ref(),
+        output_path.to_string_lossy().as_ref(),
+    ]))
+    .output()
+    .map_err(|e| format!("Failed to run report generator: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -805,7 +816,8 @@ pub async fn generate_report_pdf(config: ReportConfig) -> Result<String, String>
             let mut installed = false;
             for strategy in &install_strategies {
                 eprintln!("[operon] Trying: {} {}", python, strategy.join(" "));
-                let install = std::process::Command::new(python).args(strategy).output();
+                let install =
+                    hide_window(std::process::Command::new(python).args(strategy)).output();
                 if let Ok(install_out) = install {
                     if install_out.status.success() {
                         installed = true;
@@ -831,9 +843,13 @@ pub async fn generate_report_pdf(config: ReportConfig) -> Result<String, String>
                     "[operon] Trying: {} install reportlab --user --quiet",
                     pip_cmd
                 );
-                if let Ok(pip_out) = std::process::Command::new(pip_cmd)
-                    .args(["install", "reportlab", "--user", "--quiet"])
-                    .output()
+                if let Ok(pip_out) = hide_window(std::process::Command::new(pip_cmd).args([
+                    "install",
+                    "reportlab",
+                    "--user",
+                    "--quiet",
+                ]))
+                .output()
                 {
                     if pip_out.status.success() {
                         installed = true;
@@ -844,14 +860,13 @@ pub async fn generate_report_pdf(config: ReportConfig) -> Result<String, String>
 
             if installed {
                 // Retry PDF generation after installing
-                let retry = std::process::Command::new(python)
-                    .args([
-                        script_file.to_string_lossy().as_ref(),
-                        config_file.to_string_lossy().as_ref(),
-                        output_path.to_string_lossy().as_ref(),
-                    ])
-                    .output()
-                    .map_err(|e| format!("Failed to retry report generator: {}", e))?;
+                let retry = hide_window(std::process::Command::new(python).args([
+                    script_file.to_string_lossy().as_ref(),
+                    config_file.to_string_lossy().as_ref(),
+                    output_path.to_string_lossy().as_ref(),
+                ]))
+                .output()
+                .map_err(|e| format!("Failed to retry report generator: {}", e))?;
 
                 if retry.status.success() {
                     let _ = std::fs::remove_file(&config_file);

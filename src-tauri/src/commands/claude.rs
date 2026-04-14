@@ -6,6 +6,41 @@ use tauri::Emitter;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command as AsyncCommand;
 
+/// Suppress console window creation on Windows for std::process::Command.
+#[cfg(windows)]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000)
+}
+#[cfg(not(windows))]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    cmd
+}
+
+/// Suppress console window creation on Windows for tokio::process::Command.
+#[cfg(windows)]
+fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
+    cmd.creation_flags(0x08000000)
+}
+#[cfg(not(windows))]
+fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
+    cmd
+}
+
+/// The shell used to launch Claude sessions with `-l -c` flags.
+/// On Windows, Git Bash is required because cmd.exe doesn't support `-l`/`-c`
+/// and Claude Code itself needs a POSIX environment.
+fn claude_shell() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platform::find_git_bash_path().unwrap_or_else(|| crate::platform::default_shell())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        crate::platform::default_shell()
+    }
+}
+
 // --- Types ---
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -524,16 +559,15 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         // Strategy 1 (Windows): winget
         #[cfg(target_os = "windows")]
         {
-            let winget = std::process::Command::new("winget")
-                .args([
-                    "install",
-                    "--id",
-                    "GitHub.cli",
-                    "-e",
-                    "--accept-source-agreements",
-                    "--accept-package-agreements",
-                ])
-                .output();
+            let winget = hide_window(std::process::Command::new("winget").args([
+                "install",
+                "--id",
+                "GitHub.cli",
+                "-e",
+                "--accept-source-agreements",
+                "--accept-package-agreements",
+            ]))
+            .output();
             if let Ok(o) = winget {
                 let out_text = format!(
                     "{}{}",
@@ -549,9 +583,8 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         // Strategy 2: Package manager (Homebrew on macOS, apt on Linux)
         if !gh_installed {
             if let Some(ref mgr) = pkg_mgr {
-                let output = std::process::Command::new(mgr)
-                    .args(["install", "gh"])
-                    .output();
+                let output =
+                    hide_window(std::process::Command::new(mgr).args(["install", "gh"])).output();
                 if let Ok(o) = output {
                     let stderr = String::from_utf8_lossy(&o.stderr);
                     if o.status.success() || stderr.contains("already installed") {
@@ -1272,12 +1305,10 @@ fi
     eprintln!("[operon] remote_claude_login output: {}", result);
 
     // Extract the URL from our structured output
-    let url = result
-        .lines()
-        .find_map(|line| {
-            let line = line.trim();
-            line.strip_prefix("URL:").map(|s| s.to_string())
-        });
+    let url = result.lines().find_map(|line| {
+        let line = line.trim();
+        line.strip_prefix("URL:").map(|s| s.to_string())
+    });
 
     // If structured extraction failed, try broad URL scan as fallback
     let url = url.or_else(|| {
@@ -1439,6 +1470,7 @@ pub async fn launch_claude_login() -> Result<String, String> {
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    hide_window_async(&mut cmd);
 
     let child = cmd.spawn();
 
@@ -2016,7 +2048,7 @@ pub async fn start_claude_session(
         ));
     }
 
-    let shell = crate::platform::default_shell();
+    let shell = claude_shell();
 
     let use_terminal = use_terminal.unwrap_or(false);
 
@@ -2139,7 +2171,8 @@ pub async fn start_claude_session(
                     scp_args.push(local_prompt_file.clone());
                     scp_args.push(format!("{}:{}", host_str, remote_prompt_file));
 
-                    let scp_result = std::process::Command::new("scp").args(&scp_args).output();
+                    let scp_result =
+                        hide_window(std::process::Command::new("scp").args(&scp_args)).output();
                     match scp_result {
                         Ok(output) if output.status.success() => {
                             let file_size = std::fs::metadata(&local_prompt_file)
@@ -2334,6 +2367,7 @@ pub async fn start_claude_session(
             }
             tail_cmd.stdout(std::process::Stdio::piped());
             tail_cmd.stderr(std::process::Stdio::piped());
+            hide_window_async(&mut tail_cmd);
 
             let mut child = tail_cmd
                 .spawn()
@@ -2562,7 +2596,7 @@ pub async fn start_claude_session(
                 scp_args.push(local_prompt_file.clone());
                 scp_args.push(format!("{}:{}", host_str, remote_prompt_file));
 
-                match std::process::Command::new("scp").args(&scp_args).output() {
+                match hide_window(std::process::Command::new("scp").args(&scp_args)).output() {
                     Ok(output) if output.status.success() => {
                         let file_size = std::fs::metadata(&local_prompt_file)
                             .map(|m| m.len())
@@ -2659,6 +2693,7 @@ pub async fn start_claude_session(
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    hide_window_async(&mut cmd);
 
     let mut child = cmd
         .spawn()
@@ -3190,7 +3225,7 @@ pub async fn reconnect_session(
     let output_file = format!("{}/.operon-{}.jsonl", base_path, session_id);
     let done_file = format!("{}/.operon-{}.done", base_path, session_id);
 
-    let shell = crate::platform::default_shell();
+    let shell = claude_shell();
 
     if let Some(ctx) = remote {
         let profile = {
@@ -3231,6 +3266,7 @@ pub async fn reconnect_session(
         tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
         tail_cmd.stdout(std::process::Stdio::piped());
         tail_cmd.stderr(std::process::Stdio::piped());
+        hide_window_async(&mut tail_cmd);
 
         let mut child = tail_cmd
             .spawn()
@@ -3319,7 +3355,7 @@ pub async fn reconnect_tail(
 
     let output_file = format!("{}/.operon-{}.jsonl", ctx.remote_path, session_id);
     let done_file = format!("{}/.operon-{}.done", ctx.remote_path, session_id);
-    let shell = crate::platform::default_shell();
+    let shell = claude_shell();
 
     // 3. Build a fresh SSH tail command with tighter keepalives
     let mut ssh_tail_args = format!(
@@ -3365,6 +3401,7 @@ pub async fn reconnect_tail(
     tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
     tail_cmd.stdout(std::process::Stdio::piped());
     tail_cmd.stderr(std::process::Stdio::piped());
+    hide_window_async(&mut tail_cmd);
 
     let mut child = tail_cmd
         .spawn()

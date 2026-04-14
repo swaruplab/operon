@@ -1,18 +1,32 @@
 //! Windows platform implementations.
 
 use crate::commands::claude::DependencyStatus;
+use std::os::windows::process::CommandExt;
+
+/// Windows flag to suppress console window creation for child processes.
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ─── Shell Execution ─────────────────────────────────────────────
 
+/// Translate common Unix shell idioms so the command works under cmd.exe.
+fn fixup_for_cmd(command: &str) -> String {
+    // /dev/null → nul (Windows null device)
+    command.replace("/dev/null", "nul")
+}
+
 pub fn shell_exec(command: &str) -> std::process::Command {
+    let fixed = fixup_for_cmd(command);
     let mut cmd = std::process::Command::new("cmd.exe");
-    cmd.arg("/C").arg(command);
+    cmd.arg("/C").arg(fixed);
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
 
 pub fn shell_exec_async(command: &str) -> tokio::process::Command {
+    let fixed = fixup_for_cmd(command);
     let mut cmd = tokio::process::Command::new("cmd.exe");
-    cmd.arg("/C").arg(command);
+    cmd.arg("/C").arg(fixed);
+    cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
 
@@ -25,6 +39,7 @@ pub fn default_shell() -> String {
 pub fn check_tool(name: &str) -> Option<(String, String)> {
     let where_out = std::process::Command::new("where.exe")
         .arg(name)
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !where_out.status.success() {
@@ -37,6 +52,7 @@ pub fn check_tool(name: &str) -> Option<(String, String)> {
         .to_string();
     let ver_out = std::process::Command::new(&path)
         .arg("--version")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     let version = String::from_utf8_lossy(&ver_out.stdout).trim().to_string();
@@ -87,6 +103,7 @@ pub fn refresh_path_from_registry() {
 fn read_registry_path(key: &str, value: &str) -> Option<String> {
     let output = std::process::Command::new("reg")
         .args(["query", key, "/v", value])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if !output.status.success() {
@@ -117,6 +134,7 @@ fn read_registry_path(key: &str, value: &str) -> Option<String> {
 pub fn open_url(url: &str) -> Result<(), String> {
     std::process::Command::new("cmd.exe")
         .args(["/C", "start", "", url])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to open URL: {}", e))?;
     Ok(())
@@ -222,6 +240,7 @@ pub fn find_git_bash() -> Option<String> {
     // Check PATH via where.exe
     let where_out = std::process::Command::new("where.exe")
         .arg("bash.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if where_out.status.success() {
@@ -275,6 +294,7 @@ pub fn install_git() -> Result<(), String> {
     // Strategy 1: certutil (built into Windows, most reliable, no PowerShell dep)
     let dl_result = std::process::Command::new("certutil")
         .args(["-urlcache", "-split", "-f", url, &installer_str])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     let downloaded = match dl_result {
@@ -306,6 +326,7 @@ pub fn install_git() -> Result<(), String> {
         );
         let ps_result = std::process::Command::new("powershell.exe")
             .args(["-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         match ps_result {
@@ -332,6 +353,7 @@ pub fn install_git() -> Result<(), String> {
                 url,
                 &installer_str,
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         match bits_result {
@@ -356,6 +378,7 @@ pub fn install_git() -> Result<(), String> {
                 // Try via cmd /C start (handles UAC better sometimes)
                 let _ = std::process::Command::new("cmd.exe")
                     .args(["/C", "start", "", &installer_str])
+                    .creation_flags(CREATE_NO_WINDOW)
                     .spawn();
                 return Err("INSTALLER_LAUNCHED".to_string());
             }
@@ -378,6 +401,7 @@ pub fn persist_git_bash_env() {
         // Persist it as a user-level env var via setx (survives reboots)
         let _ = std::process::Command::new("setx")
             .args(["CLAUDE_CODE_GIT_BASH_PATH", &bash_path])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         eprintln!("[Git] Set CLAUDE_CODE_GIT_BASH_PATH={}", bash_path);
@@ -409,6 +433,7 @@ pub fn install_node_platform() -> Result<(), String> {
             "--accept-source-agreements",
             "--accept-package-agreements",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = winget {
@@ -447,6 +472,7 @@ pub fn install_node_platform() -> Result<(), String> {
     );
     let dl = std::process::Command::new("powershell.exe")
         .args(["-ExecutionPolicy", "Bypass", "-Command", &download_cmd])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = dl {
@@ -454,6 +480,7 @@ pub fn install_node_platform() -> Result<(), String> {
             // Run MSI installer silently
             let install = std::process::Command::new("msiexec")
                 .args(["/i", &msi_str, "/qn", "/norestart"])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output();
             // Clean up the MSI
             let _ = std::fs::remove_file(&msi_path);
@@ -477,6 +504,7 @@ pub fn install_claude_platform() -> Result<(), String> {
     if let Some(bash_path) = find_git_bash() {
         let result = std::process::Command::new(&bash_path)
             .args(["-c", "curl -fsSL https://claude.ai/install.sh | bash"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         if let Ok(o) = result {
             if o.status.success() {
@@ -510,6 +538,7 @@ pub fn install_claude_platform() -> Result<(), String> {
 pub fn find_winget() -> Option<String> {
     let out = std::process::Command::new("where.exe")
         .arg("winget")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()?;
     if out.status.success() {
@@ -552,6 +581,7 @@ pub fn install_python() -> Result<(), String> {
             "--accept-source-agreements",
             "--accept-package-agreements",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = winget {
@@ -593,6 +623,7 @@ pub fn install_openssh() -> Result<(), String> {
             "--accept-source-agreements",
             "--accept-package-agreements",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = winget {
@@ -612,6 +643,7 @@ pub fn install_openssh() -> Result<(), String> {
             "-Command",
             "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = ps {
@@ -640,6 +672,7 @@ pub fn install_uv() -> Result<(), String> {
             "-Command",
             "irm https://astral.sh/uv/install.ps1 | iex",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = ps {
@@ -658,6 +691,7 @@ pub fn install_uv() -> Result<(), String> {
             "--accept-source-agreements",
             "--accept-package-agreements",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
 
     if let Ok(o) = winget {
@@ -691,6 +725,7 @@ pub fn has_reportlab() -> bool {
     let python = find_python().unwrap_or_else(|| "python".to_string());
     std::process::Command::new(&python)
         .args(["-c", "import reportlab"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -703,6 +738,7 @@ pub fn install_reportlab() -> Result<(), String> {
     // Strategy 1: pip install --user
     if let Ok(o) = std::process::Command::new(&python)
         .args(["-m", "pip", "install", "reportlab", "--user", "--quiet"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
     {
         if o.status.success() {
@@ -713,6 +749,7 @@ pub fn install_reportlab() -> Result<(), String> {
     // Strategy 2: pip install (no --user)
     if let Ok(o) = std::process::Command::new(&python)
         .args(["-m", "pip", "install", "reportlab", "--quiet"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
     {
         if o.status.success() {
@@ -725,21 +762,25 @@ pub fn install_reportlab() -> Result<(), String> {
 
 // ─── File System ─────────────────────────────────────────────────
 
-/// Check if a file is hidden on Windows using the Hidden file attribute.
+/// Check if a file is hidden on Windows.
+/// Checks both the Windows Hidden file attribute AND dot-prefix (Unix convention
+/// used by Git, npm, etc. — common on Windows developer machines).
 pub fn is_hidden(path: &std::path::Path) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata(path) {
-            // FILE_ATTRIBUTE_HIDDEN = 0x2
-            meta.file_attributes() & 0x2 != 0
-        } else {
-            false
-        }
+    // Check dot-prefix (Unix convention, common for .git, .env, .gitignore, etc.)
+    let dot_hidden = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.starts_with('.'));
+
+    if dot_hidden {
+        return true;
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = path;
+
+    // Check Windows FILE_ATTRIBUTE_HIDDEN
+    use std::os::windows::fs::MetadataExt;
+    if let Ok(meta) = std::fs::metadata(path) {
+        meta.file_attributes() & 0x2 != 0
+    } else {
         false
     }
 }

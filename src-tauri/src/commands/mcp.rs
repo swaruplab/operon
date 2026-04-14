@@ -1,6 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Suppress console window creation on Windows for subprocess calls.
+#[cfg(windows)]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x08000000)
+}
+#[cfg(not(windows))]
+fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
+    cmd
+}
+
 // ─── Data Structures ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,9 +181,14 @@ pub fn get_research_catalog() -> Vec<MCPCatalogEntry> {
 /// If the server already exists, it is removed first so env/config updates take effect.
 fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
     // Always remove first to handle "already exists" and to pick up env var changes
-    let _ = std::process::Command::new("claude")
-        .args(["mcp", "remove", &server.name, "-s", "user"])
-        .output(); // ignore errors — server may not exist yet
+    let _ = hide_window(std::process::Command::new("claude").args([
+        "mcp",
+        "remove",
+        &server.name,
+        "-s",
+        "user",
+    ]))
+    .output(); // ignore errors — server may not exist yet
 
     let mut config_obj = serde_json::Map::new();
     config_obj.insert("command".into(), serde_json::json!(server.command));
@@ -183,10 +199,16 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
     let json_str = serde_json::to_string(&serde_json::Value::Object(config_obj))
         .map_err(|e| format!("Failed to serialize MCP config: {}", e))?;
 
-    let output = std::process::Command::new("claude")
-        .args(["mcp", "add-json", &server.name, &json_str, "-s", "user"])
-        .output()
-        .map_err(|e| format!("Failed to run `claude mcp add-json`: {}", e))?;
+    let output = hide_window(std::process::Command::new("claude").args([
+        "mcp",
+        "add-json",
+        &server.name,
+        &json_str,
+        "-s",
+        "user",
+    ]))
+    .output()
+    .map_err(|e| format!("Failed to run `claude mcp add-json`: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -200,10 +222,11 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
 
 /// Remove an MCP server from Claude Code using `claude mcp remove`.
 fn claude_mcp_remove(name: &str) -> Result<(), String> {
-    let output = std::process::Command::new("claude")
-        .args(["mcp", "remove", name, "-s", "user"])
-        .output()
-        .map_err(|e| format!("Failed to run `claude mcp remove`: {}", e))?;
+    let output = hide_window(
+        std::process::Command::new("claude").args(["mcp", "remove", name, "-s", "user"]),
+    )
+    .output()
+    .map_err(|e| format!("Failed to run `claude mcp remove`: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
