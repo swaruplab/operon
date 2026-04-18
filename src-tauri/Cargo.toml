@@ -1,6 +1,6 @@
 [package]
 name = "operon"
-version = "0.5.7"
+version = "0.5.8"
 edition = "2021"
 
 [lib]
@@ -29,3 +29,4 @@ openssl-sys = { version = "0.9", features = ["vendored"] }
 reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
 zip = "0.6"
 futures-util = "0.3"
+regex = "1"

@@ -1,5 +1,5 @@
 import Editor, { type OnMount, type OnChange, type BeforeMount } from '@monaco-editor/react';
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import type { editor } from 'monaco-editor';
 import { useProject } from '../../context/ProjectContext';
 import { useLspAutoStart } from '../../hooks/useLspAutoStart';
@@ -166,6 +166,27 @@ export function CodeEditor({
     },
     [onChange, sendDidChange],
   );
+
+  // Listen for "reveal-editor-line" events (dispatched by the Search view)
+  // and scroll / select the target line when this editor's file matches.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ filePath: string; line: number }>;
+      const { filePath: target, line } = custom.detail || ({} as { filePath: string; line: number });
+      if (!target || !line || target !== filePath) return;
+      const ed = editorRef.current;
+      if (!ed) return;
+      try {
+        ed.revealLineInCenter(line);
+        ed.setPosition({ lineNumber: line, column: 1 });
+        ed.focus();
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener('reveal-editor-line', handler);
+    return () => window.removeEventListener('reveal-editor-line', handler);
+  }, [filePath]);
 
   return (
     <Editor

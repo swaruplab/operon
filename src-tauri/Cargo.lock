@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "operon"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2433,6 +2433,7 @@ dependencies = [
  "futures-util",
  "openssl-sys",
  "portable-pty",
+ "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

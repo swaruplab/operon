@@ -20,6 +20,7 @@ export function AppShell() {
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>(undefined);
   const [helpOpen, setHelpOpen] = useState(false);
   const [activeView, setActiveView] = useState<string>('files');
 
@@ -78,6 +79,17 @@ export function AppShell() {
       setHelpOpen(true);
     });
     return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  // Window-level event from ChatPanel model picker → open Settings to a specific section
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setSettingsInitialSection(detail?.section);
+      setSettingsOpen(true);
+    };
+    window.addEventListener('open-settings', handler);
+    return () => window.removeEventListener('open-settings', handler);
   }, []);
 
   useKeyboardShortcuts([
@@ -174,7 +186,11 @@ export function AppShell() {
       <CommandPalette isOpen={paletteOpen} onClose={closePalette} commands={commands} />
 
       {/* Settings Panel */}
-      <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel
+        isOpen={settingsOpen}
+        onClose={() => { setSettingsOpen(false); setSettingsInitialSection(undefined); }}
+        initialSection={settingsInitialSection}
+      />
 
       {/* Help Panel */}
       <HelpPanel

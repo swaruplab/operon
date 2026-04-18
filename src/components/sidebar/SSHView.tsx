@@ -16,6 +16,7 @@ import {
   Settings2,
   ChevronDown,
   ChevronRight,
+  FileCode,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -24,6 +25,17 @@ import { SERVER_CONFIG_FIELDS } from '../../lib/ssh';
 
 interface SSHViewProps {
   onConnectSSH?: (profileId: string, terminalId: string) => void;
+}
+
+// Matches the Rust SSHConfigHost struct returned by `list_ssh_config_hosts`.
+interface SSHConfigHost {
+  alias: string;
+  hostname: string | null;
+  user: string | null;
+  port: number | null;
+  identity_file: string | null;
+  proxy_jump: string | null;
+  source_file: string;
 }
 
 export function SSHView({ onConnectSSH }: SSHViewProps) {
@@ -51,6 +63,11 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
   // Available SSH keys from ~/.ssh/
   const [availableKeys, setAvailableKeys] = useState<string[]>([]);
 
+  // Parsed entries from ~/.ssh/config — used to preload the form for
+  // advanced users who already maintain a client config.
+  const [configHosts, setConfigHosts] = useState<SSHConfigHost[]>([]);
+  const [showConfigPicker, setShowConfigPicker] = useState(false);
+
   const loadProfiles = useCallback(async () => {
     try {
       const list = await invoke<SSHProfile[]>('list_ssh_profiles');
@@ -77,6 +94,34 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
     } catch {
       setAvailableKeys([]);
     }
+  }, []);
+
+  // Load hosts defined in ~/.ssh/config so users can autofill the form.
+  const loadConfigHosts = useCallback(async () => {
+    try {
+      const list = await invoke<SSHConfigHost[]>('list_ssh_config_hosts');
+      setConfigHosts(list);
+    } catch {
+      setConfigHosts([]);
+    }
+  }, []);
+
+  // Autofill the form from a parsed ssh_config entry. Preserves fields the
+  // user may have already typed (we only fill empty/default slots).
+  const applyConfigHost = useCallback((h: SSHConfigHost) => {
+    const resolvedHost = h.hostname || h.alias;
+    // Alias becomes the human-readable name if user hasn't set one.
+    setName((prev) => prev || h.alias);
+    setHost((prev) => (prev && prev !== '' ? prev : resolvedHost));
+    setUser((prev) => (prev && prev !== '' ? prev : h.user || ''));
+    setPort((prev) => (prev && prev !== '22' ? prev : String(h.port ?? 22)));
+    if (h.identity_file) {
+      setKeyFile(h.identity_file);
+      setAvailableKeys((prev) =>
+        prev.includes(h.identity_file!) ? prev : [h.identity_file!, ...prev],
+      );
+    }
+    setShowConfigPicker(false);
   }, []);
 
   useEffect(() => {
@@ -212,7 +257,7 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
     setMfaMethod(profile.mfa_method || 'push');
     setServerConfig(profile.server_config || {});
     setShowServerConfig(Object.keys(profile.server_config || {}).length > 0);
-    { setShowForm(true); loadAvailableKeys(); };
+    { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); };
   };
 
   const handleKeySetup = async () => {
@@ -291,6 +336,60 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
           </button>
         </div>
         <div className="p-3 space-y-3 overflow-y-auto flex-1">
+          {/* ~/.ssh/config picker — shown only if the file has parsed entries. */}
+          {!editProfile && configHosts.length > 0 && (
+            <div className="p-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
+              <button
+                onClick={() => setShowConfigPicker(v => !v)}
+                className="w-full flex items-center gap-1.5 text-left"
+              >
+                {showConfigPicker ? (
+                  <ChevronDown className="w-3 h-3 text-zinc-500" />
+                ) : (
+                  <ChevronRight className="w-3 h-3 text-zinc-500" />
+                )}
+                <FileCode className="w-3 h-3 text-blue-400" />
+                <span className="text-xs text-zinc-300 font-medium">
+                  Existing Hosts
+                </span>
+                <span className="ml-auto text-[10px] text-zinc-500">
+                  {configHosts.length} found
+                </span>
+              </button>
+              {showConfigPicker && (
+                <div className="mt-2 max-h-52 overflow-y-auto border-t border-zinc-800 pt-1.5 -mx-0.5">
+                  {configHosts.map(h => {
+                    const resolvedHost = h.hostname || h.alias;
+                    const detail = [
+                      h.user ? `${h.user}@${resolvedHost}` : resolvedHost,
+                      h.port && h.port !== 22 ? `:${h.port}` : '',
+                    ].join('');
+                    return (
+                      <button
+                        key={`${h.alias}-${h.source_file}`}
+                        onClick={() => applyConfigHost(h)}
+                        className="w-full text-left px-2 py-1 rounded hover:bg-zinc-700/60 transition-colors"
+                        title={`${h.source_file}${h.proxy_jump ? ` · via ${h.proxy_jump}` : ''}${h.identity_file ? ` · ${h.identity_file}` : ''}`}
+                      >
+                        <div className="text-xs text-zinc-200 truncate">{h.alias}</div>
+                        <div className="text-[10px] text-zinc-500 truncate">
+                          {detail}
+                          {h.identity_file && <span className="ml-1 text-amber-400/60">· key</span>}
+                          {h.proxy_jump && <span className="ml-1 text-purple-400/60">· jump</span>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {!showConfigPicker && (
+                <p className="mt-1.5 text-[10px] text-zinc-500">
+                  Autofill from your saved SSH hosts.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Name (optional)</label>
             <input
@@ -643,7 +742,7 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
           Remote SSH
         </span>
         <button
-          onClick={() => { setShowForm(true); loadAvailableKeys(); }}
+          onClick={() => { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); }}
           className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -656,7 +755,7 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
           <p className="text-sm text-zinc-500 mb-1">No SSH connections</p>
           <p className="text-xs text-zinc-600">Add a remote server to connect via SSH</p>
           <button
-            onClick={() => { setShowForm(true); loadAvailableKeys(); }}
+            onClick={() => { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); }}
             className="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs text-white transition-colors"
           >
             Add Connection

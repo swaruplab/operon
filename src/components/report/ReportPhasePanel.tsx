@@ -14,6 +14,7 @@ export type ReportScope = 'comprehensive' | 'focused';
 interface ReportPhasePanelProps {
   phase: ReportPhase;
   scan: ProjectScan | null;
+  scanProgress?: { dirsScanned: number; filesFound: number; currentDir: string } | null;
   selectedFiles: string[];
   onSelectionChange: (paths: string[]) => void;
   methodsInfo: MethodsInfo | null;
@@ -116,7 +117,7 @@ function MethodsPreview({ methods }: { methods: MethodsInfo }) {
 }
 
 export function ReportPhasePanel({
-  phase, scan, selectedFiles, onSelectionChange,
+  phase, scan, scanProgress, selectedFiles, onSelectionChange,
   methodsInfo, onProceed, onRescan, onCancel, onGenerate, isStreaming, outputPath, error, isLoading,
   planHistory, currentPlanTitle,
 }: ReportPhasePanelProps) {
@@ -133,9 +134,20 @@ export function ReportPhasePanel({
       <div className="px-3 pb-3 space-y-2.5">
         {/* Scan phase */}
         {phase === 'scan' && (
-          <div className="flex items-center gap-2 py-3 justify-center">
-            <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-            <span className="text-[11px] text-zinc-400">Scanning project for analysis files...</span>
+          <div className="flex flex-col items-center gap-1 py-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+              <span className="text-[11px] text-zinc-400">
+                {scanProgress
+                  ? `Scanning... ${scanProgress.dirsScanned} folder${scanProgress.dirsScanned === 1 ? '' : 's'}, ${scanProgress.filesFound} file${scanProgress.filesFound === 1 ? '' : 's'} found`
+                  : 'Scanning project for analysis files...'}
+              </span>
+            </div>
+            {scanProgress && scanProgress.currentDir && (
+              <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full px-2" title={scanProgress.currentDir}>
+                {scanProgress.currentDir}
+              </span>
+            )}
           </div>
         )}
 

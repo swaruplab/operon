@@ -17,6 +17,11 @@ export interface AppSettings {
   mcp_servers: MCPServerConfig[];
   extension_settings: Record<string, Record<string, unknown>>;
   last_project_path?: string | null;
+  // AI provider (OpenAI-compatible endpoint support)
+  ai_provider: 'anthropic' | 'custom';
+  custom_base_url: string;
+  custom_api_key: string;
+  custom_model: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -35,7 +40,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mcp_servers: [],
   extension_settings: {},
   last_project_path: null,
+  ai_provider: 'anthropic',
+  custom_base_url: '',
+  custom_api_key: '',
+  custom_model: '',
 };
+
+export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {
+  return invoke('detect_custom_models', { baseUrl, apiKey: apiKey || null });
+}
+
+export async function testCustomEndpoint(baseUrl: string, apiKey: string | undefined, model: string): Promise<string> {
+  return invoke('test_custom_endpoint', { baseUrl, apiKey: apiKey || null, model });
+}
 
 export async function getSettings(): Promise<AppSettings> {
   return invoke('get_settings');

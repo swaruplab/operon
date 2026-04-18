@@ -17,6 +17,8 @@ import {
   Trash2,
   Copy,
   Pencil,
+  MessageSquarePlus,
+  Filter,
 } from 'lucide-react';
 import { SSHView } from './SSHView';
 import { RemoteExplorer } from './RemoteExplorer';
@@ -278,6 +280,8 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   // Context menu for file operations
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<FileEntry | null>(null);
+  // Regex-add dialog — open from the context menu for folders
+  const [regexDialogRoot, setRegexDialogRoot] = useState<FileEntry | null>(null);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -289,6 +293,18 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   const [renaming, setRenaming] = useState<FileEntry | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const renameRef = useRef<HTMLInputElement>(null);
+
+  const addToChat = useCallback((entry: FileEntry) => {
+    window.dispatchEvent(new CustomEvent('chat-add-context', {
+      detail: {
+        kind: 'file',
+        name: entry.name,
+        path: entry.path,
+        isDir: entry.is_dir,
+        isRemote: false,
+      },
+    }));
+  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, entry: FileEntry) => {
     e.preventDefault();
@@ -665,12 +681,35 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 180),
-            top: Math.min(contextMenu.y, window.innerHeight - 200),
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 240),
           }}
         >
+          <button
+            onClick={() => {
+              addToChat(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400 pointer-events-none" />
+            Add {contextMenu.entry.is_dir ? 'folder' : 'file'} to chat
+          </button>
+          {contextMenu.entry.is_dir && (
+            <button
+              onClick={() => {
+                setRegexDialogRoot(contextMenu.entry);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-300 hover:bg-zinc-700 transition-colors text-left"
+            >
+              <Filter className="w-3.5 h-3.5 text-purple-400 pointer-events-none" />
+              Add matching files to chat…
+            </button>
+          )}
+          <div className="border-t border-zinc-700 my-1" />
           <button
             onClick={() => {
               setRenaming(contextMenu.entry);
@@ -705,6 +744,16 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             Delete
           </button>
         </div>
+      )}
+
+      {/* Regex bulk-add dialog */}
+      {regexDialogRoot && (
+        <RegexAddDialog
+          rootPath={regexDialogRoot.path}
+          rootName={regexDialogRoot.name}
+          isRemote={false}
+          onClose={() => setRegexDialogRoot(null)}
+        />
       )}
 
       {/* Rename inline input */}
@@ -836,35 +885,130 @@ function FileExplorerView({ sshConnection, localTerminalId }: FileExplorerViewPr
 
 // --- Search View ---
 
-function SearchView() {
+interface SearchHit {
+  path: string;   // relative path from the search root
+  line: number;
+  text: string;
+}
+
+interface SearchResult {
+  hits: SearchHit[];
+  backend: string; // "ripgrep-sidecar" | "ripgrep-system" | "ripgrep-remote" | "grep-remote" | "rust-walker" | "noop"
+}
+
+interface SearchViewProps {
+  sshConnection: SSHConnection | null;
+  remotePath: string;
+}
+
+function SearchView({ sshConnection, remotePath }: SearchViewProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<{ path: string; line: number; text: string }[]>([]);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [mode, setMode] = useState<'local' | 'remote'>('local');
+  const [results, setResults] = useState<SearchHit[]>([]);
+  const [backend, setBackend] = useState<string>('');
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ran, setRan] = useState(false);
+  const [installingRg, setInstallingRg] = useState(false);
+  const [installMsg, setInstallMsg] = useState<string | null>(null);
   const { projectPath, openFile } = useProject();
 
+  // Auto-switch mode to remote when an SSH connection is active, local otherwise
+  useEffect(() => {
+    setMode(sshConnection ? 'remote' : 'local');
+  }, [sshConnection]);
+
+  const rootPath = mode === 'remote' ? remotePath : projectPath || '';
+  const canSearch =
+    query.trim().length > 0 &&
+    rootPath.length > 0 &&
+    (mode === 'local' || !!sshConnection);
+
   const handleSearch = async () => {
-    if (!query.trim() || !projectPath) return;
-    // Simple grep-like search using Rust
+    if (!canSearch || searching) return;
+    setSearching(true);
+    setError(null);
+    setRan(true);
     try {
-      const files = await invoke<FileEntry[]>('list_directory', { path: projectPath });
-      const found: { path: string; line: number; text: string }[] = [];
-      for (const file of files.filter((f) => !f.is_dir)) {
-        try {
-          const content = await invoke<string>('read_file', { path: file.path });
-          content.split('\n').forEach((lineText, i) => {
-            if (lineText.toLowerCase().includes(query.toLowerCase())) {
-              found.push({ path: file.path, line: i + 1, text: lineText.trim() });
-            }
-          });
-        } catch {
-          // skip unreadable files
-        }
-        if (found.length >= 50) break;
-      }
-      setResults(found);
+      const result = await (mode === 'remote' && sshConnection
+        ? invoke<SearchResult>('search_in_remote_directory', {
+            profileId: sshConnection.profileId,
+            rootPath,
+            query,
+            caseSensitive,
+            useRegex,
+            maxResults: 200,
+          })
+        : invoke<SearchResult>('search_in_directory', {
+            rootPath,
+            query,
+            caseSensitive,
+            useRegex,
+            maxResults: 200,
+          }));
+      setResults(result.hits);
+      setBackend(result.backend);
     } catch (err) {
-      console.error('Search failed:', err);
+      setResults([]);
+      setBackend('');
+      setError(typeof err === 'string' ? err : String(err));
+    } finally {
+      setSearching(false);
     }
   };
+
+  const handleInstallRemoteRg = async () => {
+    if (!sshConnection || installingRg) return;
+    setInstallingRg(true);
+    setInstallMsg(null);
+    try {
+      const msg = await invoke<string>('install_remote_ripgrep', {
+        profileId: sshConnection.profileId,
+      });
+      setInstallMsg(msg);
+      // Retry the search to pick up ripgrep
+      handleSearch();
+    } catch (err) {
+      setInstallMsg(`Install failed: ${err}`);
+    } finally {
+      setInstallingRg(false);
+    }
+  };
+
+  const openHit = async (hit: SearchHit) => {
+    // `hit.path` is relative to rootPath — resolve to absolute
+    const sep = rootPath.endsWith('/') || rootPath.endsWith('\\') ? '' : '/';
+    const absPath = `${rootPath}${sep}${hit.path}`;
+    try {
+      if (mode === 'remote' && sshConnection) {
+        const content = await invoke<string>('read_remote_file', {
+          profileId: sshConnection.profileId,
+          path: absPath,
+        });
+        openFile(absPath, content, false, sshConnection.profileId);
+      } else {
+        const content = await invoke<string>('read_file', { path: absPath });
+        openFile(absPath, content, false);
+      }
+      // Ask the editor to scroll the matched line into view.
+      // Small delay so the tab is mounted before we reveal.
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('reveal-editor-line', {
+            detail: { filePath: absPath, line: hit.line },
+          }),
+        );
+      }, 80);
+    } catch (err) {
+      console.error('Failed to open search hit:', err);
+    }
+  };
+
+  const rootLabel = mode === 'remote'
+    ? (remotePath || '(no remote path — browse a remote folder in Files first)')
+    : (projectPath || '(no project folder opened)');
 
   return (
     <div className="flex flex-col h-full">
@@ -872,38 +1016,139 @@ function SearchView() {
         <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
           Search
         </span>
+        {sshConnection && (
+          <div className="flex items-center gap-1 text-[10px]">
+            <button
+              onClick={() => setMode('local')}
+              className={`px-1.5 py-[1px] rounded ${
+                mode === 'local'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Local
+            </button>
+            <button
+              onClick={() => setMode('remote')}
+              className={`px-1.5 py-[1px] rounded ${
+                mode === 'remote'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Remote
+            </button>
+          </div>
+        )}
       </div>
-      <div className="p-3">
+
+      <div className="px-3 pt-3 pb-2 space-y-1.5">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Search files..."
+          placeholder={mode === 'remote' ? 'Search remote files…' : 'Search files…'}
           className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
         />
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {results.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-zinc-600 text-sm px-4 py-8">
-            {query ? 'No results found' : 'Type to search across files'}
+        <div className="flex items-center justify-between text-[10px]">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1 text-zinc-500 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={caseSensitive}
+                onChange={(e) => setCaseSensitive(e.target.checked)}
+                className="accent-blue-500"
+              />
+              Aa
+            </label>
+            <label className="flex items-center gap-1 text-zinc-500 cursor-pointer select-none" title="Treat query as a regular expression">
+              <input
+                type="checkbox"
+                checked={useRegex}
+                onChange={(e) => setUseRegex(e.target.checked)}
+                className="accent-blue-500"
+              />
+              .*
+            </label>
           </div>
-        ) : (
-          results.map((r, i) => (
-            <button
-              key={i}
-              className="w-full text-left px-3 py-1 hover:bg-zinc-800 text-xs"
-              onClick={async () => {
-                const content = await invoke<string>('read_file', { path: r.path });
-                openFile(r.path, content, false);
-              }}
-            >
-              <div className="text-zinc-300 truncate">{r.path.split('/').pop()}</div>
-              <div className="text-zinc-600 truncate">
-                L{r.line}: {r.text}
-              </div>
-            </button>
-          ))
+          <button
+            onClick={handleSearch}
+            disabled={!canSearch || searching}
+            className="px-2 py-[2px] bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded text-[10px]"
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        <div className="text-[9px] text-zinc-600 truncate" title={rootLabel}>
+          in: {rootLabel}
+        </div>
+        {backend && ran && !error && (
+          <div className="flex items-center justify-between text-[9px] text-zinc-600">
+            <span title="Search engine that handled this query">engine: {backend}</span>
+            {backend === 'grep-remote' && sshConnection && (
+              <button
+                onClick={handleInstallRemoteRg}
+                disabled={installingRg}
+                className="px-1.5 py-[1px] rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-[9px]"
+                title="Upload Operon's bundled ripgrep binary to ~/.operon/bin/rg on this server"
+              >
+                {installingRg ? 'Installing…' : 'Install ripgrep on server'}
+              </button>
+            )}
+          </div>
+        )}
+        {installMsg && (
+          <div className="text-[9px] text-zinc-500 break-words">{installMsg}</div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto border-t border-zinc-800/60">
+        {searching && results.length === 0 && (
+          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+            Searching…
+          </div>
+        )}
+        {!searching && error && (
+          <div className="px-4 py-3 text-[11px] text-red-400 break-all">
+            {error}
+          </div>
+        )}
+        {!searching && !error && results.length === 0 && ran && (
+          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+            No results found
+          </div>
+        )}
+        {!searching && !error && results.length === 0 && !ran && (
+          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+            {mode === 'remote' && !remotePath
+              ? 'Open a remote folder in the Files view first.'
+              : 'Type a query and press Enter.'}
+          </div>
+        )}
+        {results.length > 0 && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] text-zinc-500 sticky top-0 bg-zinc-900 border-b border-zinc-800/60">
+              {results.length} match{results.length === 1 ? '' : 'es'}
+              {results.length >= 200 ? ' (capped at 200)' : ''}
+            </div>
+            {results.map((r, i) => (
+              <button
+                key={`${r.path}:${r.line}:${i}`}
+                className="w-full text-left px-3 py-1 hover:bg-zinc-800 text-xs border-b border-zinc-800/30"
+                onClick={() => openHit(r)}
+                title={r.path}
+              >
+                <div className="text-zinc-300 truncate">
+                  {r.path.split('/').pop()}
+                  <span className="text-zinc-600"> · {r.path}</span>
+                </div>
+                <div className="text-zinc-500 truncate font-mono text-[11px]">
+                  <span className="text-zinc-600">L{r.line}:</span> {r.text}
+                </div>
+              </button>
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -981,7 +1226,9 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       <div className={activeView === 'files' ? 'h-full' : 'hidden'}>
         <FileExplorerView sshConnection={sshConnection} localTerminalId={localTerminalId} />
       </div>
-      {activeView === 'search' && <SearchView />}
+      {activeView === 'search' && (
+        <SearchView sshConnection={sshConnection} remotePath={currentRemotePath} />
+      )}
       {activeView === 'git' && <GitPanel />}
       {activeView === 'extensions' && <ExtensionsView />}
       {activeView === 'ssh' && <SSHView onConnectSSH={() => {}} />}
@@ -1010,6 +1257,235 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Regex bulk-add dialog ---
+//
+// Lets users select many files under a folder without expanding it. Local
+// uses the Rust `regex` crate (RE2); remote uses GNU `grep -E` (ERE).
+// Matched paths are dispatched as a single "group" mention so the chat
+// context stays compact.
+
+interface RegexAddDialogProps {
+  rootPath: string;
+  rootName: string;
+  isRemote: boolean;
+  profileId?: string;
+  onClose: () => void;
+}
+
+interface RegexMatchResult {
+  paths: string[];
+  total_matched: number;
+  truncated: boolean;
+}
+
+export function RegexAddDialog({
+  rootPath,
+  rootName,
+  isRemote,
+  profileId,
+  onClose,
+}: RegexAddDialogProps) {
+  const [pattern, setPattern] = useState('');
+  const [recursive, setRecursive] = useState(true);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [matchFullPath, setMatchFullPath] = useState(false);
+  const [preview, setPreview] = useState<RegexMatchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const p = pattern.trim();
+    if (!p) {
+      setPreview(null);
+      setError(null);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const cmd = isRemote
+          ? 'list_remote_files_matching_regex'
+          : 'list_files_matching_regex';
+        const args: Record<string, unknown> = {
+          rootPath,
+          pattern: p,
+          recursive,
+          caseSensitive,
+          matchFullPath,
+          maxResults: 500,
+        };
+        if (isRemote && profileId) args.profileId = profileId;
+        const result = await invoke<RegexMatchResult>(cmd, args);
+        setPreview(result);
+      } catch (err) {
+        setPreview(null);
+        setError(typeof err === 'string' ? err : String(err));
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [pattern, recursive, caseSensitive, matchFullPath, rootPath, isRemote, profileId]);
+
+  const handleAdd = () => {
+    if (!preview || preview.paths.length === 0) return;
+    const groupName =
+      preview.paths.length === 1
+        ? preview.paths[0].split('/').pop() || preview.paths[0]
+        : `${rootName} · ${preview.paths.length} files`;
+    window.dispatchEvent(new CustomEvent('chat-add-context', {
+      detail: {
+        kind: 'group',
+        name: groupName,
+        path: rootPath,
+        isDir: true,
+        pattern: pattern.trim(),
+        paths: preview.paths,
+        isRemote,
+      },
+    }));
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="w-[520px] max-w-[90vw] max-h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 border-b border-zinc-800">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-purple-400" />
+            <h3 className="text-sm font-semibold text-zinc-200">
+              Add matching files to chat
+            </h3>
+          </div>
+          <div className="mt-1 text-[11px] text-zinc-500 truncate" title={rootPath}>
+            under: {rootPath}
+          </div>
+        </div>
+
+        <div className="px-4 py-3 space-y-2">
+          <input
+            type="text"
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            placeholder={isRemote
+              ? 'Regex (ERE) — e.g. \\.csv$ or sample_0[0-9]+'
+              : 'Regex (RE2) — e.g. \\.csv$ or sample_0[0-9]+'}
+            className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500 font-mono"
+            autoFocus
+          />
+          <div className="flex items-center gap-4 text-[11px] text-zinc-400">
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={recursive}
+                onChange={(e) => setRecursive(e.target.checked)}
+                className="accent-blue-500"
+              />
+              Recursive
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={caseSensitive}
+                onChange={(e) => setCaseSensitive(e.target.checked)}
+                className="accent-blue-500"
+              />
+              Case sensitive
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none" title="Match against relative path instead of filename only">
+              <input
+                type="checkbox"
+                checked={matchFullPath}
+                onChange={(e) => setMatchFullPath(e.target.checked)}
+                className="accent-blue-500"
+              />
+              Match full path
+            </label>
+          </div>
+          <div className="text-[10px] text-zinc-600">
+            {isRemote
+              ? 'Remote uses GNU grep -E (ERE). No lookaround.'
+              : 'Local uses Rust RE2. No lookaround / backrefs.'}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto border-t border-zinc-800 bg-zinc-950/40">
+          {loading && (
+            <div className="px-4 py-6 text-center text-zinc-600 text-xs">Matching…</div>
+          )}
+          {error && !loading && (
+            <div className="px-4 py-3 text-[11px] text-red-400 break-all">{error}</div>
+          )}
+          {!loading && !error && preview && (
+            <>
+              <div className="px-3 py-1.5 text-[10px] text-zinc-500 sticky top-0 bg-zinc-900/80 border-b border-zinc-800/60">
+                {preview.total_matched} match{preview.total_matched === 1 ? '' : 'es'}
+                {preview.truncated ? ` (showing first ${preview.paths.length})` : ''}
+              </div>
+              {preview.paths.length === 0 ? (
+                <div className="px-4 py-4 text-center text-zinc-600 text-xs">
+                  No files match this regex
+                </div>
+              ) : (
+                <ul className="py-1">
+                  {preview.paths.slice(0, 200).map((p, i) => (
+                    <li
+                      key={`${p}-${i}`}
+                      className="px-3 py-0.5 text-[11px] text-zinc-400 font-mono truncate"
+                      title={p}
+                    >
+                      {p}
+                    </li>
+                  ))}
+                  {preview.paths.length > 200 && (
+                    <li className="px-3 py-1 text-[10px] text-zinc-600">
+                      … and {preview.paths.length - 200} more
+                    </li>
+                  )}
+                </ul>
+              )}
+            </>
+          )}
+          {!loading && !error && !preview && (
+            <div className="px-4 py-6 text-center text-zinc-600 text-xs">
+              Type a regex above to preview matching files.
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-1 text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleAdd}
+            disabled={!preview || preview.paths.length === 0}
+            className="px-3 py-1 text-[11px] rounded bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white"
+          >
+            {preview && preview.paths.length > 0
+              ? `Add ${preview.paths.length} file${preview.paths.length === 1 ? '' : 's'} to chat`
+              : 'Add to chat'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

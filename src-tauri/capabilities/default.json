@@ -7,6 +7,16 @@
     "core:default",
     "shell:allow-open",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/rg",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
   ]
 }

@@ -1173,3 +1173,916 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
 
     Ok(result)
 }
+
+// --- Search (ripgrep-based, with grep / Rust-walker fallback) ---
+
+#[derive(Serialize, Clone)]
+pub struct SearchHit {
+    pub path: String,
+    pub line: u32,
+    pub text: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SearchResult {
+    pub hits: Vec<SearchHit>,
+    /// Which backend handled the query — "ripgrep-sidecar", "ripgrep-system",
+    /// "ripgrep-remote", "grep-remote", "rust-walker". Surfaced in the UI.
+    pub backend: String,
+}
+
+/// Directories skipped during recursive search.
+const SKIP_SEARCH_DIRS: &[&str] = &[
+    ".git", "node_modules", "__pycache__", ".next", ".venv", "venv",
+    ".tox", ".mypy_cache", "target", "build", "dist", ".cache", ".eggs",
+    ".operon-run",
+];
+
+/// Cap the displayed text on any one match line so a single absurd line can't
+/// blow up the IPC payload.
+fn truncate_match_text(s: &str) -> String {
+    if s.len() > 400 {
+        let mut end = 400;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &s[..end])
+    } else {
+        s.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Local search — prefers bundled ripgrep sidecar, falls back to PATH rg,
+//  finally falls back to a simple Rust walker so search never breaks.
+// ---------------------------------------------------------------------------
+
+/// Try to run the bundled sidecar ripgrep. Returns Ok(stdout_bytes) on exit
+/// codes 0 (matches) or 1 (no matches); Err on spawn failure or exit 2.
+async fn run_rg_sidecar(
+    app: &tauri::AppHandle,
+    args: &[String],
+) -> Result<(Vec<u8>, i32), String> {
+    use tauri_plugin_shell::ShellExt;
+    let shell = app.shell();
+    let sidecar = shell
+        .sidecar("rg")
+        .map_err(|e| format!("sidecar unavailable: {}", e))?;
+    let output = sidecar
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| format!("sidecar spawn failed: {}", e))?;
+    let code = output.status.code().unwrap_or(-1);
+    if code == 0 || code == 1 {
+        Ok((output.stdout, code))
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("rg exited {}: {}", code, err.trim()))
+    }
+}
+
+/// Same idea, but via the user's system PATH (for dev builds where the
+/// sidecar isn't available). Uses the platform's login shell so PATH is
+/// inherited like the user's terminal.
+async fn run_rg_system(args: &[String]) -> Result<(Vec<u8>, i32), String> {
+    // Quote each arg for safe passthrough. ripgrep accepts `--` to separate
+    // flags from patterns, so this is fine even for pattern-like args.
+    let shell_cmd = std::iter::once("rg".to_string())
+        .chain(args.iter().map(|a| format!("'{}'", a.replace('\'', "'\\''"))))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output = crate::platform::shell_exec_async(&shell_cmd)
+        .output()
+        .await
+        .map_err(|e| format!("spawn failed: {}", e))?;
+    let code = output.status.code().unwrap_or(-1);
+    if code == 0 || code == 1 {
+        Ok((output.stdout, code))
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("rg exited {}: {}", code, err.trim()))
+    }
+}
+
+/// Build ripgrep arguments for a text search.
+fn build_rg_args(
+    query: &str,
+    root_path: &str,
+    case_sensitive: bool,
+    use_regex: bool,
+    max_results: usize,
+) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    args.push("--json".into());
+    args.push("-n".into());
+    args.push("--max-count".into());
+    // Per-file cap so one pathological file can't dominate the result set.
+    args.push(format!("{}", (max_results / 4).clamp(20, 500)));
+    args.push("--max-filesize".into());
+    args.push("1M".into());
+    args.push("--no-require-git".into());
+    if case_sensitive {
+        args.push("--case-sensitive".into());
+    } else {
+        args.push("--ignore-case".into());
+    }
+    if !use_regex {
+        args.push("--fixed-strings".into());
+    }
+    // Skip common build/cache dirs the user doesn't want cluttering results.
+    for d in SKIP_SEARCH_DIRS {
+        args.push("--glob".into());
+        args.push(format!("!**/{}/**", d));
+    }
+    args.push("--".into());
+    args.push(query.to_string());
+    args.push(root_path.to_string());
+    args
+}
+
+/// Parse ripgrep's NDJSON `--json` stream, collecting at most `max_results`
+/// hits. Paths returned are relative to `root_path` when possible.
+fn parse_rg_json(bytes: &[u8], root_path: &str, max_results: usize) -> Vec<SearchHit> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut hits = Vec::new();
+    for line in text.lines() {
+        if hits.len() >= max_results {
+            break;
+        }
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some("match") {
+            continue;
+        }
+        let data = match v.get("data") {
+            Some(d) => d,
+            None => continue,
+        };
+        let abs_path = data
+            .get("path")
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("");
+        if abs_path.is_empty() {
+            continue;
+        }
+        let rel_path = match std::path::Path::new(abs_path).strip_prefix(root_path) {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => abs_path.to_string(),
+        };
+        let text = data
+            .get("lines")
+            .and_then(|l| l.get("text"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .trim_end_matches('\n');
+        let line_number = data
+            .get("line_number")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0) as u32;
+
+        hits.push(SearchHit {
+            path: rel_path,
+            line: line_number,
+            text: truncate_match_text(text),
+        });
+    }
+    hits
+}
+
+/// Rust-walker fallback when neither sidecar nor system rg is available.
+/// Kept intentionally simple — only runs when ripgrep can't be found at all.
+fn search_walker_fallback(
+    root: &std::path::Path,
+    query: &str,
+    case_sensitive: bool,
+    max_results: usize,
+) -> Vec<SearchHit> {
+    fn walk(
+        base: &std::path::Path,
+        dir: &std::path::Path,
+        depth: usize,
+        max_depth: usize,
+        q_lower: &str,
+        cs: bool,
+        q_raw: &str,
+        hits: &mut Vec<SearchHit>,
+        max: usize,
+    ) {
+        if hits.len() >= max || depth > max_depth {
+            return;
+        }
+        let rd = match std::fs::read_dir(dir) {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        for entry in rd.flatten() {
+            if hits.len() >= max {
+                return;
+            }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if crate::platform::is_hidden(&path) {
+                continue;
+            }
+            let md = match std::fs::metadata(&path) {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            if md.is_dir() {
+                if SKIP_SEARCH_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                walk(base, &path, depth + 1, max_depth, q_lower, cs, q_raw, hits, max);
+                continue;
+            }
+            if md.len() > 1_000_000 {
+                continue;
+            }
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            let rel = path
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.to_string_lossy().to_string());
+            for (idx, line) in content.lines().enumerate() {
+                let m = if cs {
+                    line.contains(q_raw)
+                } else {
+                    line.to_lowercase().contains(q_lower)
+                };
+                if m {
+                    hits.push(SearchHit {
+                        path: rel.clone(),
+                        line: (idx + 1) as u32,
+                        text: truncate_match_text(line),
+                    });
+                    if hits.len() >= max {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut hits = Vec::new();
+    let q_lower = query.to_lowercase();
+    walk(
+        root,
+        root,
+        0,
+        8,
+        &q_lower,
+        case_sensitive,
+        query,
+        &mut hits,
+        max_results,
+    );
+    hits
+}
+
+/// Recursively search a local directory for `query`. Uses the bundled ripgrep
+/// sidecar when present; falls back to system `rg`, then to a simple Rust
+/// walker. Honors `.gitignore`, skips binary files, skips files >1 MB.
+#[tauri::command]
+pub async fn search_in_directory(
+    app: tauri::AppHandle,
+    root_path: String,
+    query: String,
+    case_sensitive: Option<bool>,
+    use_regex: Option<bool>,
+    max_results: Option<usize>,
+) -> Result<SearchResult, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(SearchResult {
+            hits: vec![],
+            backend: "noop".into(),
+        });
+    }
+    let root = std::path::Path::new(&root_path);
+    if !root.is_dir() {
+        return Err(format!("Not a directory: {}", root_path));
+    }
+    let case_sensitive = case_sensitive.unwrap_or(false);
+    let use_regex = use_regex.unwrap_or(false);
+    let max_results = max_results.unwrap_or(200).min(1000);
+
+    let args = build_rg_args(&query, &root_path, case_sensitive, use_regex, max_results);
+
+    // 1) Try bundled sidecar
+    match run_rg_sidecar(&app, &args).await {
+        Ok((stdout, _code)) => {
+            let hits = parse_rg_json(&stdout, &root_path, max_results);
+            return Ok(SearchResult {
+                hits,
+                backend: "ripgrep-sidecar".into(),
+            });
+        }
+        Err(e) => {
+            eprintln!("[operon-search] sidecar unavailable: {}", e);
+        }
+    }
+
+    // 2) Try system PATH rg
+    match run_rg_system(&args).await {
+        Ok((stdout, _code)) => {
+            let hits = parse_rg_json(&stdout, &root_path, max_results);
+            return Ok(SearchResult {
+                hits,
+                backend: "ripgrep-system".into(),
+            });
+        }
+        Err(e) => {
+            eprintln!("[operon-search] system rg unavailable: {}", e);
+        }
+    }
+
+    // 3) Rust walker fallback
+    let hits = search_walker_fallback(root, &query, case_sensitive, max_results);
+    Ok(SearchResult {
+        hits,
+        backend: "rust-walker".into(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+//  Remote search — prefers `~/.operon/bin/rg` (installed by Operon), then
+//  any `rg` on the user's PATH, then GNU `grep -rnHI` as a last resort.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct RemoteRgCapability {
+    /// Absolute path to rg on the remote, if found. None → fall back to grep.
+    pub rg_path: Option<String>,
+    /// ripgrep version string ("14.1.1"), if rg_path is set.
+    pub version: Option<String>,
+    /// Whether this server has any grep at all (should always be true on HPC).
+    pub has_grep: bool,
+}
+
+/// Probe the remote server for ripgrep. Checks `~/.operon/bin/rg` first
+/// (Operon-installed), then `rg` on PATH, then `grep`.
+#[tauri::command]
+pub async fn check_remote_ripgrep(
+    ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<RemoteRgCapability, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    // One probe script to check all three capabilities at once.
+    let script = "\
+        if [ -x \"$HOME/.operon/bin/rg\" ]; then \
+            echo RG_PATH=$HOME/.operon/bin/rg; \
+            \"$HOME/.operon/bin/rg\" --version 2>/dev/null | head -n1 || true; \
+        elif command -v rg >/dev/null 2>&1; then \
+            echo RG_PATH=$(command -v rg); \
+            rg --version 2>/dev/null | head -n1 || true; \
+        fi; \
+        if command -v grep >/dev/null 2>&1; then echo HAS_GREP=1; fi";
+    let output = crate::commands::ssh::ssh_exec(&profile, script)?;
+
+    let mut rg_path = None;
+    let mut version = None;
+    let mut has_grep = false;
+    for line in output.lines() {
+        if let Some(p) = line.strip_prefix("RG_PATH=") {
+            rg_path = Some(p.trim().to_string());
+        } else if line == "HAS_GREP=1" {
+            has_grep = true;
+        } else if line.starts_with("ripgrep ") {
+            // e.g. "ripgrep 14.1.1 ..."
+            version = line.split_whitespace().nth(1).map(String::from);
+        }
+    }
+    Ok(RemoteRgCapability {
+        rg_path,
+        version,
+        has_grep,
+    })
+}
+
+/// Install ripgrep on the remote server by scp'ing the bundled
+/// musl-static Linux binary to `~/.operon/bin/rg`.
+#[tauri::command]
+pub async fn install_remote_ripgrep(
+    app: tauri::AppHandle,
+    ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Locate the bundled musl binary. In dev it's in src-tauri/binaries/;
+    // in a production bundle it's copied to the app resource dir by the
+    // "resources" entry in tauri.conf.json.
+    let resource_path = app
+        .path()
+        .resolve(
+            "binaries/rg-x86_64-unknown-linux-musl",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|e| format!("Cannot locate bundled ripgrep: {}", e))?;
+    let local_path = if resource_path.exists() {
+        resource_path
+    } else {
+        // Dev fallback — relative to cwd.
+        let dev_path =
+            std::path::PathBuf::from("./src-tauri/binaries/rg-x86_64-unknown-linux-musl");
+        if dev_path.exists() {
+            dev_path
+        } else {
+            return Err(format!(
+                "Bundled ripgrep not found at {} or ./src-tauri/binaries/",
+                resource_path.display()
+            ));
+        }
+    };
+
+    let local_path_str = local_path.to_string_lossy().to_string();
+    let remote_tmp = "/tmp/operon-rg-upload";
+    let remote_final = "~/.operon/bin/rg";
+
+    // 1) Prepare remote dir
+    crate::commands::ssh::ssh_exec(
+        &profile,
+        "mkdir -p $HOME/.operon/bin && rm -f /tmp/operon-rg-upload",
+    )?;
+    // 2) SCP upload — replicate scp_to_remote logic inline to avoid
+    // going through the Tauri command layer.
+    {
+        let host_str = format!("{}@{}", profile.user, profile.host);
+        let mut scp_args: Vec<String> = vec![
+            "-o".into(),
+            "BatchMode=yes".into(),
+            "-o".into(),
+            "ConnectTimeout=10".into(),
+        ];
+        if !crate::platform::supports_ssh_mux() {
+            scp_args.push("-o".into());
+            scp_args.push("PreferredAuthentications=publickey".into());
+        }
+        let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
+        if sock.exists() {
+            scp_args.push("-o".into());
+            scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+        }
+        if profile.port != 22 {
+            scp_args.push("-P".into());
+            scp_args.push(profile.port.to_string());
+        }
+        if let Some(key) = &profile.key_file {
+            if std::path::Path::new(key).exists() {
+                scp_args.push("-i".into());
+                scp_args.push(key.clone());
+            }
+        }
+        scp_args.push(local_path_str.clone());
+        scp_args.push(format!("{}:{}", host_str, remote_tmp));
+
+        let output = std::process::Command::new("scp")
+            .args(&scp_args)
+            .output()
+            .map_err(|e| format!("Failed to run scp: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("SCP ripgrep upload failed: {}", stderr));
+        }
+    }
+    // 3) Verify arch looks right and move into place
+    let install_cmd = format!(
+        "mv {tmp} $HOME/.operon/bin/rg && chmod +x $HOME/.operon/bin/rg && \
+         $HOME/.operon/bin/rg --version 2>/dev/null | head -n1",
+        tmp = remote_tmp,
+    );
+    let version_out = crate::commands::ssh::ssh_exec(&profile, &install_cmd)?;
+    if !version_out.contains("ripgrep") {
+        return Err(format!(
+            "Install failed — binary does not run on this server. Output: {}",
+            version_out.trim()
+        ));
+    }
+    Ok(format!(
+        "{} installed at {}",
+        version_out.trim(),
+        remote_final
+    ))
+}
+
+/// Recursively search a remote directory. Uses remote rg if available,
+/// falls back to `grep -rnHI`.
+#[tauri::command]
+pub async fn search_in_remote_directory(
+    ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
+    profile_id: String,
+    root_path: String,
+    query: String,
+    case_sensitive: Option<bool>,
+    use_regex: Option<bool>,
+    max_results: Option<usize>,
+) -> Result<SearchResult, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(SearchResult {
+            hits: vec![],
+            backend: "noop".into(),
+        });
+    }
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    let case_sensitive = case_sensitive.unwrap_or(false);
+    let use_regex = use_regex.unwrap_or(false);
+    let max_results = max_results.unwrap_or(200).min(1000);
+
+    let query_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        query.as_bytes(),
+    );
+    let root_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        root_path.as_bytes(),
+    );
+
+    // Probe once per call. Cheap; SSH mux keeps it fast.
+    let probe = "\
+        if [ -x \"$HOME/.operon/bin/rg\" ]; then echo $HOME/.operon/bin/rg; \
+        elif command -v rg >/dev/null 2>&1; then echo rg; \
+        else echo __no_rg__; fi";
+    let rg_probe = crate::commands::ssh::ssh_exec(&profile, probe)?
+        .trim()
+        .to_string();
+    let has_rg = rg_probe != "__no_rg__" && !rg_probe.is_empty();
+
+    if has_rg {
+        // Build a remote rg invocation mirroring the local flags.
+        let mut rg_args: Vec<String> = Vec::new();
+        rg_args.push("--json".into());
+        rg_args.push("-n".into());
+        rg_args.push("--max-count".into());
+        rg_args.push(format!("{}", (max_results / 4).clamp(20, 500)));
+        rg_args.push("--max-filesize".into());
+        rg_args.push("1M".into());
+        rg_args.push("--no-require-git".into());
+        if case_sensitive {
+            rg_args.push("--case-sensitive".into());
+        } else {
+            rg_args.push("--ignore-case".into());
+        }
+        if !use_regex {
+            rg_args.push("--fixed-strings".into());
+        }
+        for d in SKIP_SEARCH_DIRS {
+            rg_args.push("--glob".into());
+            rg_args.push(format!("!**/{}/**", d));
+        }
+        // Pass query + root as the final args (we'll inject via $Q and $R to
+        // avoid re-quoting every term).
+        let rg_flags = rg_args
+            .iter()
+            .map(|a| format!("'{}'", a.replace('\'', "'\\''")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let script = format!(
+            "Q=$(echo '{q}' | base64 -d); R=$(echo '{r}' | base64 -d); \
+             {rg} {flags} -- \"$Q\" \"$R\" 2>/dev/null",
+            q = query_b64,
+            r = root_b64,
+            rg = rg_probe,
+            flags = rg_flags,
+        );
+        let script_b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            script.as_bytes(),
+        );
+        let wrapped = format!("echo '{}' | base64 -d | bash", script_b64);
+        let stdout = crate::commands::ssh::ssh_exec(&profile, &wrapped)?;
+        let hits = parse_rg_json(stdout.as_bytes(), &root_path, max_results);
+        return Ok(SearchResult {
+            hits,
+            backend: "ripgrep-remote".into(),
+        });
+    }
+
+    // grep fallback — same shape as the pre-ripgrep implementation.
+    let exclude_dirs = SKIP_SEARCH_DIRS
+        .iter()
+        .map(|d| format!("--exclude-dir='{}'", d))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let case_flag = if case_sensitive { "" } else { "-i " };
+    let regex_flag = if use_regex { "-E " } else { "-F " };
+    let remote_script = format!(
+        "Q=$(echo '{q}' | base64 -d); R=$(echo '{r}' | base64 -d); \
+cd \"$R\" 2>/dev/null || {{ echo \"__OPERON_ERR__: cannot cd $R\" >&2; exit 2; }}; \
+grep -rnHI {case}{regex}{exc} -- \"$Q\" . 2>/dev/null | head -n {n}",
+        q = query_b64,
+        r = root_b64,
+        case = case_flag,
+        regex = regex_flag,
+        exc = exclude_dirs,
+        n = max_results,
+    );
+    let script_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        remote_script.as_bytes(),
+    );
+    let wrapped = format!("echo '{}' | base64 -d | bash", script_b64);
+    let output = crate::commands::ssh::ssh_exec(&profile, &wrapped)?;
+
+    let mut hits = Vec::new();
+    for line in output.lines() {
+        let line = line.strip_prefix("./").unwrap_or(line);
+        let mut parts = line.splitn(3, ':');
+        let path = match parts.next() {
+            Some(p) if !p.is_empty() => p.to_string(),
+            _ => continue,
+        };
+        let lineno: u32 = match parts.next().and_then(|s| s.parse().ok()) {
+            Some(n) => n,
+            None => continue,
+        };
+        let text = parts.next().unwrap_or("").to_string();
+        hits.push(SearchHit {
+            path,
+            line: lineno,
+            text: truncate_match_text(&text),
+        });
+        if hits.len() >= max_results {
+            break;
+        }
+    }
+    Ok(SearchResult {
+        hits,
+        backend: "grep-remote".into(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+//  Part C — regex-based "list files" for bulk @-mention in chat
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct RegexMatchResult {
+    /// Relative paths (from root_path), capped at `max_results`.
+    pub paths: Vec<String>,
+    /// True number of matches found before capping.
+    pub total_matched: usize,
+    /// True if we stopped collecting because we hit `max_results`.
+    pub truncated: bool,
+}
+
+const REGEX_HARD_CAP: usize = 5000;
+
+fn regex_walk(
+    base: &std::path::Path,
+    dir: &std::path::Path,
+    depth: usize,
+    recursive: bool,
+    re: &regex::Regex,
+    match_full_path: bool,
+    out: &mut Vec<String>,
+    total: &mut usize,
+    hard_cap: usize,
+) {
+    if *total >= hard_cap {
+        return;
+    }
+    if !recursive && depth > 0 {
+        return;
+    }
+    let rd = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for entry in rd.flatten() {
+        if *total >= hard_cap {
+            return;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if crate::platform::is_hidden(&path) {
+            continue;
+        }
+        let md = match std::fs::metadata(&path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if md.is_dir() {
+            if SKIP_SEARCH_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            if recursive {
+                regex_walk(
+                    base,
+                    &path,
+                    depth + 1,
+                    recursive,
+                    re,
+                    match_full_path,
+                    out,
+                    total,
+                    hard_cap,
+                );
+            }
+            continue;
+        }
+        let rel = path
+            .strip_prefix(base)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| name.clone());
+        let haystack = if match_full_path { &rel } else { &name };
+        if re.is_match(haystack) {
+            *total += 1;
+            out.push(rel);
+        }
+    }
+}
+
+/// List files under `root_path` whose name (or relative path if
+/// `match_full_path`) matches the user-supplied regex. Returns up to
+/// `max_results` paths plus the total match count.
+///
+/// Regex flavor: RE2 (Rust `regex` crate) — no lookaround / backrefs.
+#[tauri::command]
+pub async fn list_files_matching_regex(
+    root_path: String,
+    pattern: String,
+    recursive: Option<bool>,
+    case_sensitive: Option<bool>,
+    match_full_path: Option<bool>,
+    max_results: Option<usize>,
+) -> Result<RegexMatchResult, String> {
+    let root = std::path::Path::new(&root_path);
+    if !root.is_dir() {
+        return Err(format!("Not a directory: {}", root_path));
+    }
+    let recursive = recursive.unwrap_or(true);
+    let case_sensitive = case_sensitive.unwrap_or(false);
+    let match_full_path = match_full_path.unwrap_or(false);
+    let max_results = max_results.unwrap_or(1000).min(REGEX_HARD_CAP);
+
+    let re = regex::RegexBuilder::new(&pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| format!("Invalid regex: {}", e))?;
+
+    let mut all: Vec<String> = Vec::new();
+    let mut total = 0usize;
+    regex_walk(
+        root,
+        root,
+        0,
+        recursive,
+        &re,
+        match_full_path,
+        &mut all,
+        &mut total,
+        REGEX_HARD_CAP,
+    );
+
+    let truncated = all.len() > max_results;
+    if truncated {
+        all.truncate(max_results);
+    }
+    Ok(RegexMatchResult {
+        paths: all,
+        total_matched: total,
+        truncated,
+    })
+}
+
+/// Same as `list_files_matching_regex` but via SSH. Uses GNU `find` to list
+/// and `grep -E` to filter. Regex flavor on the remote is ERE.
+#[tauri::command]
+pub async fn list_remote_files_matching_regex(
+    ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
+    profile_id: String,
+    root_path: String,
+    pattern: String,
+    recursive: Option<bool>,
+    case_sensitive: Option<bool>,
+    match_full_path: Option<bool>,
+    max_results: Option<usize>,
+) -> Result<RegexMatchResult, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    let recursive = recursive.unwrap_or(true);
+    let case_sensitive = case_sensitive.unwrap_or(false);
+    let match_full_path = match_full_path.unwrap_or(false);
+    let max_results = max_results.unwrap_or(1000).min(REGEX_HARD_CAP);
+
+    let root_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        root_path.as_bytes(),
+    );
+    let pattern_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        pattern.as_bytes(),
+    );
+
+    let depth_flag = if recursive { "" } else { "-maxdepth 1" };
+    let case_flag = if case_sensitive { "" } else { "-i" };
+    let skip_pruning = SKIP_SEARCH_DIRS
+        .iter()
+        .map(|d| format!("-name '{}' -prune -o", d))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // Strategy: find prints full absolute paths one per line. We then pipe
+    // through `sed` to strip the root prefix and a leading `/`, then grep by
+    // filename-only or full-relative depending on match_full_path.
+    let match_expr = if match_full_path {
+        // grep the whole relative path
+        "cat"
+    } else {
+        // extract basename before grep — we split on the last slash inline
+        "awk -F/ '{print $NF\"\\t\"$0}'"
+    };
+
+    let script = if match_full_path {
+        format!(
+            "R=$(echo '{r}' | base64 -d); P=$(echo '{p}' | base64 -d); \
+find \"$R\" {depth} \\( {skip} -type f -print \\) 2>/dev/null \
+  | sed -e \"s|^$R/||\" -e \"s|^$R||\" \
+  | {match} \
+  | grep -E {case} -- \"$P\" \
+  | head -c 1048576",
+            r = root_b64, p = pattern_b64,
+            depth = depth_flag, skip = skip_pruning,
+            match = match_expr,
+            case = case_flag,
+        )
+    } else {
+        // match only on basename — emit basename<TAB>relpath, grep the first
+        // column, then strip the first column before returning.
+        format!(
+            "R=$(echo '{r}' | base64 -d); P=$(echo '{p}' | base64 -d); \
+find \"$R\" {depth} \\( {skip} -type f -print \\) 2>/dev/null \
+  | sed -e \"s|^$R/||\" -e \"s|^$R||\" \
+  | awk -F/ '{{print $NF\"\\t\"$0}}' \
+  | grep -E {case} -- \"$P\" \
+  | awk -F'\\t' '{{print $2}}' \
+  | head -c 1048576",
+            r = root_b64, p = pattern_b64,
+            depth = depth_flag, skip = skip_pruning,
+            case = case_flag,
+        )
+    };
+
+    let script_b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        script.as_bytes(),
+    );
+    let wrapped = format!("echo '{}' | base64 -d | bash", script_b64);
+    let output = crate::commands::ssh::ssh_exec(&profile, &wrapped)?;
+
+    let mut all: Vec<String> = output
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let total = all.len();
+    let truncated = total > max_results;
+    if truncated {
+        all.truncate(max_results);
+    }
+    Ok(RegexMatchResult {
+        paths: all,
+        total_matched: total,
+        truncated,
+    })
+}

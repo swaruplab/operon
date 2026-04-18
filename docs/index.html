@@ -100,6 +100,10 @@
     border: 1px solid var(--border);
   }
   .btn-secondary:hover { border-color: var(--accent-light); text-decoration: none; }
+  .btn-star { border-color: #eab308; color: #facc15; }
+  .btn-star:hover { background: #eab30820; border-color: #facc15; color: #fef08a; }
+  .btn-video { border-color: #ef4444; color: #f87171; }
+  .btn-video:hover { background: #ef444420; border-color: #f87171; color: #fca5a5; }
   .hero-img {
     margin: 50px auto 0;
     max-width: 860px;
@@ -247,6 +251,69 @@
   .feature-card:hover { border-color: var(--accent); }
   .feature-card h4 { margin-top: 0; color: var(--heading); }
   .feature-card p { color: var(--text-muted); font-size: .92rem; margin-top: 6px; }
+
+  /* Video tutorial grid */
+  .video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    margin: 32px 0;
+  }
+  .video-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color .2s, transform .2s;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .video-embed {
+    position: relative;
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 */
+    height: 0;
+    background: #000;
+  }
+  .video-embed iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .video-card-body {
+    padding: 18px 20px 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-card h4 {
+    margin: 0 0 6px;
+    color: var(--heading);
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+  .video-card p {
+    color: var(--text-muted);
+    font-size: .9rem;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .video-badge {
+    display: inline-block;
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--accent-light);
+    background: var(--accent-glow);
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    align-self: flex-start;
+  }
   .feature-icon {
     width: 40px; height: 40px;
     background: var(--accent-glow);
@@ -363,6 +430,7 @@
     .hero-img { max-width: 100%; }
     .fig-sm, .fig-md, .fig-lg { max-width: 100%; }
     .feature-grid { grid-template-columns: 1fr; }
+    .video-grid { grid-template-columns: 1fr; }
     .step { flex-direction: column; gap: 10px; }
     table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     section h2 { font-size: 1.45rem; }
@@ -414,9 +482,9 @@
   <div class="hero-buttons">
     <a id="hero-dl-apple" href="#" class="btn btn-primary" download>Download for Apple Silicon</a>
     <a id="hero-dl-intel" href="#" class="btn btn-primary" download style="background:#4f46e5">Download for Intel Mac</a>
-    <a href="https://github.com/swaruplab/operon" class="btn btn-secondary" target="_blank" rel="noopener">⭐ GitHub</a>
     <a href="#installation" class="btn btn-secondary">Get Started</a>
-    <a href="#features" class="btn btn-secondary">Explore Features</a>
+    <a href="tutorials.html" class="btn btn-secondary btn-video">▶ Video Tutorials</a>
+    <a href="https://github.com/swaruplab/operon" class="btn btn-secondary btn-star" target="_blank" rel="noopener">⭐ Star on GitHub</a>
   </div>
   <figure class="hero-img">
     <img src="img/main-workspace.png" alt="Operon main workspace">
@@ -449,6 +517,7 @@
     <a href="#pubmed">PubMed Search</a>
 
     <div class="sidebar-title">Tutorials</div>
+    <a href="tutorials.html">Video Tutorials</a>
     <a href="#tutorial-local">Local Analysis</a>
     <a href="#tutorial-remote">Remote Server / HPC</a>
 

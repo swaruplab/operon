@@ -8,6 +8,10 @@ fn default_permission_mode() -> String {
     "full_auto".to_string()
 }
 
+fn default_ai_provider() -> String {
+    "anthropic".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -32,6 +36,21 @@ pub struct AppSettings {
     pub extension_settings: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub last_project_path: Option<String>,
+    // ── AI provider (OpenAI-compatible endpoint support) ──
+    /// "anthropic" (default) or "custom" for OpenAI-compatible endpoints.
+    #[serde(default = "default_ai_provider")]
+    pub ai_provider: String,
+    /// Base URL for a custom OpenAI-compatible endpoint (e.g. http://localhost:11434/v1).
+    /// Operon passes this to Claude Code via ANTHROPIC_BASE_URL.
+    #[serde(default)]
+    pub custom_base_url: String,
+    /// Optional auth token/API key for the custom endpoint.
+    /// Passed via ANTHROPIC_AUTH_TOKEN.
+    #[serde(default)]
+    pub custom_api_key: String,
+    /// Model id reported by the custom endpoint (e.g. "qwen2.5-coder:32b").
+    #[serde(default)]
+    pub custom_model: String,
 }
 
 impl Default for AppSettings {
@@ -53,6 +72,10 @@ impl Default for AppSettings {
             mcp_servers: Vec::new(),
             extension_settings: HashMap::new(),
             last_project_path: None,
+            ai_provider: "anthropic".to_string(),
+            custom_base_url: String::new(),
+            custom_api_key: String::new(),
+            custom_model: String::new(),
         }
     }
 }
@@ -128,6 +151,115 @@ pub(crate) struct DictationProcess {
 
 pub(crate) static DICTATION_PROCESS: std::sync::Mutex<Option<DictationProcess>> =
     std::sync::Mutex::new(None);
+
+// ── Custom AI endpoint probes ─────────────────────────────────────────────
+
+fn normalize_base_url(base: &str) -> String {
+    base.trim().trim_end_matches('/').to_string()
+}
+
+/// GET {base}/models on an OpenAI-compatible endpoint and return the list
+/// of model ids. Ollama's `/v1/models` (OpenAI compat) and its native
+/// `/api/tags` are both accepted — whichever the base URL points at.
+#[tauri::command]
+pub async fn detect_custom_models(
+    base_url: String,
+    api_key: Option<String>,
+) -> Result<Vec<String>, String> {
+    let base = normalize_base_url(&base_url);
+    if base.is_empty() {
+        return Err("Base URL is empty".to_string());
+    }
+    // Try OpenAI-compat first
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = format!("{}/models", base);
+    let mut req = client.get(&url);
+    if let Some(key) = api_key.as_ref() {
+        if !key.is_empty() {
+            req = req.bearer_auth(key);
+        }
+    }
+    let resp = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    // OpenAI shape: { "data": [ { "id": "..." }, ... ] }
+    if let Some(data) = json.get("data").and_then(|v| v.as_array()) {
+        let mut ids: Vec<String> = data
+            .iter()
+            .filter_map(|m| m.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        ids.sort();
+        return Ok(ids);
+    }
+    // Ollama native shape: { "models": [ { "name": "..." }, ... ] }
+    if let Some(models) = json.get("models").and_then(|v| v.as_array()) {
+        let mut ids: Vec<String> = models
+            .iter()
+            .filter_map(|m| m.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .collect();
+        ids.sort();
+        return Ok(ids);
+    }
+    Err("Unrecognized response shape (no 'data' or 'models' array)".to_string())
+}
+
+/// Send a trivial completion to {base}/chat/completions to verify the endpoint
+/// is reachable and speaks the OpenAI format. Returns the model echo on success.
+#[tauri::command]
+pub async fn test_custom_endpoint(
+    base_url: String,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<String, String> {
+    let base = normalize_base_url(&base_url);
+    if base.is_empty() {
+        return Err("Base URL is empty".to_string());
+    }
+    let model_id = model.unwrap_or_default();
+    if model_id.is_empty() {
+        return Err("Pick a model first".to_string());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let body = serde_json::json!({
+        "model": model_id,
+        "messages": [{ "role": "user", "content": "ping" }],
+        "max_tokens": 4,
+        "stream": false,
+    });
+    let url = format!("{}/chat/completions", base);
+    let mut req = client.post(&url).json(&body);
+    if let Some(key) = api_key.as_ref() {
+        if !key.is_empty() {
+            req = req.bearer_auth(key);
+        }
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "HTTP {} — {}",
+            status,
+            body_text.chars().take(200).collect::<String>()
+        ));
+    }
+    Ok(format!("OK — {} responded", model_id))
+}
 
 /// Stop the currently running dictation process.
 #[tauri::command]

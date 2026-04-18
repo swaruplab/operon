@@ -34,11 +34,12 @@ pub use extensions::{
     update_extension_settings, validate_extension_install,
 };
 pub use files::{
-    create_directory, create_file, delete_path, delete_protocol, generate_protocol,
-    generate_protocol_from_files, get_home_dir,
-    get_protocols_dir, index_project, index_remote_project, list_directory, list_protocols,
-    read_file, read_file_base64, read_protocol, rename_path, save_attachment_file,
-    save_clipboard_image, save_protocol, write_file,
+    check_remote_ripgrep, create_directory, create_file, delete_path, delete_protocol,
+    generate_protocol, generate_protocol_from_files, get_home_dir, get_protocols_dir,
+    index_project, index_remote_project, install_remote_ripgrep, list_directory,
+    list_files_matching_regex, list_protocols, list_remote_files_matching_regex, read_file,
+    read_file_base64, read_protocol, rename_path, save_attachment_file, save_clipboard_image,
+    save_protocol, search_in_directory, search_in_remote_directory, write_file,
 };
 pub use git::{
     gh_add_remote, gh_check_auth, gh_create_repo, gh_install, gh_list_repos, gh_login, git_amend,
@@ -57,14 +58,17 @@ pub use report::{
     batch_read_file_previews, batch_read_remote_file_previews, extract_methods_info,
     generate_report_pdf, read_csv_for_report, scan_project_files, scan_remote_project_files,
 };
-pub use settings::{get_settings, start_dictation, stop_dictation, update_settings};
+pub use settings::{
+    detect_custom_models, get_settings, start_dictation, stop_dictation, test_custom_endpoint,
+    update_settings,
+};
 pub use ssh::{
     check_control_master, clear_ssh_cache, create_remote_directory, delete_remote_file,
     delete_ssh_profile, detect_server_config, get_remote_home, get_server_config,
-    list_remote_directory, list_ssh_profiles, read_remote_file, read_remote_file_base64,
-    rename_remote_path, save_ssh_profile, scp_batch_upload, scp_dir_from_remote, scp_from_remote,
-    scp_to_remote, setup_ssh_key, spawn_ssh_terminal, stop_control_master, test_ssh_connection,
-    write_remote_file,
+    list_remote_directory, list_ssh_config_hosts, list_ssh_profiles, read_remote_file,
+    read_remote_file_base64, rename_remote_path, save_ssh_profile, scp_batch_upload,
+    scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key, spawn_ssh_terminal,
+    stop_control_master, test_ssh_connection, write_remote_file,
 };
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,

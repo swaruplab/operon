@@ -60,6 +60,7 @@ import { ReportPhasePanel } from '../report/ReportPhasePanel';
 import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
+import { getSettings, type AppSettings } from '../../lib/settings';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -986,8 +987,14 @@ interface MentionItem {
 
 interface MentionRef {
   name: string;      // display name e.g. "de_results" or "results.csv"
-  path: string;      // full path
+  path: string;      // full path (for groups: base directory)
   isDir: boolean;
+  // Added for context-menu additions and regex bulk-add groups.
+  kind?: 'file' | 'group'; // undefined = file (back-compat)
+  // Group-only fields (populated when kind === 'group')
+  pattern?: string;        // user regex that produced the group
+  paths?: string[];        // paths relative to `path` (the base dir)
+  isRemote?: boolean;      // true if the group/file is on the remote SSH host
 }
 
 function MentionPopup({
@@ -1038,6 +1045,14 @@ function MentionPopup({
  *  The @ mention just tells Claude what file/folder the user is referring to
  *  so Claude Code can decide how to inspect it using its own tools. */
 function resolveMentionContext(ref: MentionRef): string {
+  if (ref.kind === 'group' && ref.paths && ref.paths.length > 0) {
+    const count = ref.paths.length;
+    const SAMPLE = 20;
+    const sample = ref.paths.slice(0, SAMPLE).map(p => `  - ${p}`).join('\n');
+    const more = count > SAMPLE ? `\n  ... and ${count - SAMPLE} more` : '';
+    const pattern = ref.pattern ? ` matching regex /${ref.pattern}/` : '';
+    return `[Mentioned file group: ${count} files under ${ref.path}${pattern}]\n${sample}${more}`;
+  }
   const ext = ref.path.split('.').pop()?.toLowerCase() || '';
   if (ref.isDir) {
     return `[Mentioned folder: ${ref.path}]`;
@@ -1161,6 +1176,8 @@ export function ChatPanel() {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [model, setModel] = useState('claude-opus-4-20250514');
+  const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom'>('anthropic');
+  const [customModel, setCustomModel] = useState<string>('');
 
   // Load default model from user settings
   useEffect(() => {
@@ -1184,6 +1201,7 @@ export function ChatPanel() {
   const [reportOutputPath, setReportOutputPath] = useState<string | null>(null);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [reportScanProgress, setReportScanProgress] = useState<{ dirsScanned: number; filesFound: number; currentDir: string } | null>(null);
   const [reportScope, setReportScope] = useState<'comprehensive' | 'focused'>('comprehensive');
   const [reportSelectedPlan, setReportSelectedPlan] = useState<string | undefined>(undefined);
   const [planReady, setPlanReady] = useState(false); // true when plan is written and awaiting approval
@@ -1328,6 +1346,25 @@ export function ChatPanel() {
       unlistenDone?.();
       unlistenError?.();
     };
+  }, []);
+
+  // Listen for "Add to chat" context-menu events from the file explorers.
+  // Deduplicate by `path` (groups keyed by basePath+pattern).
+  useEffect(() => {
+    const handler = (evt: Event) => {
+      const ce = evt as CustomEvent<MentionRef>;
+      const ref = ce.detail;
+      if (!ref || !ref.path || !ref.name) return;
+      setMentions(prev => {
+        const key = (r: MentionRef) =>
+          r.kind === 'group' ? `group:${r.path}:${r.pattern ?? ''}` : `file:${r.path}`;
+        const existing = new Set(prev.map(key));
+        if (existing.has(key(ref))) return prev;
+        return [...prev, ref];
+      });
+    };
+    window.addEventListener('chat-add-context', handler as EventListener);
+    return () => window.removeEventListener('chat-add-context', handler as EventListener);
   }, []);
 
   // Start a fresh chat session
@@ -1651,6 +1688,35 @@ export function ChatPanel() {
     }).then((u) => unlisteners.push(u));
 
     // Listen for remote path changes from the explorer
+    // Load initial AI provider settings and listen for changes
+    const applyProviderSettings = (s: AppSettings) => {
+      const provider = s.ai_provider || 'anthropic';
+      setAiProvider(provider);
+      setCustomModel(s.custom_model || '');
+      // When custom provider is active, switch the current model to the custom one
+      // (if not already). When switching back to Anthropic, reset to opus.
+      if (provider === 'custom' && s.custom_model) {
+        setModel((prev) => (prev === s.custom_model ? prev : s.custom_model));
+      } else if (provider === 'anthropic') {
+        setModel((prev) => (prev.startsWith('claude-') ? prev : 'claude-opus-4-20250514'));
+      }
+    };
+    getSettings().then(applyProviderSettings).catch(() => {});
+    listen<AppSettings>('app-settings-changed', (event) => {
+      applyProviderSettings(event.payload);
+    }).then((u) => unlisteners.push(u));
+
+    // Listen for report scan progress
+    listen<{ dirs_scanned: number; files_found: number; current_dir: string }>('report-scan-progress', (event) => {
+      const { dirs_scanned, files_found, current_dir } = event.payload;
+      // Backend emits a zero-payload tick right before returning to signal "done"
+      if (dirs_scanned === 0 && files_found === 0 && !current_dir) {
+        setReportScanProgress(null);
+        return;
+      }
+      setReportScanProgress({ dirsScanned: dirs_scanned, filesFound: files_found, currentDir: current_dir });
+    }).then((u) => unlisteners.push(u));
+
     listen<{ profileId: string; profileName?: string; remotePath: string }>('remote-path-changed', (event) => {
       const { profileId, profileName, remotePath } = event.payload;
       setRemoteInfo((prev) => {
@@ -2644,6 +2710,7 @@ export function ChatPanel() {
         setReportPhase('scan');
         setReportError(null);
         setReportOutputPath(null);
+        setReportScanProgress(null);
 
         // Show user message
         const userMsg: ChatMessage = {
@@ -3169,12 +3236,28 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       <div className="px-3 py-1.5 border-b border-zinc-800/50 shrink-0 flex items-center gap-2">
         <select
           value={model}
-          onChange={(e) => setModel(e.target.value)}
+          onChange={(e) => {
+            if (e.target.value === '__configure_provider__') {
+              window.dispatchEvent(new CustomEvent('open-settings', { detail: { section: 'provider' } }));
+              return;
+            }
+            setModel(e.target.value);
+          }}
           className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-400 outline-none"
         >
-          <option value="claude-opus-4-20250514">claude-opus-4-20250514</option>
-          <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
-          <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+          <optgroup label="Anthropic">
+            <option value="claude-opus-4-20250514">claude-opus-4-20250514</option>
+            <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
+            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+          </optgroup>
+          {aiProvider === 'custom' && customModel && (
+            <optgroup label="Custom endpoint">
+              <option value={customModel}>{customModel}</option>
+            </optgroup>
+          )}
+          <optgroup label="—">
+            <option value="__configure_provider__">Configure provider…</option>
+          </optgroup>
         </select>
       </div>
 
@@ -3740,6 +3823,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           <ReportPhasePanel
             phase={reportPhase}
             scan={reportScan}
+            scanProgress={reportScanProgress}
             selectedFiles={reportSelectedFiles}
             onSelectionChange={setReportSelectedFiles}
             methodsInfo={reportMethodsInfo}
@@ -4028,25 +4112,39 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           {/* Mention + Attachment chips */}
           {(mentions.length > 0 || attachments.length > 0) && (
             <div className="flex flex-wrap gap-1 mb-2">
-              {mentions.map((ref, idx) => (
-                <span
-                  key={`mention-${ref.path}-${idx}`}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-900/30 border border-blue-700/40 rounded-full text-[11px] text-blue-300"
-                >
-                  {ref.isDir ? (
-                    <FolderOpen className="w-3 h-3 text-amber-400" />
-                  ) : (
-                    <FileText className="w-3 h-3 text-zinc-400" />
-                  )}
-                  {ref.name}
-                  <button
-                    onClick={() => setMentions(prev => prev.filter((_, i) => i !== idx))}
-                    className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
+              {mentions.map((ref, idx) => {
+                const isGroup = ref.kind === 'group';
+                const count = ref.paths?.length ?? 0;
+                return (
+                  <span
+                    key={`mention-${ref.path}-${ref.pattern ?? ''}-${idx}`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[11px] ${
+                      isGroup
+                        ? 'bg-purple-900/30 border-purple-700/40 text-purple-300'
+                        : 'bg-blue-900/30 border-blue-700/40 text-blue-300'
+                    }`}
+                    title={isGroup ? `${count} files matching /${ref.pattern}/ under ${ref.path}` : ref.path}
                   >
-                    {'\u2715'}
-                  </button>
-                </span>
-              ))}
+                    {isGroup ? (
+                      <FolderOpen className="w-3 h-3 text-purple-400" />
+                    ) : ref.isDir ? (
+                      <FolderOpen className="w-3 h-3 text-amber-400" />
+                    ) : (
+                      <FileText className="w-3 h-3 text-zinc-400" />
+                    )}
+                    {ref.name}
+                    {isGroup && (
+                      <span className="text-purple-400/80">({count})</span>
+                    )}
+                    <button
+                      onClick={() => setMentions(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
+                    >
+                      {'\u2715'}
+                    </button>
+                  </span>
+                );
+              })}
               {attachments.map((att, idx) => (
                 <span
                   key={`attach-${att.path}-${idx}`}

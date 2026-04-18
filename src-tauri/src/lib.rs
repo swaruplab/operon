@@ -22,6 +22,7 @@ use commands::{
     check_remote_claude,
     check_remote_claude_auth,
     check_remote_mcp_dependencies,
+    check_remote_ripgrep,
     check_session_files,
     clear_ssh_cache,
     create_directory,
@@ -29,6 +30,7 @@ use commands::{
     create_remote_directory,
     delete_api_key,
     delete_path,
+    detect_custom_models,
     delete_protocol,
     delete_remote_file,
     delete_session,
@@ -109,11 +111,13 @@ use commands::{
     install_remote_claude,
     install_remote_extension,
     install_remote_mcp_server,
+    install_remote_ripgrep,
     install_xcode_cli,
     kill_terminal,
     launch_claude_login,
     // Files
     list_directory,
+    list_files_matching_regex,
     list_installed_extensions,
     list_language_servers,
     list_mcp_servers,
@@ -121,7 +125,9 @@ use commands::{
     // Protocols
     list_protocols,
     list_remote_directory,
+    list_remote_files_matching_regex,
     list_sessions,
+    list_ssh_config_hosts,
     list_ssh_profiles,
     open_url,
     read_csv_for_report,
@@ -159,6 +165,8 @@ use commands::{
     scp_to_remote,
     // Extensions
     search_extensions,
+    search_in_directory,
+    search_in_remote_directory,
     // Knowledge Base
     search_pubmed,
     send_lsp_message,
@@ -179,6 +187,7 @@ use commands::{
     stop_dictation,
     stop_language_server,
     store_api_key,
+    test_custom_endpoint,
     test_ssh_connection,
     uninstall_extension,
     update_extension_settings,
@@ -249,6 +258,12 @@ pub fn run() {
             rename_path,
             index_project,
             index_remote_project,
+            search_in_directory,
+            search_in_remote_directory,
+            check_remote_ripgrep,
+            install_remote_ripgrep,
+            list_files_matching_regex,
+            list_remote_files_matching_regex,
             // Protocols
             list_protocols,
             read_protocol,
@@ -299,6 +314,7 @@ pub fn run() {
             // SSH
             save_ssh_profile,
             list_ssh_profiles,
+            list_ssh_config_hosts,
             get_server_config,
             detect_server_config,
             delete_ssh_profile,
@@ -323,6 +339,8 @@ pub fn run() {
             // Settings
             get_settings,
             update_settings,
+            detect_custom_models,
+            test_custom_endpoint,
             // Git & GitHub
             git_status,
             git_init,

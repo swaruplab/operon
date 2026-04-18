@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield } from 'lucide-react';
+import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield, Cpu, RefreshCw } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
 import { isMac } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
-import { DEFAULT_SETTINGS } from '../../lib/settings';
+import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint } from '../../lib/settings';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
@@ -207,16 +207,22 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  initialSection?: string;
 }
 
-export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanelProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<'editor' | 'terminal' | 'claude' | 'auth' | 'mcp' | 'extensions' | 'setup'>(
+  const [activeSection, setActiveSection] = useState<'editor' | 'terminal' | 'claude' | 'provider' | 'auth' | 'mcp' | 'extensions' | 'setup'>(
     'editor',
   );
+  // AI provider local state (independent of settings persistence so we can show pending status)
+  const [providerModels, setProviderModels] = useState<string[]>([]);
+  const [providerDetecting, setProviderDetecting] = useState(false);
+  const [providerTestResult, setProviderTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [providerTesting, setProviderTesting] = useState(false);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [authStatus, setAuthStatus] = useState<{ authenticated: boolean; method: string } | null>(null);
   const [oauthChecking, setOauthChecking] = useState(false);
@@ -297,14 +303,20 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       refreshAuthStatus();
       refreshMCPServers();
       refreshExtensionSettings();
+      // Jump to a specific section if the opener requested one
+      if (initialSection) {
+        setActiveSection(initialSection as typeof activeSection);
+      }
     }
-  }, [isOpen, refreshAuthStatus, refreshMCPServers, refreshExtensionSettings]);
+  }, [isOpen, initialSection, refreshAuthStatus, refreshMCPServers, refreshExtensionSettings]);
 
   const saveSettings = useCallback(async (updated: AppSettings) => {
     setSaving(true);
     try {
       await invoke('update_settings', { settings: updated });
       setSettings(updated);
+      // Notify other components (ChatPanel model picker, etc.) of the change.
+      emit('app-settings-changed', updated).catch(() => {});
     } catch (err) {
       console.error('Failed to save settings:', err);
     }
@@ -329,6 +341,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     { id: 'editor' as const, label: 'Editor' },
     { id: 'terminal' as const, label: 'Terminal' },
     { id: 'claude' as const, label: 'Claude' },
+    { id: 'provider' as const, label: 'AI Provider' },
     { id: 'auth' as const, label: 'Authentication' },
     { id: 'mcp' as const, label: 'MCP Servers' },
     { id: 'extensions' as const, label: 'Extension Settings' },
@@ -566,6 +579,195 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeSection === 'provider' && (
+            <div className="space-y-5">
+              <div>
+                <h3 className="text-sm font-medium text-zinc-200">AI Provider</h3>
+                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                  Route Claude Code through an OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, LiteLLM, OpenRouter, etc.). Requires a proxy that translates Anthropic Messages API to OpenAI Chat Completions.
+                </p>
+              </div>
+
+              {/* Provider choice */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => saveSettings({ ...settings, ai_provider: 'anthropic' })}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    settings.ai_provider === 'anthropic'
+                      ? 'border-blue-500/60 bg-blue-950/20'
+                      : 'border-zinc-700/50 hover:border-zinc-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className={`w-3.5 h-3.5 ${settings.ai_provider === 'anthropic' ? 'text-blue-400' : 'text-zinc-600'}`} />
+                    <span className="text-xs font-medium text-zinc-200">Anthropic</span>
+                    <span className="ml-auto text-[10px] text-zinc-500">default</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">Use the hosted Claude API. Best tool-use quality.</p>
+                </button>
+
+                <button
+                  onClick={() => saveSettings({ ...settings, ai_provider: 'custom' })}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    settings.ai_provider === 'custom'
+                      ? 'border-purple-500/60 bg-purple-950/20'
+                      : 'border-zinc-700/50 hover:border-zinc-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Cpu className={`w-3.5 h-3.5 ${settings.ai_provider === 'custom' ? 'text-purple-400' : 'text-zinc-600'}`} />
+                    <span className="text-xs font-medium text-zinc-200">OpenAI-compatible</span>
+                    <span className="ml-auto text-[10px] text-zinc-500">advanced</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">Point at a local or self-hosted endpoint.</p>
+                </button>
+              </div>
+
+              {settings.ai_provider === 'custom' && (
+                <div className="space-y-4 border-t border-zinc-800 pt-4">
+                  {/* Presets */}
+                  <div>
+                    <span className="block text-[11px] text-zinc-500 mb-1.5">Quick presets</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([
+                        { label: 'Ollama', url: 'http://localhost:11434/v1' },
+                        { label: 'LM Studio', url: 'http://localhost:1234/v1' },
+                        { label: 'vLLM', url: 'http://localhost:8000/v1' },
+                        { label: 'LiteLLM', url: 'http://localhost:4000/v1' },
+                        { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+                      ] as const).map((p) => (
+                        <button
+                          key={p.label}
+                          onClick={() => saveSettings({ ...settings, custom_base_url: p.url })}
+                          className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Base URL */}
+                  <label className="block">
+                    <span className="block text-[11px] text-zinc-400 mb-1">Base URL</span>
+                    <input
+                      type="text"
+                      value={settings.custom_base_url}
+                      onChange={(e) => saveSettings({ ...settings, custom_base_url: e.target.value })}
+                      placeholder="http://localhost:11434/v1"
+                      className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                    />
+                    <span className="block text-[10px] text-zinc-600 mt-1">The URL of your OpenAI-compatible endpoint. Must end in /v1 (or equivalent).</span>
+                  </label>
+
+                  {/* API key */}
+                  <label className="block">
+                    <span className="block text-[11px] text-zinc-400 mb-1">API key <span className="text-zinc-600">(optional for local endpoints)</span></span>
+                    <input
+                      type="password"
+                      value={settings.custom_api_key}
+                      onChange={(e) => saveSettings({ ...settings, custom_api_key: e.target.value })}
+                      placeholder="sk-…"
+                      className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                    />
+                  </label>
+
+                  {/* Model picker */}
+                  <label className="block">
+                    <span className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] text-zinc-400">Default model</span>
+                      <button
+                        onClick={async () => {
+                          setProviderDetecting(true);
+                          setProviderModels([]);
+                          try {
+                            const models = await detectCustomModels(settings.custom_base_url, settings.custom_api_key || undefined);
+                            setProviderModels(models);
+                            // Auto-select first model if none chosen yet
+                            if (!settings.custom_model && models.length > 0) {
+                              saveSettings({ ...settings, custom_model: models[0] });
+                            }
+                          } catch (e: any) {
+                            setProviderTestResult({ ok: false, msg: `Detect failed: ${e}` });
+                          } finally {
+                            setProviderDetecting(false);
+                          }
+                        }}
+                        disabled={!settings.custom_base_url.trim() || providerDetecting}
+                        className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-purple-300 hover:text-purple-200 disabled:text-zinc-600 disabled:cursor-not-allowed"
+                      >
+                        {providerDetecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        Detect models
+                      </button>
+                    </span>
+                    {providerModels.length > 0 ? (
+                      <select
+                        value={settings.custom_model}
+                        onChange={(e) => saveSettings({ ...settings, custom_model: e.target.value })}
+                        className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                      >
+                        {providerModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={settings.custom_model}
+                        onChange={(e) => saveSettings({ ...settings, custom_model: e.target.value })}
+                        placeholder="qwen2.5-coder:32b"
+                        className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                      />
+                    )}
+                  </label>
+
+                  {/* Test connection */}
+                  <div>
+                    <button
+                      onClick={async () => {
+                        setProviderTesting(true);
+                        setProviderTestResult(null);
+                        try {
+                          const msg = await testCustomEndpoint(
+                            settings.custom_base_url,
+                            settings.custom_api_key || undefined,
+                            settings.custom_model,
+                          );
+                          setProviderTestResult({ ok: true, msg });
+                        } catch (e: any) {
+                          setProviderTestResult({ ok: false, msg: String(e) });
+                        } finally {
+                          setProviderTesting(false);
+                        }
+                      }}
+                      disabled={!settings.custom_base_url.trim() || !settings.custom_model || providerTesting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs font-medium rounded-md"
+                    >
+                      {providerTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                      Test connection
+                    </button>
+                    {providerTestResult && (
+                      <div className={`mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 ${
+                        providerTestResult.ok
+                          ? 'bg-green-950/30 border border-green-800/40 text-green-300'
+                          : 'bg-red-950/30 border border-red-800/40 text-red-300'
+                      }`}>
+                        {providerTestResult.ok ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                        <span className="break-all">{providerTestResult.msg}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Caveats */}
+                  <div className="px-3 py-2 bg-amber-950/20 border border-amber-800/30 rounded text-[11px] text-amber-400/80 flex items-start gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div>
+                      Claude Code speaks the Anthropic Messages API, so this only works through a translation proxy (LiteLLM, claude-code-proxy). Agentic tool-use quality drops sharply below ~30B models. Extended thinking and some tools may not work.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

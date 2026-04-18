@@ -48,3 +48,7 @@ Desktop.ini
 # Operon session temp files
 .operon-*.jsonl
 .operon-*.done
+
+# Vendored sidecar binaries — fetched by scripts/fetch-ripgrep.sh,
+# also fetched on CI before each build. Not checked in to keep repo lean.
+src-tauri/binaries/

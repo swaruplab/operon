@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Read as _;
+use std::io::{BufRead, Read as _};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
+use tauri::Emitter;
 
 /// Helper to suppress console windows on Windows for subprocess calls.
 #[cfg(windows)]
@@ -174,10 +176,53 @@ fn dir_hint(name: &str) -> Option<&'static str> {
 
 // ── Commands ──
 
+/// Periodic progress payload emitted while scanning.
+#[derive(Debug, Serialize, Clone)]
+pub struct ScanProgress {
+    pub dirs_scanned: u64,
+    pub files_found: u64,
+    pub current_dir: String,
+}
+
+/// Holds mutable scan progress + a throttled emitter.
+struct ScanCtx {
+    app: tauri::AppHandle,
+    dirs_scanned: u64,
+    files_found: u64,
+    last_emit: Instant,
+}
+
+impl ScanCtx {
+    fn new(app: tauri::AppHandle) -> Self {
+        Self {
+            app,
+            dirs_scanned: 0,
+            files_found: 0,
+            last_emit: Instant::now() - std::time::Duration::from_millis(500),
+        }
+    }
+
+    /// Emit at most ~once per 80ms to avoid flooding the IPC channel.
+    fn tick(&mut self, current_dir: &str) {
+        if self.last_emit.elapsed().as_millis() >= 80 {
+            let _ = self.app.emit(
+                "report-scan-progress",
+                ScanProgress {
+                    dirs_scanned: self.dirs_scanned,
+                    files_found: self.files_found,
+                    current_dir: current_dir.to_string(),
+                },
+            );
+            self.last_emit = Instant::now();
+        }
+    }
+}
+
 /// Scan a project directory for reportable files (PDFs, images, CSVs).
 /// Returns a tree structure with heuristic hints for each directory.
 #[tauri::command]
 pub async fn scan_project_files(
+    app: tauri::AppHandle,
     path: String,
     show_hidden: Option<bool>,
 ) -> Result<ProjectScan, String> {
@@ -187,10 +232,26 @@ pub async fn scan_project_files(
     }
 
     let show_hidden = show_hidden.unwrap_or(false);
-    let root = scan_dir_recursive(&root_path, &root_path, 0, show_hidden)?;
+    let app_for_task = app.clone();
+    // Run the blocking filesystem walk off the async runtime thread.
+    let (root, pdfs, images, csvs, docs, code, size) = tokio::task::spawn_blocking(move || {
+        let mut ctx = ScanCtx::new(app_for_task);
+        let root = scan_dir_recursive(&root_path, &root_path, 0, show_hidden, &mut ctx)?;
+        let (pdfs, images, csvs, docs, code, size) = count_totals(&root);
+        Ok::<_, String>((root, pdfs, images, csvs, docs, code, size))
+    })
+    .await
+    .map_err(|e| format!("Scan task panicked: {}", e))??;
 
-    // Count totals
-    let (pdfs, images, csvs, docs, code, size) = count_totals(&root);
+    // Final progress tick so UI updates with the last counts before returning.
+    let _ = app.emit(
+        "report-scan-progress",
+        ScanProgress {
+            dirs_scanned: 0, // zero signals "done" on frontend (final values are in the returned scan)
+            files_found: 0,
+            current_dir: String::new(),
+        },
+    );
 
     Ok(ProjectScan {
         root,
@@ -239,14 +300,16 @@ fn scan_dir_recursive(
     _root: &Path,
     depth: u32,
     show_hidden: bool,
+    ctx: &mut ScanCtx,
 ) -> Result<ScanTreeNode, String> {
     let dir_name = dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| dir.to_string_lossy().to_string());
 
+    let dir_path_str = dir.to_string_lossy().to_string();
     let mut node = ScanTreeNode {
-        path: dir.to_string_lossy().to_string(),
+        path: dir_path_str.clone(),
         name: dir_name.clone(),
         is_dir: true,
         hint: dir_hint(&dir_name).map(|s| s.to_string()),
@@ -260,12 +323,17 @@ fn scan_dir_recursive(
         return Ok(node);
     }
 
+    // Progress: count this directory as visited and emit throttled update.
+    ctx.dirs_scanned += 1;
+    ctx.tick(&dir_path_str);
+
     let entries = std::fs::read_dir(dir)
         .map_err(|e| format!("Cannot read directory {}: {}", dir.display(), e))?;
 
     let mut dirs: Vec<PathBuf> = Vec::new();
 
     for entry in entries.flatten() {
+        let file_type_hint = entry.file_type().ok();
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
@@ -274,13 +342,16 @@ fn scan_dir_recursive(
             continue;
         }
 
-        if path.is_dir() {
+        let is_dir = file_type_hint.map(|t| t.is_dir()).unwrap_or_else(|| path.is_dir());
+        let is_file = file_type_hint.map(|t| t.is_file()).unwrap_or_else(|| path.is_file());
+
+        if is_dir {
             // Skip blacklisted directories
             if SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
             dirs.push(path);
-        } else if path.is_file() {
+        } else if is_file {
             let ext = path
                 .extension()
                 .map(|e| e.to_string_lossy().to_lowercase())
@@ -310,8 +381,8 @@ fn scan_dir_recursive(
             };
 
             if let Some(ft) = file_type {
-                let metadata = std::fs::metadata(&path).ok();
-                let size = metadata.map(|m| m.len()).unwrap_or(0);
+                // Prefer DirEntry::metadata() which avoids an extra stat() call on Unix.
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
 
                 // Skip CSVs that are too large
                 if ft == "csv" && size > MAX_CSV_SIZE {
@@ -332,22 +403,26 @@ fn scan_dir_recursive(
                     dimensions: None,
                 };
 
-                // For CSVs, extract basic metadata (column names, row count)
+                // For CSVs, read only the first line to capture column headers.
+                // Row count is deferred — computing it required reading the entire
+                // file, which was the single biggest bottleneck during scanning.
                 if ft == "csv" {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        let mut lines = content.lines();
-                        if let Some(header) = lines.next() {
+                    if let Ok(file) = std::fs::File::open(&path) {
+                        let mut reader = std::io::BufReader::new(file);
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).is_ok() && !header.is_empty() {
                             let sep = if ext == "tsv" { '\t' } else { ',' };
                             let cols: Vec<String> = header
+                                .trim_end_matches(['\r', '\n'])
                                 .split(sep)
                                 .map(|s| s.trim().trim_matches('"').to_string())
                                 .collect();
                             scanned.columns = Some(cols);
                         }
-                        scanned.rows = Some(content.lines().count().saturating_sub(1) as u64);
                     }
                 }
 
+                ctx.files_found += 1;
                 node.files.push(scanned);
             }
         }
@@ -359,7 +434,7 @@ fn scan_dir_recursive(
     // Recurse into subdirectories
     dirs.sort();
     for d in dirs {
-        let child = scan_dir_recursive(&d, _root, depth + 1, show_hidden)?;
+        let child = scan_dir_recursive(&d, _root, depth + 1, show_hidden, ctx)?;
         // Only include if it (or descendants) has reportable files
         if child.total_file_count > 0 || !child.files.is_empty() || !child.children.is_empty() {
             node.children.push(child);

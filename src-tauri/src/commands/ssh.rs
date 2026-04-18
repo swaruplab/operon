@@ -2225,3 +2225,284 @@ echo "work_dir=$HOME"
 }
 
 // get_server_config is defined earlier in this file (near list_ssh_profiles)
+
+// ── ~/.ssh/config Parser ─────────────────────────────────────────────────
+//
+// Lightweight reader for OpenSSH client config files. Surfaces the fields
+// Operon actually uses (host, user, port, identity file, ProxyJump) so the
+// "Add Connection" form can preload entries for users who already maintain
+// a ~/.ssh/config.
+//
+// Behavior:
+//   - Reads ~/.ssh/config (plus any Include'd fragments, max depth 10)
+//   - Splits "Host a b c" into individual alias rows
+//   - Drops wildcard-only aliases ("*", "*.example.com") — those are defaults,
+//     not connectable targets
+//   - Expands ~ and $HOME in IdentityFile/Include paths
+//   - Honors the SSH override rule: first matching value wins across blocks
+//     when the same alias appears multiple times (we just keep the first)
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SSHConfigHost {
+    /// Alias as written after "Host" (the thing a user types: `ssh <alias>`).
+    pub alias: String,
+    /// HostName value, or None if absent (SSH would fall back to alias).
+    pub hostname: Option<String>,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_file: Option<String>,
+    pub proxy_jump: Option<String>,
+    /// Absolute path of the config file this entry came from — shown in UI
+    /// so advanced users can tell Include'd fragments from the main config.
+    pub source_file: String,
+}
+
+/// Parse `~/.ssh/config` and return all named Host entries.
+/// Silently returns [] if the file doesn't exist.
+#[tauri::command]
+pub fn list_ssh_config_hosts() -> Result<Vec<SSHConfigHost>, String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Ok(vec![]),
+    };
+    let config_path = home.join(".ssh").join("config");
+    if !config_path.exists() {
+        return Ok(vec![]);
+    }
+    let mut hosts: Vec<SSHConfigHost> = Vec::new();
+    let mut visited: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+    parse_ssh_config_file(&config_path, &home, &mut hosts, &mut visited, 0);
+
+    // Drop wildcard-only aliases; keep first occurrence for dup aliases.
+    let mut seen_aliases: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let filtered: Vec<SSHConfigHost> = hosts
+        .into_iter()
+        .filter(|h| {
+            !h.alias.contains('*')
+                && !h.alias.contains('?')
+                && !h.alias.is_empty()
+                && seen_aliases.insert(h.alias.clone())
+        })
+        .collect();
+    Ok(filtered)
+}
+
+fn parse_ssh_config_file(
+    path: &std::path::Path,
+    home: &std::path::Path,
+    hosts: &mut Vec<SSHConfigHost>,
+    visited: &mut std::collections::HashSet<std::path::PathBuf>,
+    depth: usize,
+) {
+    if depth > 10 {
+        return;
+    }
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if !visited.insert(canon) {
+        return;
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let source_file = path.to_string_lossy().to_string();
+
+    // Current blocks under construction — one "Host a b c" produces multiple.
+    let mut current: Vec<SSHConfigHost> = Vec::new();
+    let flush =
+        |cur: &mut Vec<SSHConfigHost>, hosts: &mut Vec<SSHConfigHost>| {
+            if !cur.is_empty() {
+                hosts.extend(cur.drain(..));
+            }
+        };
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, value) = match split_ssh_kv(line) {
+            Some(kv) => kv,
+            None => continue,
+        };
+        let key_lower = key.to_ascii_lowercase();
+
+        match key_lower.as_str() {
+            "host" => {
+                flush(&mut current, hosts);
+                for alias in value.split_whitespace() {
+                    current.push(SSHConfigHost {
+                        alias: alias.to_string(),
+                        hostname: None,
+                        user: None,
+                        port: None,
+                        identity_file: None,
+                        proxy_jump: None,
+                        source_file: source_file.clone(),
+                    });
+                }
+            }
+            "hostname" => {
+                for h in current.iter_mut() {
+                    h.hostname = Some(value.to_string());
+                }
+            }
+            "user" => {
+                for h in current.iter_mut() {
+                    h.user = Some(value.to_string());
+                }
+            }
+            "port" => {
+                if let Ok(p) = value.parse::<u16>() {
+                    for h in current.iter_mut() {
+                        h.port = Some(p);
+                    }
+                }
+            }
+            "identityfile" => {
+                let expanded = expand_home_path(value, home);
+                for h in current.iter_mut() {
+                    if h.identity_file.is_none() {
+                        h.identity_file = Some(expanded.clone());
+                    }
+                }
+            }
+            "proxyjump" => {
+                for h in current.iter_mut() {
+                    h.proxy_jump = Some(value.to_string());
+                }
+            }
+            "include" => {
+                // `Include` can appear at the top OR inside a Host block;
+                // in the latter case OpenSSH still processes it, but the
+                // included fragments are treated as independent config.
+                for include_path in expand_include(value, home, path) {
+                    parse_ssh_config_file(
+                        &include_path,
+                        home,
+                        hosts,
+                        visited,
+                        depth + 1,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    flush(&mut current, hosts);
+}
+
+/// OpenSSH allows either `Key Value` or `Key = Value` with any whitespace.
+fn split_ssh_kv(line: &str) -> Option<(&str, &str)> {
+    // Find the first '=' or whitespace separator, whichever comes first.
+    let bytes = line.as_bytes();
+    let mut split = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'=' || b == b' ' || b == b'\t' {
+            split = Some(i);
+            break;
+        }
+    }
+    let idx = split?;
+    let key = line[..idx].trim();
+    // Skip any run of '=' and whitespace after the key
+    let mut rest = &line[idx..];
+    rest = rest.trim_start_matches(|c: char| c == '=' || c.is_whitespace());
+    if key.is_empty() || rest.is_empty() {
+        return None;
+    }
+    // Strip surrounding quotes
+    let value = rest.trim_matches(|c: char| c == '"' || c == '\'');
+    Some((key, value))
+}
+
+/// Expand a leading ~ or ${HOME} to the user's home directory. Leaves
+/// other paths untouched.
+fn expand_home_path(raw: &str, home: &std::path::Path) -> String {
+    let v = raw.trim();
+    if let Some(rest) = v.strip_prefix("~/") {
+        return home.join(rest).to_string_lossy().to_string();
+    }
+    if v == "~" {
+        return home.to_string_lossy().to_string();
+    }
+    if let Some(rest) = v.strip_prefix("$HOME/") {
+        return home.join(rest).to_string_lossy().to_string();
+    }
+    if let Some(rest) = v.strip_prefix("${HOME}/") {
+        return home.join(rest).to_string_lossy().to_string();
+    }
+    v.to_string()
+}
+
+/// Expand a single `Include <pattern>` line into concrete paths. Handles
+/// simple shell globs (one `*` per path segment) which is the common HPC
+/// setup (`Include ~/.ssh/config.d/*`). Relative paths resolve against
+/// the including file's directory, per OpenSSH semantics.
+fn expand_include(
+    raw: &str,
+    home: &std::path::Path,
+    including: &std::path::Path,
+) -> Vec<std::path::PathBuf> {
+    let expanded = expand_home_path(raw, home);
+    let candidate = std::path::Path::new(&expanded);
+    let absolute: std::path::PathBuf = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(parent) = including.parent() {
+        parent.join(candidate)
+    } else {
+        candidate.to_path_buf()
+    };
+
+    if !absolute.to_string_lossy().contains('*')
+        && !absolute.to_string_lossy().contains('?')
+    {
+        return if absolute.exists() {
+            vec![absolute]
+        } else {
+            vec![]
+        };
+    }
+
+    // Only handle a wildcard in the final path component (the common case).
+    let parent = absolute.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let pattern = absolute
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let mut results = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(parent) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if simple_glob_match(pattern, &name) {
+                results.push(entry.path());
+            }
+        }
+    }
+    results.sort();
+    results
+}
+
+/// Very small glob matcher: supports `*` (any substring) and `?` (single
+/// char). Good enough for SSH Include patterns.
+fn simple_glob_match(pattern: &str, name: &str) -> bool {
+    // Exact match fast path
+    if !pattern.contains('*') && !pattern.contains('?') {
+        return pattern == name;
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let s: Vec<char> = name.chars().collect();
+    fn m(p: &[char], s: &[char]) -> bool {
+        match (p.first(), s.first()) {
+            (None, None) => true,
+            (None, Some(_)) => false,
+            (Some('*'), _) => m(&p[1..], s) || (!s.is_empty() && m(p, &s[1..])),
+            (Some('?'), Some(_)) => m(&p[1..], &s[1..]),
+            (Some(&pc), Some(&sc)) if pc == sc => m(&p[1..], &s[1..]),
+            _ => false,
+        }
+    }
+    m(&p, &s)
+}

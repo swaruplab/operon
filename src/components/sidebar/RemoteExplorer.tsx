@@ -23,12 +23,15 @@ import {
   AlertCircle,
   Trash2,
   Pencil,
+  MessageSquarePlus,
+  Filter,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
+import { RegexAddDialog } from './Sidebar';
 
 const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
@@ -338,6 +341,20 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  // Regex bulk-add dialog (Part C) — open from the context menu for folders
+  const [regexDialogRoot, setRegexDialogRoot] = useState<FileEntry | null>(null);
+
+  const addToChat = useCallback((entry: FileEntry) => {
+    window.dispatchEvent(new CustomEvent('chat-add-context', {
+      detail: {
+        kind: 'file',
+        name: entry.name,
+        path: entry.path,
+        isDir: entry.is_dir,
+        isRemote: true,
+      },
+    }));
+  }, []);
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
@@ -795,12 +812,35 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{
-            left: Math.min(contextMenu.x, window.innerWidth - 180),
-            top: Math.min(contextMenu.y, window.innerHeight - 120),
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 220),
           }}
         >
+          <button
+            onClick={() => {
+              addToChat(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-300 hover:bg-zinc-700 transition-colors text-left"
+          >
+            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400 pointer-events-none" />
+            Add {contextMenu.entry.is_dir ? 'folder' : 'file'} to chat
+          </button>
+          {contextMenu.entry.is_dir && (
+            <button
+              onClick={() => {
+                setRegexDialogRoot(contextMenu.entry);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-300 hover:bg-zinc-700 transition-colors text-left"
+            >
+              <Filter className="w-3.5 h-3.5 text-purple-400 pointer-events-none" />
+              Add matching files to chat…
+            </button>
+          )}
+          <div className="border-t border-zinc-700 my-1" />
           <button
             onClick={() => {
               setRenaming(contextMenu.entry);
@@ -842,6 +882,17 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             Delete
           </button>
         </div>
+      )}
+
+      {/* Regex bulk-add dialog */}
+      {regexDialogRoot && (
+        <RegexAddDialog
+          rootPath={regexDialogRoot.path}
+          rootName={regexDialogRoot.name}
+          isRemote={true}
+          profileId={profileId}
+          onClose={() => setRegexDialogRoot(null)}
+        />
       )}
 
       {/* Rename inline input */}

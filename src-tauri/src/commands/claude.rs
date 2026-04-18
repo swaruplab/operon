@@ -27,6 +27,50 @@ fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
     cmd
 }
 
+/// Build the env vars to pass to Claude Code based on the AI provider setting.
+///
+/// - "anthropic" (default): sets `ANTHROPIC_API_KEY` from the in-memory key (if any).
+/// - "custom": sets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`, which Claude
+///   Code respects for OpenAI-compatible proxies (LiteLLM, claude-code-proxy,
+///   vLLM, Ollama w/ a shim, etc.). If no key was configured, a placeholder
+///   token is still supplied so the SDK doesn't refuse to start.
+fn ai_provider_env(
+    settings_state: &tauri::State<'_, super::settings::SettingsManager>,
+    fallback_key: &Option<String>,
+) -> Vec<(String, String)> {
+    let settings = match settings_state.settings.lock() {
+        Ok(s) => s.clone(),
+        Err(_) => return Vec::new(),
+    };
+    let base = settings.custom_base_url.trim();
+    if settings.ai_provider == "custom" && !base.is_empty() {
+        let token = if !settings.custom_api_key.is_empty() {
+            settings.custom_api_key.clone()
+        } else {
+            // Many local endpoints (Ollama, LM Studio) accept any non-empty token.
+            "local".to_string()
+        };
+        vec![
+            ("ANTHROPIC_BASE_URL".to_string(), base.to_string()),
+            ("ANTHROPIC_AUTH_TOKEN".to_string(), token),
+        ]
+    } else if let Some(k) = fallback_key {
+        vec![("ANTHROPIC_API_KEY".to_string(), k.clone())]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Render the same env vars as a `export K='V'; ...` string for injection into
+/// remote shell scripts.
+fn ai_provider_env_exports(env: &[(String, String)]) -> String {
+    let mut out = String::new();
+    for (k, v) in env {
+        out.push_str(&format!("export {}='{}'; ", k, v.replace('\'', "'\\''")));
+    }
+    out
+}
+
 /// The shell used to launch Claude sessions with `-l -c` flags.
 /// On Windows, Git Bash is required because cmd.exe doesn't support `-l`/`-c`
 /// and Claude Code itself needs a POSIX environment.
@@ -2217,16 +2261,12 @@ pub async fn start_claude_session(
             } else {
                 String::new()
             };
-            // Export API key in the script so Claude can authenticate on the remote.
-            // In terminal mode the user's shell may not have it set.
-            let api_key_line = if let Some(key) = &api_key {
-                format!(
-                    "export ANTHROPIC_API_KEY='{}'; ",
-                    key.replace('\'', "'\\''")
-                )
-            } else {
-                String::new()
-            };
+            // Export provider env vars in the script so Claude can authenticate
+            // on the remote. In terminal mode the user's shell may not have
+            // them set. For custom endpoints this emits ANTHROPIC_BASE_URL +
+            // ANTHROPIC_AUTH_TOKEN instead of ANTHROPIC_API_KEY.
+            let provider_env = ai_provider_env(&settings_state, &api_key);
+            let api_key_line = ai_provider_env_exports(&provider_env);
             let script_content = format!(
                 "{}{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
                 REMOTE_PATH_PREFIX,
@@ -2362,8 +2402,8 @@ pub async fn start_claude_session(
 
             let mut tail_cmd = AsyncCommand::new(&shell);
             tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
-            if let Some(key) = &api_key {
-                tail_cmd.env("ANTHROPIC_API_KEY", key);
+            for (k, v) in ai_provider_env(&settings_state, &api_key) {
+                tail_cmd.env(k, v);
             }
             tail_cmd.stdout(std::process::Stdio::piped());
             tail_cmd.stderr(std::process::Stdio::piped());
@@ -2627,16 +2667,11 @@ pub async fn start_claude_session(
         // For report mode, the command is `cat file | claude ...` — don't redirect stdin from /dev/null.
         // For other modes, redirect stdin to prevent Claude from hanging waiting for input.
         let stdin_redirect = if mode == "report" { "" } else { " < /dev/null" };
-        // Forward API key to the remote command — SSH doesn't forward env vars
-        // by default, and HPC servers rarely have AcceptEnv configured for custom vars.
-        let api_key_export = if let Some(key) = &api_key {
-            format!(
-                "export ANTHROPIC_API_KEY='{}'; ",
-                key.replace('\'', "'\\''")
-            )
-        } else {
-            String::new()
-        };
+        // Forward provider env vars to the remote command — SSH doesn't forward
+        // env vars by default, and HPC servers rarely have AcceptEnv configured
+        // for custom vars. For custom endpoints this forwards ANTHROPIC_BASE_URL
+        // + ANTHROPIC_AUTH_TOKEN so the remote Claude hits the same proxy.
+        let api_key_export = ai_provider_env_exports(&ai_provider_env(&settings_state, &api_key));
         let remote_cmd = format!(
             "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}cd '{}' && {}{}",
             api_key_export,
@@ -2682,8 +2717,8 @@ pub async fn start_claude_session(
         c
     };
 
-    if let Some(key) = &api_key {
-        cmd.env("ANTHROPIC_API_KEY", key);
+    for (k, v) in ai_provider_env(&settings_state, &api_key) {
+        cmd.env(k, v);
     }
 
     // On Windows, Claude Code requires Git Bash. Set the path so it can find it.
