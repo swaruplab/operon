@@ -2275,8 +2275,7 @@ pub fn list_ssh_config_hosts() -> Result<Vec<SSHConfigHost>, String> {
     parse_ssh_config_file(&config_path, &home, &mut hosts, &mut visited, 0);
 
     // Drop wildcard-only aliases; keep first occurrence for dup aliases.
-    let mut seen_aliases: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut seen_aliases: std::collections::HashSet<String> = std::collections::HashSet::new();
     let filtered: Vec<SSHConfigHost> = hosts
         .into_iter()
         .filter(|h| {
@@ -2311,12 +2310,11 @@ fn parse_ssh_config_file(
 
     // Current blocks under construction — one "Host a b c" produces multiple.
     let mut current: Vec<SSHConfigHost> = Vec::new();
-    let flush =
-        |cur: &mut Vec<SSHConfigHost>, hosts: &mut Vec<SSHConfigHost>| {
-            if !cur.is_empty() {
-                hosts.extend(cur.drain(..));
-            }
-        };
+    let flush = |cur: &mut Vec<SSHConfigHost>, hosts: &mut Vec<SSHConfigHost>| {
+        if !cur.is_empty() {
+            hosts.append(cur);
+        }
+    };
 
     for raw_line in content.lines() {
         let line = raw_line.trim();
@@ -2379,13 +2377,7 @@ fn parse_ssh_config_file(
                 // in the latter case OpenSSH still processes it, but the
                 // included fragments are treated as independent config.
                 for include_path in expand_include(value, home, path) {
-                    parse_ssh_config_file(
-                        &include_path,
-                        home,
-                        hosts,
-                        visited,
-                        depth + 1,
-                    );
+                    parse_ssh_config_file(&include_path, home, hosts, visited, depth + 1);
                 }
             }
             _ => {}
@@ -2456,9 +2448,7 @@ fn expand_include(
         candidate.to_path_buf()
     };
 
-    if !absolute.to_string_lossy().contains('*')
-        && !absolute.to_string_lossy().contains('?')
-    {
+    if !absolute.to_string_lossy().contains('*') && !absolute.to_string_lossy().contains('?') {
         return if absolute.exists() {
             vec![absolute]
         } else {
@@ -2467,11 +2457,10 @@ fn expand_include(
     }
 
     // Only handle a wildcard in the final path component (the common case).
-    let parent = absolute.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let pattern = absolute
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let parent = absolute
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let pattern = absolute.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let mut results = Vec::new();
     if let Ok(rd) = std::fs::read_dir(parent) {
         for entry in rd.flatten() {

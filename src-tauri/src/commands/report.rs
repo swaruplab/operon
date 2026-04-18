@@ -342,8 +342,12 @@ fn scan_dir_recursive(
             continue;
         }
 
-        let is_dir = file_type_hint.map(|t| t.is_dir()).unwrap_or_else(|| path.is_dir());
-        let is_file = file_type_hint.map(|t| t.is_file()).unwrap_or_else(|| path.is_file());
+        let is_dir = file_type_hint
+            .map(|t| t.is_dir())
+            .unwrap_or_else(|| path.is_dir());
+        let is_file = file_type_hint
+            .map(|t| t.is_file())
+            .unwrap_or_else(|| path.is_file());
 
         if is_dir {
             // Skip blacklisted directories

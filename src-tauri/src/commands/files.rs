@@ -1106,7 +1106,11 @@ pub async fn generate_protocol_from_files(
     for (name, content) in &file_contents {
         // Truncate very large files to avoid exceeding context limits
         let truncated = if content.len() > 50_000 {
-            format!("{}... [truncated, {} total chars]", &content[..50_000], content.len())
+            format!(
+                "{}... [truncated, {} total chars]",
+                &content[..50_000],
+                content.len()
+            )
         } else {
             content.clone()
         };
@@ -1150,7 +1154,10 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
     );
 
     // Use base64 encoding to safely pass the potentially large prompt through the shell
-    let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, meta_prompt.as_bytes());
+    let encoded = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        meta_prompt.as_bytes(),
+    );
     let shell_cmd = format!(
         "echo '{}' | base64 -d | claude -p - --max-turns 1 --output-format text",
         encoded
@@ -1193,8 +1200,19 @@ pub struct SearchResult {
 
 /// Directories skipped during recursive search.
 const SKIP_SEARCH_DIRS: &[&str] = &[
-    ".git", "node_modules", "__pycache__", ".next", ".venv", "venv",
-    ".tox", ".mypy_cache", "target", "build", "dist", ".cache", ".eggs",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".next",
+    ".venv",
+    "venv",
+    ".tox",
+    ".mypy_cache",
+    "target",
+    "build",
+    "dist",
+    ".cache",
+    ".eggs",
     ".operon-run",
 ];
 
@@ -1219,10 +1237,7 @@ fn truncate_match_text(s: &str) -> String {
 
 /// Try to run the bundled sidecar ripgrep. Returns Ok(stdout_bytes) on exit
 /// codes 0 (matches) or 1 (no matches); Err on spawn failure or exit 2.
-async fn run_rg_sidecar(
-    app: &tauri::AppHandle,
-    args: &[String],
-) -> Result<(Vec<u8>, i32), String> {
+async fn run_rg_sidecar(app: &tauri::AppHandle, args: &[String]) -> Result<(Vec<u8>, i32), String> {
     use tauri_plugin_shell::ShellExt;
     let shell = app.shell();
     let sidecar = shell
@@ -1249,7 +1264,10 @@ async fn run_rg_system(args: &[String]) -> Result<(Vec<u8>, i32), String> {
     // Quote each arg for safe passthrough. ripgrep accepts `--` to separate
     // flags from patterns, so this is fine even for pattern-like args.
     let shell_cmd = std::iter::once("rg".to_string())
-        .chain(args.iter().map(|a| format!("'{}'", a.replace('\'', "'\\''"))))
+        .chain(
+            args.iter()
+                .map(|a| format!("'{}'", a.replace('\'', "'\\''"))),
+        )
         .collect::<Vec<_>>()
         .join(" ");
     let output = crate::platform::shell_exec_async(&shell_cmd)
@@ -1365,6 +1383,7 @@ fn search_walker_fallback(
     case_sensitive: bool,
     max_results: usize,
 ) -> Vec<SearchHit> {
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         base: &std::path::Path,
         dir: &std::path::Path,
@@ -1400,7 +1419,17 @@ fn search_walker_fallback(
                 if SKIP_SEARCH_DIRS.contains(&name.as_str()) {
                     continue;
                 }
-                walk(base, &path, depth + 1, max_depth, q_lower, cs, q_raw, hits, max);
+                walk(
+                    base,
+                    &path,
+                    depth + 1,
+                    max_depth,
+                    q_lower,
+                    cs,
+                    q_raw,
+                    hits,
+                    max,
+                );
                 continue;
             }
             if md.len() > 1_000_000 {
@@ -1722,10 +1751,8 @@ pub async fn search_in_remote_directory(
     let use_regex = use_regex.unwrap_or(false);
     let max_results = max_results.unwrap_or(200).min(1000);
 
-    let query_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        query.as_bytes(),
-    );
+    let query_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, query.as_bytes());
     let root_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         root_path.as_bytes(),
@@ -1861,6 +1888,7 @@ pub struct RegexMatchResult {
 
 const REGEX_HARD_CAP: usize = 5000;
 
+#[allow(clippy::too_many_arguments)]
 fn regex_walk(
     base: &std::path::Path,
     dir: &std::path::Path,
@@ -1982,6 +2010,7 @@ pub async fn list_files_matching_regex(
 /// Same as `list_files_matching_regex` but via SSH. Uses GNU `find` to list
 /// and `grep -E` to filter. Regex flavor on the remote is ERE.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn list_remote_files_matching_regex(
     ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
     profile_id: String,
@@ -2036,11 +2065,11 @@ pub async fn list_remote_files_matching_regex(
     let script = if match_full_path {
         format!(
             "R=$(echo '{r}' | base64 -d); P=$(echo '{p}' | base64 -d); \
-find \"$R\" {depth} \\( {skip} -type f -print \\) 2>/dev/null \
-  | sed -e \"s|^$R/||\" -e \"s|^$R||\" \
-  | {match} \
-  | grep -E {case} -- \"$P\" \
-  | head -c 1048576",
+        find \"$R\" {depth} \\( {skip} -type f -print \\) 2>/dev/null \
+        | sed -e \"s|^$R/||\" -e \"s|^$R||\" \
+        | {match} \
+        | grep -E {case} -- \"$P\" \
+        | head -c 1048576",
             r = root_b64, p = pattern_b64,
             depth = depth_flag, skip = skip_pruning,
             match = match_expr,
@@ -2057,8 +2086,10 @@ find \"$R\" {depth} \\( {skip} -type f -print \\) 2>/dev/null \
   | grep -E {case} -- \"$P\" \
   | awk -F'\\t' '{{print $2}}' \
   | head -c 1048576",
-            r = root_b64, p = pattern_b64,
-            depth = depth_flag, skip = skip_pruning,
+            r = root_b64,
+            p = pattern_b64,
+            depth = depth_flag,
+            skip = skip_pruning,
             case = case_flag,
         )
     };

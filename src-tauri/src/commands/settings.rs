@@ -183,7 +183,10 @@ pub async fn detect_custom_models(
             req = req.bearer_auth(key);
         }
     }
-    let resp = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
 
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
@@ -203,7 +206,11 @@ pub async fn detect_custom_models(
     if let Some(models) = json.get("models").and_then(|v| v.as_array()) {
         let mut ids: Vec<String> = models
             .iter()
-            .filter_map(|m| m.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .filter_map(|m| {
+                m.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         ids.sort();
         return Ok(ids);
