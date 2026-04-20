@@ -182,13 +182,17 @@ use commands::{
     start_dictation,
     start_language_server,
     start_remote_language_server,
+    // Translation proxy (Anthropic ↔ OpenAI)
+    start_translation_proxy,
     stop_claude_session,
     stop_control_master,
     stop_dictation,
     stop_language_server,
+    stop_translation_proxy,
     store_api_key,
     test_custom_endpoint,
     test_ssh_connection,
+    translation_proxy_status,
     uninstall_extension,
     update_extension_settings,
     update_mcp_server_env,
@@ -204,6 +208,7 @@ use tauri::{Emitter, Manager};
 
 use commands::claude::ClaudeManager;
 use commands::extensions::ExtensionManager;
+use commands::proxy::ProxyManager;
 use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
 use commands::terminal::TerminalManager;
@@ -219,6 +224,7 @@ pub fn run() {
         .manage(SSHManager::new())
         .manage(SettingsManager::new())
         .manage(ExtensionManager::new())
+        .manage(ProxyManager::new())
         .setup(|app| {
             // Build platform-appropriate menu
             let menu = platform::build_menu(app)
@@ -341,6 +347,10 @@ pub fn run() {
             update_settings,
             detect_custom_models,
             test_custom_endpoint,
+            // Translation proxy
+            start_translation_proxy,
+            stop_translation_proxy,
+            translation_proxy_status,
             // Git & GitHub
             git_status,
             git_init,
@@ -451,6 +461,9 @@ pub fn run() {
                         }
                     }
                 }
+                // Kill the translation proxy sidecar if running
+                let proxy = window.state::<ProxyManager>();
+                let _ = proxy.stop();
             }
         })
         .run(tauri::generate_context!())

@@ -22,6 +22,9 @@ export interface AppSettings {
   custom_base_url: string;
   custom_api_key: string;
   custom_model: string;
+  /** Route custom-provider requests through the bundled Anthropic↔OpenAI
+   *  translation sidecar. Required for Ollama/vLLM/LM-Studio-<0.4.1. */
+  use_translation_proxy: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -44,6 +47,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_base_url: '',
   custom_api_key: '',
   custom_model: '',
+  use_translation_proxy: true,
 };
 
 export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {
@@ -60,4 +64,30 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function updateSettings(settings: AppSettings): Promise<void> {
   return invoke('update_settings', { settings });
+}
+
+// ── Translation proxy (Anthropic ↔ OpenAI) ───────────────────────────────
+export interface ProxyStatus {
+  running: boolean;
+  port: number | null;
+  url: string | null;
+  upstream_base_url: string | null;
+}
+
+export async function startTranslationProxy(
+  upstreamBaseUrl: string,
+  upstreamApiKey?: string,
+): Promise<string> {
+  return invoke('start_translation_proxy', {
+    upstreamBaseUrl,
+    upstreamApiKey: upstreamApiKey || null,
+  });
+}
+
+export async function stopTranslationProxy(): Promise<void> {
+  return invoke('stop_translation_proxy');
+}
+
+export async function translationProxyStatus(): Promise<ProxyStatus> {
+  return invoke('translation_proxy_status');
 }

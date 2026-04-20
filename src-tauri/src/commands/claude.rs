@@ -31,27 +31,41 @@ fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
 ///
 /// - "anthropic" (default): sets `ANTHROPIC_API_KEY` from the in-memory key (if any).
 /// - "custom": sets `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`, which Claude
-///   Code respects for OpenAI-compatible proxies (LiteLLM, claude-code-proxy,
-///   vLLM, Ollama w/ a shim, etc.). If no key was configured, a placeholder
-///   token is still supplied so the SDK doesn't refuse to start.
+///   Code respects for OpenAI-compatible proxies. When `use_translation_proxy`
+///   is enabled AND the bundled `anthropic-proxy` sidecar is running, the base
+///   URL is rewritten to the local proxy so backends that only speak OpenAI
+///   Chat Completions (Ollama, vLLM, LM Studio pre-0.4.1) work transparently.
 fn ai_provider_env(
     settings_state: &tauri::State<'_, super::settings::SettingsManager>,
+    proxy_state: &tauri::State<'_, super::proxy::ProxyManager>,
     fallback_key: &Option<String>,
 ) -> Vec<(String, String)> {
     let settings = match settings_state.settings.lock() {
         Ok(s) => s.clone(),
         Err(_) => return Vec::new(),
     };
-    let base = settings.custom_base_url.trim();
-    if settings.ai_provider == "custom" && !base.is_empty() {
+    let upstream = settings.custom_base_url.trim();
+    if settings.ai_provider == "custom" && !upstream.is_empty() {
+        // If the translation proxy is running and the user wants it, Claude
+        // Code should hit the local proxy instead of the upstream directly.
+        let effective_base = if settings.use_translation_proxy {
+            proxy_state
+                .proxy_base_url()
+                .unwrap_or_else(|| upstream.to_string())
+        } else {
+            upstream.to_string()
+        };
         let token = if !settings.custom_api_key.is_empty() {
             settings.custom_api_key.clone()
         } else {
             // Many local endpoints (Ollama, LM Studio) accept any non-empty token.
+            // The bundled proxy also tolerates this — it uses UPSTREAM_API_KEY
+            // (set at spawn time) to auth upstream, and doesn't re-check the
+            // inbound Authorization header.
             "local".to_string()
         };
         vec![
-            ("ANTHROPIC_BASE_URL".to_string(), base.to_string()),
+            ("ANTHROPIC_BASE_URL".to_string(), effective_base),
             ("ANTHROPIC_AUTH_TOKEN".to_string(), token),
         ]
     } else if let Some(k) = fallback_key {
@@ -1703,6 +1717,7 @@ pub async fn start_claude_session(
     terminal_state: tauri::State<'_, super::terminal::TerminalManager>,
     ssh_state: tauri::State<'_, super::ssh::SSHManager>,
     settings_state: tauri::State<'_, super::settings::SettingsManager>,
+    proxy_state: tauri::State<'_, super::proxy::ProxyManager>,
     app: tauri::AppHandle,
     session_id: String,
     prompt: String,
@@ -2265,7 +2280,7 @@ pub async fn start_claude_session(
             // on the remote. In terminal mode the user's shell may not have
             // them set. For custom endpoints this emits ANTHROPIC_BASE_URL +
             // ANTHROPIC_AUTH_TOKEN instead of ANTHROPIC_API_KEY.
-            let provider_env = ai_provider_env(&settings_state, &api_key);
+            let provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
             let api_key_line = ai_provider_env_exports(&provider_env);
             let script_content = format!(
                 "{}{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
@@ -2402,7 +2417,7 @@ pub async fn start_claude_session(
 
             let mut tail_cmd = AsyncCommand::new(&shell);
             tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
-            for (k, v) in ai_provider_env(&settings_state, &api_key) {
+            for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
                 tail_cmd.env(k, v);
             }
             tail_cmd.stdout(std::process::Stdio::piped());
@@ -2671,7 +2686,8 @@ pub async fn start_claude_session(
         // env vars by default, and HPC servers rarely have AcceptEnv configured
         // for custom vars. For custom endpoints this forwards ANTHROPIC_BASE_URL
         // + ANTHROPIC_AUTH_TOKEN so the remote Claude hits the same proxy.
-        let api_key_export = ai_provider_env_exports(&ai_provider_env(&settings_state, &api_key));
+        let api_key_export =
+            ai_provider_env_exports(&ai_provider_env(&settings_state, &proxy_state, &api_key));
         let remote_cmd = format!(
             "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}cd '{}' && {}{}",
             api_key_export,
@@ -2717,7 +2733,7 @@ pub async fn start_claude_session(
         c
     };
 
-    for (k, v) in ai_provider_env(&settings_state, &api_key) {
+    for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
         cmd.env(k, v);
     }
 

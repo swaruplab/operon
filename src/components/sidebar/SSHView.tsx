@@ -405,6 +405,10 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
               value={host}
               onChange={(e) => setHost(e.target.value)}
               placeholder="192.168.1.100 or hpc3.rcic.uci.edu"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
               className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
             />
           </div>
@@ -415,6 +419,10 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
                 value={user}
                 onChange={(e) => setUser(e.target.value)}
                 placeholder="root"
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+                spellCheck={false}
                 className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
               />
             </div>
@@ -424,6 +432,11 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
                 value={port}
                 onChange={(e) => setPort(e.target.value)}
                 placeholder="22"
+                inputMode="numeric"
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+                spellCheck={false}
                 className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
               />
             </div>

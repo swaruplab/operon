@@ -5,7 +5,7 @@ import { isMac } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
-import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint } from '../../lib/settings';
+import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
@@ -223,6 +223,9 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
   const [providerDetecting, setProviderDetecting] = useState(false);
   const [providerTestResult, setProviderTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [providerTesting, setProviderTesting] = useState(false);
+  const [proxyStatus, setProxyStatus] = useState<ProxyStatus>({ running: false, port: null, url: null, upstream_base_url: null });
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const [proxyError, setProxyError] = useState<string | null>(null);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
   const [authStatus, setAuthStatus] = useState<{ authenticated: boolean; method: string } | null>(null);
   const [oauthChecking, setOauthChecking] = useState(false);
@@ -303,12 +306,23 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
       refreshAuthStatus();
       refreshMCPServers();
       refreshExtensionSettings();
+      translationProxyStatus().then(setProxyStatus).catch(() => {});
       // Jump to a specific section if the opener requested one
       if (initialSection) {
         setActiveSection(initialSection as typeof activeSection);
       }
     }
   }, [isOpen, initialSection, refreshAuthStatus, refreshMCPServers, refreshExtensionSettings]);
+
+  // Poll proxy status while the Provider section is open so the status chip
+  // stays accurate if the proxy exits on its own.
+  useEffect(() => {
+    if (!isOpen || activeSection !== 'provider') return;
+    const handle = setInterval(() => {
+      translationProxyStatus().then(setProxyStatus).catch(() => {});
+    }, 2000);
+    return () => clearInterval(handle);
+  }, [isOpen, activeSection]);
 
   const saveSettings = useCallback(async (updated: AppSettings) => {
     setSaving(true);
@@ -759,11 +773,103 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     )}
                   </div>
 
+                  {/* Translation proxy — Anthropic ↔ OpenAI bridge */}
+                  <div className="px-3 py-3 bg-zinc-900/60 border border-zinc-800 rounded space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[12px] font-medium text-zinc-200 flex items-center gap-2">
+                          Translation proxy
+                          {proxyStatus.running ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-green-900/30 border border-green-800/40 text-green-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                              running :{proxyStatus.port}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-zinc-800 border border-zinc-700 text-zinc-500">
+                              <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                              stopped
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                          Bridges Claude Code's Anthropic API calls to the OpenAI Chat Completions format this endpoint speaks. Required for Ollama, vLLM, and LM Studio older than 0.4.1. Safe to leave on for any provider.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => saveSettings({ ...settings, use_translation_proxy: !settings.use_translation_proxy })}
+                        className={`shrink-0 relative inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
+                          settings.use_translation_proxy ? 'bg-purple-500' : 'bg-zinc-600'
+                        }`}
+                        aria-label="Toggle translation proxy"
+                      >
+                        <span className={`inline-block w-3.5 h-3.5 bg-white rounded-full transition-transform duration-200 ${
+                          settings.use_translation_proxy ? 'translate-x-5' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </div>
+
+                    {settings.use_translation_proxy && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async () => {
+                            setProxyBusy(true);
+                            setProxyError(null);
+                            try {
+                              await startTranslationProxy(settings.custom_base_url, settings.custom_api_key || undefined);
+                              setProxyStatus(await translationProxyStatus());
+                            } catch (e: unknown) {
+                              setProxyError(String(e));
+                            } finally {
+                              setProxyBusy(false);
+                            }
+                          }}
+                          disabled={!settings.custom_base_url.trim() || proxyBusy}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800/50 disabled:text-zinc-600 text-zinc-200 text-[11px] font-medium rounded-md border border-zinc-700"
+                        >
+                          {proxyBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          {proxyStatus.running ? 'Restart proxy' : 'Start proxy'}
+                        </button>
+                        {proxyStatus.running && (
+                          <button
+                            onClick={async () => {
+                              setProxyBusy(true);
+                              setProxyError(null);
+                              try {
+                                await stopTranslationProxy();
+                                setProxyStatus(await translationProxyStatus());
+                              } catch (e: unknown) {
+                                setProxyError(String(e));
+                              } finally {
+                                setProxyBusy(false);
+                              }
+                            }}
+                            disabled={proxyBusy}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[11px] font-medium rounded-md border border-zinc-700"
+                          >
+                            Stop
+                          </button>
+                        )}
+                        {proxyStatus.running && (
+                          <span className="text-[10px] font-mono text-zinc-500 truncate">
+                            → {proxyStatus.upstream_base_url}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {proxyError && (
+                      <div className="px-2.5 py-1.5 bg-red-950/30 border border-red-800/40 rounded text-[11px] text-red-300 flex items-start gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="break-all">{proxyError}</span>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Caveats */}
                   <div className="px-3 py-2 bg-amber-950/20 border border-amber-800/30 rounded text-[11px] text-amber-400/80 flex items-start gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <div>
-                      Claude Code speaks the Anthropic Messages API, so this only works through a translation proxy (LiteLLM, claude-code-proxy). Agentic tool-use quality drops sharply below ~30B models. Extended thinking and some tools may not work.
+                      Agentic tool-use quality drops sharply below ~30B models. Extended thinking and some tools may behave differently across backends. Remote (SSH/tmux) sessions require a manual `ssh -R {proxyStatus.port ?? '<port>'}:127.0.0.1:{proxyStatus.port ?? '<port>'}` reverse tunnel — auto-tunneling for remote modes is not yet wired in this release.
                     </div>
                   </div>
                 </div>

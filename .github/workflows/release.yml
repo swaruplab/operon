@@ -48,6 +48,10 @@ jobs:
         shell: bash
         run: bash scripts/fetch-ripgrep.sh
 
+      - name: Fetch anthropic-proxy sidecar binary
+        shell: bash
+        run: bash scripts/fetch-anthropic-proxy.sh ${{ matrix.rust-target }}
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:

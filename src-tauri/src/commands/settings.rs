@@ -12,6 +12,13 @@ fn default_ai_provider() -> String {
     "anthropic".to_string()
 }
 
+fn default_use_translation_proxy() -> bool {
+    // Default ON: when the user switches to a custom provider, Operon starts
+    // the bundled anthropic-proxy sidecar so Claude Code can talk to
+    // Ollama/vLLM/etc. without manual setup.
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -51,6 +58,14 @@ pub struct AppSettings {
     /// Model id reported by the custom endpoint (e.g. "qwen2.5-coder:32b").
     #[serde(default)]
     pub custom_model: String,
+    /// When true and `ai_provider == "custom"`, route requests through the
+    /// bundled Anthropic↔OpenAI translation proxy sidecar. Required for
+    /// backends that only speak OpenAI Chat Completions (Ollama, vLLM,
+    /// pre-0.4.1 LM Studio). Safe to leave on for endpoints that already
+    /// expose `/v1/messages` — users can disable it manually if they prefer
+    /// a direct connection.
+    #[serde(default = "default_use_translation_proxy")]
+    pub use_translation_proxy: bool,
 }
 
 impl Default for AppSettings {
@@ -76,6 +91,7 @@ impl Default for AppSettings {
             custom_base_url: String::new(),
             custom_api_key: String::new(),
             custom_model: String::new(),
+            use_translation_proxy: true,
         }
     }
 }

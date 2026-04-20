@@ -36,6 +36,9 @@ jobs:
       - name: Fetch ripgrep sidecar binaries
         shell: bash
         run: bash scripts/fetch-ripgrep.sh
+      - name: Fetch anthropic-proxy sidecar binaries
+        shell: bash
+        run: bash scripts/fetch-anthropic-proxy.sh
       - name: Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - name: Rust clippy
@@ -112,6 +115,10 @@ jobs:
       - name: Fetch ripgrep sidecar binaries
         shell: bash
         run: bash scripts/fetch-ripgrep.sh
+
+      - name: Fetch anthropic-proxy sidecar binary
+        shell: bash
+        run: bash scripts/fetch-anthropic-proxy.sh ${{ matrix.rust-target }}
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.rust-target }}

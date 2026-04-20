@@ -24,6 +24,7 @@ import {
   FolderOpen,
   Paperclip,
   MousePointerClick,
+  Cloud,
 } from 'lucide-react';
 import { adaptShortcut } from '../../lib/platform';
 
@@ -111,6 +112,107 @@ const sections: HelpSection[] = [
         title: 'Switching modes',
         content: 'Click the mode selector above the chat input to switch between Agent, Plan, Ask, and Report modes. You can switch modes mid-conversation. The mode affects what Claude is allowed to do — it doesn\'t lose context when you switch.',
         shortcut: 'Click the mode selector above the chat input',
+      },
+    ],
+  },
+  {
+    id: 'ai-providers',
+    title: 'AI Providers',
+    icon: Cloud,
+    iconColor: 'text-fuchsia-400',
+    items: [
+      {
+        title: 'Overview — Anthropic vs OpenAI-compatible',
+        content: 'Operon can route Claude Code to two kinds of endpoints:\n\n1. Anthropic (default) — the hosted Claude API. Best tool-use quality, zero setup beyond an API key, requires internet.\n\n2. OpenAI-compatible — any endpoint that speaks the OpenAI Chat Completions format. Covers local runtimes (Ollama, LM Studio, vLLM) and cloud gateways (OpenRouter, LiteLLM, Groq, Together, DeepInfra). Useful for privacy, cost control, or running fully offline.\n\nSwitch in Settings → AI provider. You can keep both configured and flip between them without losing sessions.',
+        tip: 'Agentic tool-use quality drops sharply below ~30B-parameter models. For serious coding work on OpenAI-compatible backends, prefer larger models (70B+) or cloud-hosted ones like glm-5.1:cloud, deepseek-v3.1:cloud, or GPT-4-class models via OpenRouter.',
+        action: { label: 'Open Settings', view: 'settings' },
+      },
+      {
+        title: 'Why the Translation Proxy exists',
+        content: 'Claude Code speaks the Anthropic Messages API (POST /v1/messages). Ollama, vLLM, LM Studio, and most local runtimes speak only the OpenAI Chat Completions API (POST /v1/chat/completions) — different URL, different request/response shape.\n\nTo bridge this, Operon ships a small Rust sidecar called anthropic-proxy that translates between the two formats in both directions, including streaming and tool calls. When you turn on "Use translation proxy" in the OpenAI-compatible settings panel, Operon starts this sidecar on a random local port and points Claude Code at it instead of your upstream endpoint. The sidecar then forwards translated requests to your Ollama/vLLM/etc.\n\nLeave the proxy ON for Ollama, LM Studio (<0.4.1), and vLLM. You can leave it OFF for LiteLLM and OpenRouter because those already expose an Anthropic-shaped endpoint at /v1/messages.',
+        tip: 'If Test connection succeeds but a chat session fails with "404 /v1/messages", the translation proxy is off and your endpoint doesn\'t speak Anthropic natively — turn the proxy on.',
+      },
+      {
+        title: 'Ollama — setup step by step',
+        content: '1. Install the Ollama desktop app from ollama.com/download (macOS, Windows, Linux). Launch it once; the daemon auto-starts on login and listens on http://localhost:11434.\n\n2. For cloud-hosted models (the :cloud suffix), sign in:\n    ollama signin\n  A browser tab opens for ollama.com authentication. One-time setup; credentials are stored on your machine.\n\n3. Pull a model. Either local (runs on your GPU/CPU) or cloud:\n    ollama pull llama3.1:70b             # local\n    ollama pull glm-5.1:cloud             # cloud, proxied by local daemon\n    ollama pull deepseek-v3.1:cloud\n    ollama list                            # confirm it\'s registered\n\n4. Verify the OpenAI-compatible endpoint works:\n    curl -sS http://localhost:11434/v1/models\n  You should see your pulled models in the data array.\n\n5. In Operon: Settings → AI provider → OpenAI-compatible → click the "Ollama" preset → click "Detect models" → select your model → "Test connection" → turn "Use translation proxy" ON → "Start proxy".\n\n6. Start a chat. The model you picked is used; :cloud models route via your local daemon up to ollama.com.',
+        tip: 'Ollama Cloud is a hybrid: your local daemon is always the endpoint Operon talks to, even for :cloud models. The daemon is what forwards cloud requests upstream using your signed-in credential — so the desktop app must always be running, even for cloud-only usage.',
+      },
+      {
+        title: 'Ollama — common errors',
+        content: '• "error sending request for url (http://localhost:11434/...)" — Ollama daemon isn\'t running. Launch the desktop app or run "ollama serve". Also check: curl http://localhost:11434/api/version.\n\n• "bind: address already in use" when running ollama serve — the daemon is already running (desktop app). Don\'t start a second one; just verify with lsof -iTCP:11434 -sTCP:LISTEN.\n\n• "data": null in /v1/models response — no models pulled yet. Run ollama pull <model>.\n\n• 401 Unauthorized on :cloud models — not signed in. Run ollama signin.\n\n• Stale HTTPS_PROXY env blocking localhost — if you ever exported HTTPS_PROXY in the terminal that launched Operon (e.g. for mitmproxy), the running process still has it. Fully quit Operon (Cmd-Q + pkill -f operon) and relaunch from Finder.\n\n• Model responses are short / low-quality — models under ~30B parameters struggle with agentic tool use. Try a 70B local model or a :cloud model.',
+      },
+      {
+        title: 'LM Studio — setup step by step',
+        content: '1. Install LM Studio from lmstudio.ai. Open the app.\n\n2. Download a model from the in-app search (the Discover tab). Pick something coding-focused: Qwen2.5-Coder-32B-Instruct, DeepSeek-Coder-V2, or Llama-3.1-70B.\n\n3. Load the model (click it, then "Load"). In the Developer / Local Server tab, click "Start Server". The default endpoint is http://localhost:1234/v1.\n\n4. In Operon: Settings → AI provider → OpenAI-compatible → click "LM Studio" preset (sets Base URL to http://localhost:1234/v1) → click "Detect models" → pick your loaded model → "Test connection".\n\n5. Translation proxy: LM Studio 0.4.1+ exposes an Anthropic-compatible endpoint natively at /v1/messages, so you can leave the proxy OFF. Older versions need it ON.',
+        tip: 'LM Studio shows live GPU/CPU utilization and token/sec in the Local Server panel — useful for tuning context length and batch size.',
+      },
+      {
+        title: 'vLLM — setup step by step',
+        content: 'vLLM is a production-grade inference server for NVIDIA GPUs. Best suited for lab servers or HPC login nodes, not laptops.\n\n1. Install in a Python env with CUDA:\n    pip install vllm\n\n2. Start the OpenAI-compatible server (adjust model and GPU count):\n    vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\\n      --host 0.0.0.0 --port 8000 \\\n      --tensor-parallel-size 2\n\n3. If vLLM is on a remote host, tunnel it to your laptop (recommended — keeps the port off the public network):\n    ssh -L 8000:localhost:8000 user@gpu-server\n\n4. In Operon: Settings → AI provider → OpenAI-compatible → click "vLLM" preset → adjust Base URL (http://localhost:8000/v1 if tunneled) → Detect models → Test connection → turn translation proxy ON (vLLM doesn\'t expose /v1/messages).',
+        tip: 'vLLM supports tool calls via --enable-auto-tool-choice and a chat template. Without these flags Claude Code can still chat but can\'t use tools — so pass both when launching vLLM for agent mode.',
+      },
+      {
+        title: 'LiteLLM — setup step by step',
+        content: 'LiteLLM is a thin Python proxy that exposes a unified OpenAI AND Anthropic interface in front of ~100 provider backends (OpenAI, Azure, Bedrock, Ollama, vLLM, Vertex AI, etc.). Useful when you want one config file, one set of keys, and one cost/usage dashboard for many backends.\n\n1. Install:\n    pip install "litellm[proxy]"\n\n2. Write a config at ~/litellm_config.yaml:\n    model_list:\n      - model_name: glm-5.1-cloud\n        litellm_params:\n          model: ollama/glm-5.1:cloud\n          api_base: http://localhost:11434\n      - model_name: gpt-4o\n        litellm_params:\n          model: openai/gpt-4o\n          api_key: os.environ/OPENAI_API_KEY\n\n3. Start the proxy:\n    litellm --config ~/litellm_config.yaml --port 4000\n\n4. In Operon: Settings → AI provider → OpenAI-compatible → click "LiteLLM" preset → Base URL: http://localhost:4000 (no /v1 needed — LiteLLM handles both /v1/messages and /v1/chat/completions) → Detect models → Test connection.\n\n5. Translation proxy: LiteLLM already speaks Anthropic Messages API natively. Leave the Operon translation proxy OFF.',
+        tip: 'LiteLLM exposes a dashboard at http://localhost:4000/ui with cost per model, request logs, and rate-limit settings — useful for keeping track of API spend across providers.',
+      },
+      {
+        title: 'OpenRouter — setup step by step',
+        content: 'OpenRouter is a hosted gateway that fronts models from Anthropic, OpenAI, Google, Mistral, Meta, and dozens of others — one API key, one bill, any model.\n\n1. Sign up at openrouter.ai and get an API key from Settings → Keys. Add credits ($5 minimum) or link a card.\n\n2. In Operon: Settings → AI provider → OpenAI-compatible → click "OpenRouter" preset (sets Base URL to https://openrouter.ai/api/v1) → paste your API key.\n\n3. Click "Detect models" — you\'ll see hundreds of models. Pick one:\n  • anthropic/claude-opus-4 — best Claude via OpenRouter\n  • openai/gpt-4o — flagship OpenAI\n  • google/gemini-2.0-flash-exp — fast, cheap\n  • meta-llama/llama-3.1-405b-instruct — open-weights flagship\n\n4. Translation proxy: OpenRouter speaks Anthropic Messages API at /v1/messages, so leave it OFF.\n\n5. Test connection. On first real chat, OpenRouter may prompt you to accept its terms for the chosen model family — check the OpenRouter dashboard if a request silently fails.',
+        tip: 'OpenRouter routes requests to the cheapest/fastest provider for the model you pick. You can pin a specific provider by appending :nitro or :floor to the model name (see openrouter.ai/docs for routing modifiers).',
+      },
+      {
+        title: 'Custom / self-hosted endpoints',
+        content: 'Any endpoint that speaks either OpenAI Chat Completions or Anthropic Messages API will work:\n\n• Groq (https://api.groq.com/openai/v1) — ultra-fast inference for Llama, Mixtral, Qwen.\n• Together (https://api.together.xyz/v1) — wide selection of open models.\n• DeepInfra (https://api.deepinfra.com/v1/openai) — cheap open-weights hosting.\n• Cerebras (https://api.cerebras.ai/v1) — huge models, fast.\n• Any company-internal gateway — if your IT team runs an OpenAI-compatible proxy.\n\nSetup: pick Custom preset (or blank) → paste Base URL → paste API key → Detect models → Test connection. Leave translation proxy ON unless your endpoint explicitly documents Anthropic Messages API support.',
+      },
+      {
+        title: 'Switching between providers',
+        content: 'You can switch providers at any time from Settings → AI provider. The currently-active session keeps using whatever provider it started with (so your chat history is consistent) — the switch takes effect on the next new conversation.\n\nYour settings for each mode (API keys, base URLs, model choice) are remembered separately, so you can bounce between Anthropic for heavyweight work and a local Ollama for quick questions without reconfiguring every time.',
+        tip: 'Remote (SSH/HPC) sessions and the translation proxy aren\'t yet auto-wired together. If you need a local proxy to be reachable from a remote Claude session, add a reverse tunnel manually: ssh -R <port>:127.0.0.1:<port> user@host.',
+      },
+      {
+        title: 'Troubleshooting checklist',
+        content: 'When a custom endpoint isn\'t working, go through this list in order:\n\n1. Is the endpoint itself up?\n    curl -sS <base_url>/models          # should return JSON list\n    curl -sS <base_url>/chat/completions \\\n      -H "Content-Type: application/json" \\\n      -d \'{"model":"<id>","messages":[{"role":"user","content":"ping"}],"max_tokens":4}\'\n  If curl fails, fix the endpoint first — Operon can\'t help.\n\n2. Is a stale proxy env var interfering? Check:\n    env | grep -iE "proxy|no_proxy"\n    launchctl getenv HTTPS_PROXY  (macOS)\n    scutil --proxy                (macOS system proxy)\n  Unset anything suspicious and fully relaunch Operon.\n\n3. Is the translation proxy in the right state? If your endpoint returns 404 on /v1/messages but 200 on /v1/chat/completions, proxy must be ON. If it returns 200 on both, proxy can be either — try OFF first (one fewer moving part).\n\n4. Is the model actually capable of tool use? Small local models (< 7B) often can\'t hold up in Agent mode. Drop to Ask mode to rule out model capability, or switch to a larger model.\n\n5. Check the translation proxy log panel (Settings → Translation proxy → log area) for translation errors. Many backends have quirks around tool-call JSON that show up here.',
+      },
+    ],
+  },
+  {
+    id: 'ai-providers-remote',
+    title: 'AI Providers (Remote)',
+    icon: Cloud,
+    iconColor: 'text-cyan-400',
+    items: [
+      {
+        title: 'Overview — three topologies',
+        content: 'When Claude runs on a remote server (HPC/lab machine via SSH + tmux), there are three places the model can actually live. Pick the one that matches your situation, then follow the dedicated item below:\n\n• Option A — Model on the remote server. Cleanest, no tunnels. Best if the remote has spare GPU/CPU.\n\n• Option B — Model on your laptop, remote Claude calls back through an SSH reverse tunnel. Handy if you already have Ollama on your laptop and don\'t want to install anything on the remote.\n\n• Option C — Hosted gateway (OpenRouter, LiteLLM cloud, etc.). Zero local setup, requires outbound internet from the remote.\n\nFor serious coding work on an HPC GPU node, Option A with vLLM is usually the right answer. For a quick test with no install, Option C with OpenRouter is fastest.',
+        tip: 'Remote auto-tunneling is not yet wired in this release. Option B requires you to open an SSH reverse tunnel manually and keep it open for the session.',
+      },
+      {
+        title: 'Option A — Model on the remote server',
+        content: 'Run the inference server on the remote itself; remote Claude talks to its own localhost.\n\nStep 1 — install runtime on the remote (Ollama example):\n    ssh user@server\n    curl -fsSL https://ollama.com/install.sh | sh\n    ollama serve >/tmp/ollama.log 2>&1 &\n    ollama signin                             # only if using :cloud models\n    ollama pull glm-5.1:cloud                 # or any local model\n    curl -sS http://localhost:11434/v1/models # verify\n\nOr vLLM for real GPU inference:\n    pip install vllm\n    vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\\n      --host 127.0.0.1 --port 8000 \\\n      --enable-auto-tool-choice --tool-call-parser hermes\n\nStep 2 — Operon setup:\n  1. SSH view → connect to the server.\n  2. Settings → AI provider → OpenAI-compatible.\n  3. Base URL: http://127.0.0.1:11434/v1 (or whichever port the remote uses). The URL is evaluated on the remote, so 127.0.0.1 means the remote itself.\n  4. Turn translation proxy ON.\n  5. Chat panel → switch mode to Remote → select server → pick model → send a message.',
+        tip: 'The translation proxy sidecar does not currently auto-start on the remote. If you see 404 on /v1/messages, either install anthropic-proxy on the remote and run it in tmux, or use a backend that speaks Anthropic natively (LiteLLM).',
+      },
+      {
+        title: 'Option B — Model on laptop, remote calls back via tunnel',
+        content: 'Keep Ollama (+ translation proxy) running on your laptop; open an SSH reverse tunnel so the remote Claude can reach it as if it were local.\n\nStep 1 — start Ollama + translation proxy on laptop (as for local use). In Operon settings, note the random port the translation proxy picks (shown in the Translation Proxy panel, e.g. 54321).\n\nStep 2 — open the reverse tunnel in a separate terminal and leave it running:\n    ssh -R 11434:127.0.0.1:54321 user@server\n\nThis makes the remote\'s port 11434 forward through your laptop to the translation proxy on port 54321, which in turn forwards to Ollama on 11434.\n\nStep 3 — Operon setup:\n  1. Connect to the server in the SSH view (independent of the tunnel; Operon uses its own SSH).\n  2. Settings → AI provider → OpenAI-compatible.\n  3. Base URL: http://127.0.0.1:11434/v1 (remote sees it locally thanks to -R).\n  4. Translation proxy toggle: ON (the laptop-side proxy stays up; the remote just sees it at port 11434 via the tunnel — do not double-start).\n  5. Remote mode → start chatting.',
+        tip: 'Every time Operon restarts the translation proxy, it picks a new port. You will need to re-run the ssh -R with the new port. This is why auto-tunneling is on the roadmap.',
+      },
+      {
+        title: 'Option B — gotchas',
+        content: '• Latency stack-up: remote Claude → reverse tunnel → laptop proxy → laptop Ollama → ollama.com (for :cloud). Expect 300–800 ms to first token vs ~100 ms on Option A.\n\n• Laptop sleep kills the tunnel. Either prevent sleep (caffeinate -dims) or switch to Option A for long runs.\n\n• Security: as long as your remote\'s sshd_config keeps GatewayPorts off (default), the -R tunnel only listens on the remote\'s loopback, not its public interface. Your laptop Ollama is not exposed to the internet.\n\n• HPC compute nodes: tunnels land on the login node. If Claude actually runs on a compute node (via Operon\'s Terminal mode), you need a second hop from compute node → login node. Easiest workaround: put Ollama on the compute node itself (Option A).\n\n• Port clashes: if the remote already has something on port 11434 (someone else\'s Ollama), pick a free port for -R, e.g. ssh -R 19434:127.0.0.1:54321 user@server and set Base URL to http://127.0.0.1:19434/v1.',
+      },
+      {
+        title: 'Option C — Hosted gateway (OpenRouter, LiteLLM cloud)',
+        content: 'Skip local setup entirely. Remote Claude talks directly to a cloud endpoint over HTTPS.\n\nOpenRouter walkthrough:\n  1. Sign up at openrouter.ai, get an API key (Settings → Keys), add credits.\n  2. Verify outbound internet from the remote (HPC clusters sometimes block this):\n       ssh user@server \'curl -sS -o /dev/null -w "%{http_code}\\n" https://openrouter.ai/api/v1/models\'\n     200 means you are good. 000 / timeout means the cluster blocks egress — fall back to Option A or B.\n  3. In Operon: Remote session → Settings → AI provider → OpenAI-compatible → OpenRouter preset.\n  4. Paste your API key.\n  5. Translation proxy: OFF (OpenRouter speaks Anthropic Messages API natively).\n  6. Detect models → pick one (anthropic/claude-opus-4, openai/gpt-4o, meta-llama/llama-3.1-405b-instruct, etc.) → Test connection.\n\nLiteLLM self-hosted: run the LiteLLM proxy on a machine reachable by both your laptop and your remote (typically a lab server with public IP). Point Operon at that URL from both local and remote sessions — same URL, same config, works from anywhere.',
+        tip: 'If your cluster has a outbound HTTP proxy requirement, set HTTPS_PROXY in your remote shell profile (.bashrc) and re-exec Operon\'s remote session. The proxy setting will propagate to the claude subprocess.',
+      },
+      {
+        title: 'Which option should I pick?',
+        content: 'If the remote is an HPC cluster with GPU nodes:\n  • Serious coding work → Option A with vLLM serving Qwen2.5-Coder-32B (or larger) on a GPU allocation. Best latency, best quality, no data leaves the cluster, works even when the cluster blocks outbound internet.\n  • Quick experimentation → Option C with OpenRouter (if outbound internet is allowed).\n  • Avoid Option B for long-running HPC sessions — reverse tunnels break on laptop sleep and sometimes when compute-node firewalls prune idle connections.\n\nIf the remote is a lab workstation you own:\n  • Option A with Ollama is usually the right answer. One-time install, zero ongoing tunnel hassle, full privacy.\n\nIf the remote is a shared cloud VM:\n  • Option C if outbound is allowed and you want simplicity.\n  • Option A if you care about cost predictability (single model, predictable VRAM).',
+      },
+      {
+        title: 'Remote troubleshooting',
+        content: 'Before blaming Operon, check the stack from the inside out. SSH into the server and run:\n\n1. Is the model endpoint reachable from the remote itself?\n    curl -sS http://127.0.0.1:11434/v1/models\n  (Or whatever Base URL you configured.) If this fails on the remote but works on your laptop, you are using Option B without a tunnel — see the Option B item.\n\n2. Does the remote actually see the tunneled port (Option B)?\n    ss -ltnp | grep 11434         # Linux\n    lsof -iTCP:11434 -sTCP:LISTEN # macOS\n  Expect a sshd process listening. If nothing, the -R tunnel is down.\n\n3. Does the remote have outbound internet (Option C / :cloud models)?\n    curl -sS -o /dev/null -w "%{http_code}\\n" https://openrouter.ai/api/v1/models\n    curl -sS -o /dev/null -w "%{http_code}\\n" https://ollama.com\n\n4. Is the remote Claude binary seeing your env vars? Operon injects ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN into the tmux session. Confirm:\n    tmux attach -t operon-<session>   # then inside: env | grep ANTHROPIC\n\n5. If all of the above look right but chat still fails, look at .operon-<id>.jsonl in your remote project directory — that\'s the raw stream-json output; error messages from Claude Code land there.',
       },
     ],
   },

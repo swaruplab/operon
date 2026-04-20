@@ -4,6 +4,7 @@ pub mod files;
 pub mod git;
 pub mod knowledge;
 pub mod mcp;
+pub mod proxy;
 pub mod report;
 pub mod settings;
 pub mod ssh;
@@ -54,6 +55,7 @@ pub use mcp::{
     enable_mcp_server, get_mcp_catalog, install_mcp_server, install_remote_mcp_server,
     list_mcp_servers, remove_mcp_server, update_mcp_server_env,
 };
+pub use proxy::{start_translation_proxy, stop_translation_proxy, translation_proxy_status};
 pub use report::{
     batch_read_file_previews, batch_read_remote_file_previews, extract_methods_info,
     generate_report_pdf, read_csv_for_report, scan_project_files, scan_remote_project_files,
