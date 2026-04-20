@@ -49,28 +49,28 @@ fetch_tarball() {
 }
 
 build_windows_from_source() {
-  # Upstream has no pre-built Windows binary; compile from source.
+  # Upstream anthropic-proxy-rs depends unconditionally on `daemonize`, which
+  # is Unix-only — it will not compile on Windows. Rather than block Windows
+  # builds entirely, ship a tiny stub .exe so Tauri's sidecar bundling
+  # succeeds. At runtime, proxy.rs detects Windows and surfaces a friendly
+  # "translation proxy not supported on Windows" message; users can still
+  # point Operon at a remote Anthropic-compatible endpoint directly.
   local target="x86_64-pc-windows-msvc"
   local out_name="anthropic-proxy-${target}.exe"
   local tmp
   tmp="$(mktemp -d)"
 
-  echo "  cargo install anthropic-proxy v${VERSION} from git (Windows)"
-  cargo install \
-    --git https://github.com/m0n0x41d/anthropic-proxy-rs \
-    --tag "v${VERSION}" \
-    --locked \
-    --root "$tmp" \
-    anthropic-proxy
-
-  # cargo install places the binary at <root>/bin/<name>[.exe]
-  local src="$tmp/bin/anthropic-proxy.exe"
-  if [[ ! -f "$src" ]]; then
-    src="$tmp/bin/anthropic-proxy"
-  fi
-  cp "$src" "$OUT_DIR/$out_name"
+  echo "  compiling Windows stub (upstream depends on Unix-only daemonize)"
+  cat > "$tmp/stub.rs" <<'EOF'
+fn main() {
+    eprintln!("anthropic-proxy: translation proxy is not supported on Windows.");
+    eprintln!("Use a remote Anthropic-compatible endpoint (e.g. LiteLLM) instead.");
+    std::process::exit(1);
+}
+EOF
+  rustc -O --edition 2021 "$tmp/stub.rs" -o "$OUT_DIR/$out_name"
   rm -rf "$tmp"
-  echo "  wrote  $OUT_DIR/$out_name"
+  echo "  wrote  $OUT_DIR/$out_name (stub)"
 }
 
 fetch_target() {

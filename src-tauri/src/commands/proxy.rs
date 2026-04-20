@@ -90,6 +90,20 @@ pub async fn start_translation_proxy(
     upstream_base_url: String,
     upstream_api_key: Option<String>,
 ) -> Result<String, String> {
+    // Upstream `anthropic-proxy-rs` depends on Unix-only `daemonize` and does
+    // not build on Windows. The bundled Windows sidecar is a stub that exits
+    // immediately — surface a clear error here rather than letting the spawn
+    // race with a probe timeout.
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (&app, &state, &upstream_base_url, &upstream_api_key);
+        return Err(
+            "Translation proxy is not supported on Windows. Point Operon at a remote \
+             Anthropic-compatible endpoint (e.g. LiteLLM, OpenRouter) instead."
+                .to_string(),
+        );
+    }
+
     // Kill any existing proxy first.
     state.stop()?;
 
