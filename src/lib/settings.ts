@@ -25,6 +25,10 @@ export interface AppSettings {
   /** Route custom-provider requests through the bundled Anthropic↔OpenAI
    *  translation sidecar. Required for Ollama/vLLM/LM-Studio-<0.4.1. */
   use_translation_proxy: boolean;
+  /** Use the xterm.js WebGL renderer addon. Turn off on setups where the
+   *  WebGL atlas renders with hairline / ghost-stroke artifacts (seen on
+   *  some Apple-silicon + Studio Display scaled modes). */
+  terminal_use_webgl: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -48,6 +52,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_api_key: '',
   custom_model: '',
   use_translation_proxy: true,
+  terminal_use_webgl: true,
 };
 
 export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {

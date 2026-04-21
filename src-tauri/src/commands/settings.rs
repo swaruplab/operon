@@ -19,6 +19,14 @@ fn default_use_translation_proxy() -> bool {
     true
 }
 
+fn default_terminal_use_webgl() -> bool {
+    // Default ON: WebGL is faster. Users on specific GPU/display combos (e.g.
+    // Mac mini + Apple Studio Display scaled modes) where the xterm.js WebGL
+    // atlas renders with subpixel artifacts can switch this off to force the
+    // canvas renderer.
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -66,6 +74,12 @@ pub struct AppSettings {
     /// a direct connection.
     #[serde(default = "default_use_translation_proxy")]
     pub use_translation_proxy: bool,
+    /// When true, xterm.js terminals use the WebGL renderer addon. Some GPU
+    /// and external-display combinations render the WebGL glyph atlas with
+    /// hairline / ghost-stroke artifacts — in that case users can switch to
+    /// the canvas renderer here (slower, always correct).
+    #[serde(default = "default_terminal_use_webgl")]
+    pub terminal_use_webgl: bool,
 }
 
 impl Default for AppSettings {
@@ -92,6 +106,7 @@ impl Default for AppSettings {
             custom_api_key: String::new(),
             custom_model: String::new(),
             use_translation_proxy: true,
+            terminal_use_webgl: true,
         }
     }
 }

@@ -480,6 +480,29 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
                 />
               </label>
+
+              <label className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="text-sm text-zinc-400">Use WebGL renderer</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">
+                    Faster, but some GPU + external-display combinations
+                    (e.g. Mac mini + Apple Studio Display scaled modes)
+                    render glyphs with hairline artifacts. Turn off to use
+                    the canvas renderer. Reopen the terminal tab to apply.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.terminal_use_webgl}
+                  onChange={(e) =>
+                    saveSettings({
+                      ...settings,
+                      terminal_use_webgl: e.target.checked,
+                    })
+                  }
+                  className="mt-1 h-4 w-4 accent-blue-500"
+                />
+              </label>
             </div>
           )}
 

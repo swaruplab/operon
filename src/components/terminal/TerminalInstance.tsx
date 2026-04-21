@@ -5,6 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getSettings } from '../../lib/settings';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -164,12 +165,60 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
     // Open terminal in DOM
     term.open(containerRef.current);
 
-    // Try WebGL renderer (falls back to canvas)
-    try {
-      term.loadAddon(new WebglAddon());
-    } catch {
-      console.warn('WebGL renderer not available, using canvas');
-    }
+    // WebGL renderer lifecycle:
+    //   - Respect the user's `terminal_use_webgl` setting (some GPU + external-
+    //     display combos, e.g. Mac mini + Apple Studio Display scaled modes,
+    //     render the atlas with hairline artifacts — users turn WebGL off).
+    //   - Re-dispose the addon and fall back to canvas if the WebGL context is
+    //     lost at runtime.
+    //   - Clear the glyph atlas on device-pixel-ratio changes so moving the
+    //     window between displays doesn't leave stretched/blurry glyphs.
+    let webglAddon: WebglAddon | null = null;
+    const attachWebgl = () => {
+      if (webglAddon) return;
+      try {
+        const addon = new WebglAddon();
+        addon.onContextLoss(() => {
+          console.warn('xterm WebGL context lost — falling back to canvas');
+          addon.dispose();
+          webglAddon = null;
+        });
+        term.loadAddon(addon);
+        webglAddon = addon;
+      } catch {
+        console.warn('WebGL renderer not available, using canvas');
+      }
+    };
+
+    getSettings()
+      .then((s) => {
+        if (s.terminal_use_webgl) attachWebgl();
+      })
+      .catch(() => {
+        // If settings can't load, fall back to defaults (WebGL on).
+        attachWebgl();
+      });
+
+    // Clear the texture atlas whenever DPR changes (monitor hot-plug, scaling
+    // toggle). `clearTextureAtlas` is a no-op when no atlas-backed renderer is
+    // loaded, so it's safe to call unconditionally.
+    let dprMql: MediaQueryList | null = null;
+    const attachDprWatcher = () => {
+      try {
+        dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+        const onChange = () => {
+          // Rebuild atlas against the new DPR.
+          (term as unknown as { clearTextureAtlas?: () => void }).clearTextureAtlas?.();
+          // Rebind the listener to the *new* DPR so we catch the next change.
+          dprMql?.removeEventListener('change', onChange);
+          attachDprWatcher();
+        };
+        dprMql.addEventListener('change', onChange);
+      } catch {
+        /* matchMedia missing in some embedded webviews — ignore */
+      }
+    };
+    attachDprWatcher();
 
     // Initial fit
     fitAddon.fit();
@@ -346,6 +395,10 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       unlistenOutputRef.current?.();
       unlistenExitRef.current?.();
+      // Drop the DPR watcher. We can't reference the exact listener here
+      // (it's rebound recursively), but removing the mql itself is enough —
+      // it won't fire after the term is disposed.
+      dprMql = null;
       term.dispose();
       oauthBuffer = '';
     };
