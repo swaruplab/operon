@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>MCP Catalog — Operon</title>
+<meta name="description" content="Operon's MCP (Model Context Protocol) catalog — typed tool access for Claude into PubMed, GEO, GTEx, JASPAR, KEGG, AlphaFold and more. One-click install.">
+<meta property="og:title" content="MCP Catalog — Operon">
+<meta property="og:description" content="Typed tool access for Claude into the bioinformatics databases that matter.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand"><span class="brand-dot"></span> Operon</a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html">Protocols</a></li>
+      <li><a href="mcp.html" class="active">MCP</a></li>
+      <li><a href="private-llm.html">Private LLM</a></li>
+      <li><a href="hpc.html">HPC</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(36px, 5vw, 56px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Model Context Protocol</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      Typed tool access<br>into real biology.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 0; text-align: center;">
+      Every MCP server is a native extension of Claude's toolbelt — structured APIs into PubMed, GEO, GTEx, and more. Install once, and every chat session gets the tool. No API keys to juggle. No hallucinated accession numbers.
+    </p>
+    <div class="row reveal" style="justify-content: center; margin-top: 28px; gap: 10px;">
+      <span class="pill"><span data-mcp-count>12+</span> curated MCPs</span>
+      <span class="pill">One-click install</span>
+      <span class="pill">OAuth-free</span>
+    </div>
+  </div>
+</header>
+
+<!-- EXPLAINER -->
+<section class="section" style="padding-top: clamp(24px, 4vw, 48px);">
+  <div class="wrap">
+    <div class="callout callout-accent reveal" style="padding: 24px 28px;">
+      <strong>What's an MCP?</strong> Model Context Protocol is an open standard from Anthropic for giving models structured, typed access to external tools. Instead of Claude scraping HTML or faking API calls, each MCP exposes real endpoints with real return types. Operon bundles a curated catalog — and you can add any MCP server the community publishes.
+    </div>
+  </div>
+</section>
+
+<!-- MCP GRID -->
+<section class="section" style="padding-top: clamp(16px, 3vw, 32px);">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Research MCPs</span>
+      <h2>Twelve databases. One chat.</h2>
+      <p class="lead">Each card is a real MCP server you can install from Operon's settings panel. Everything returns structured data Claude reasons over — not scraped pages.</p>
+    </div>
+
+    <div class="mcp-grid">
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4V4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+          </div>
+          <div>
+            <h3>PubMed</h3>
+            <div class="mcp-tag">Literature</div>
+          </div>
+        </div>
+        <p>Full-text literature search grounded in NCBI's E-utilities. Cite real DOIs inline during any chat — no API key required.</p>
+        <div class="mcp-tools">
+          <code>search_papers</code> <code>fetch_abstract</code> <code>get_doi</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>
+          </div>
+          <div>
+            <h3>BioMCP</h3>
+            <div class="mcp-tag">Structural</div>
+          </div>
+        </div>
+        <p>PDB structure retrieval, UniProt lookups, AlphaFold access — everything you need for structural biology in one bundle.</p>
+        <div class="mcp-tools">
+          <code>fetch_pdb</code> <code>uniprot_lookup</code> <code>alphafold_get</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 13h4M7 16h4"/></svg>
+          </div>
+          <div>
+            <h3>GEO</h3>
+            <div class="mcp-tag">Expression</div>
+          </div>
+        </div>
+        <p>Query any GSE / GSM accession, pull metadata, stream count matrices. Operon adds a caching layer so you're not re-downloading.</p>
+        <div class="mcp-tools">
+          <code>get_gse</code> <code>list_samples</code> <code>download_matrix</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18M3 12h18"/></svg>
+          </div>
+          <div>
+            <h3>GTEx</h3>
+            <div class="mcp-tag">Expression</div>
+          </div>
+        </div>
+        <p>Tissue-specific expression across the GTEx v8 release. Perfect for "is my gene expressed in this tissue?" questions.</p>
+        <div class="mcp-tools">
+          <code>gene_expression</code> <code>tissue_specificity</code> <code>eqtl_lookup</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4v16M10 4v16M15 4v16M20 4v16"/><path d="M3 9h18M3 14h18"/></svg>
+          </div>
+          <div>
+            <h3>JASPAR</h3>
+            <div class="mcp-tag">Motifs</div>
+          </div>
+        </div>
+        <p>Transcription-factor PFMs and PWMs for motif enrichment workflows. Plugs directly into your ATAC or ChIP pipeline.</p>
+        <div class="mcp-tools">
+          <code>get_motif</code> <code>scan_sequences</code> <code>enrichment</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/><path d="M7 10v4M17 10v4M10 7h4M10 17h4"/></svg>
+          </div>
+          <div>
+            <h3>KEGG</h3>
+            <div class="mcp-tag">Pathways</div>
+          </div>
+        </div>
+        <p>Pathway-level enrichment and gene-ontology crosswalks. Returns structured pathway maps you can drop into a notebook.</p>
+        <div class="mcp-tools">
+          <code>pathway_enrich</code> <code>get_pathway</code> <code>gene_to_pathway</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M5 6c3 2 6 2 7 0M5 10c3 2 6 2 7 0M5 14c3 2 6 2 7 0M19 8c-3 2-6 2-7 0M19 12c-3 2-6 2-7 0M19 16c-3 2-6 2-7 0"/></svg>
+          </div>
+          <div>
+            <h3>AlphaFold</h3>
+            <div class="mcp-tag">Structural</div>
+          </div>
+        </div>
+        <p>Predicted structures by UniProt ID, straight into PyMOL. pLDDT-aware confidence maps, aligned homologs, bulk download.</p>
+        <div class="mcp-tools">
+          <code>fetch_structure</code> <code>plddt</code> <code>align_homologs</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/></svg>
+          </div>
+          <div>
+            <h3>Gene databases</h3>
+            <div class="mcp-tag">Annotation</div>
+          </div>
+        </div>
+        <p>Cross-species ortholog lookup, Ensembl / RefSeq / HGNC resolution. Works with MyGene.info and biomaRt behind the scenes.</p>
+        <div class="mcp-tools">
+          <code>resolve_id</code> <code>ortholog</code> <code>gene_info</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c4-8 14-8 18 0"/><path d="M3 12c4 8 14 8 18 0"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <div>
+            <h3>LatchBio</h3>
+            <div class="mcp-tag">Workflow</div>
+          </div>
+        </div>
+        <p>Submit, track, and retrieve results from Latch's cloud-native bioinformatics platform — right from the chat.</p>
+        <div class="mcp-tools">
+          <code>submit_workflow</code> <code>get_status</code> <code>download_output</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M6 7V4h12v3M4 7v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7"/><path d="M9 12h6M9 16h6"/></svg>
+          </div>
+          <div>
+            <h3>Filesystem</h3>
+            <div class="mcp-tag">Core</div>
+          </div>
+        </div>
+        <p>Typed filesystem operations that respect <code>.gitignore</code>, sandbox to your project root, and work identically over SSH.</p>
+        <div class="mcp-tools">
+          <code>read_file</code> <code>write_file</code> <code>list_dir</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18"/></svg>
+          </div>
+          <div>
+            <h3>Web fetch</h3>
+            <div class="mcp-tag">Core</div>
+          </div>
+        </div>
+        <p>Controlled URL fetching with allowlists — pull a methods section, a GitHub README, or an open-access PDF without leaving the IDE.</p>
+        <div class="mcp-tools">
+          <code>fetch_url</code> <code>fetch_pdf</code> <code>extract_text</code>
+        </div>
+      </article>
+
+      <article class="mcp-card reveal">
+        <div class="mcp-head">
+          <div class="mcp-ic">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 9v11"/></svg>
+          </div>
+          <div>
+            <h3>Notebook</h3>
+            <div class="mcp-tag">Core</div>
+          </div>
+        </div>
+        <p>Read and edit Jupyter notebooks cell-by-cell. Claude can re-run a cell, inspect outputs, and patch a bug without re-running the whole thing.</p>
+        <div class="mcp-tools">
+          <code>read_cells</code> <code>edit_cell</code> <code>execute_cell</code>
+        </div>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">How it works</span>
+      <h2>From install to first query in 90 seconds.</h2>
+    </div>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-num">1</div>
+        <h4>Open Settings → MCP</h4>
+        <p>The settings panel has a dedicated MCP tab. Every bundled server is listed with a description and tool preview.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">2</div>
+        <h4>Toggle on, approve</h4>
+        <p>Flip the switch. Operon auto-installs the server binary if needed and registers it with your Claude config.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-num">3</div>
+        <h4>Ask in chat</h4>
+        <p>"Find recent papers on SPP1 in microglia." Claude picks the PubMed MCP, runs the query, cites the DOIs back.</p>
+      </div>
+    </div>
+
+    <div class="callout reveal" style="margin-top: 48px;">
+      <strong>Custom MCPs too.</strong> Paste any MCP server config (stdio, SSE, or HTTP) into the settings panel. Operon validates the schema and wires it up — same UI, same approval model.
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="background: radial-gradient(ellipse 60% 80% at 50% 120%, var(--accent-glow) 0%, transparent 60%); border-top: 1px solid var(--line);">
+  <div class="wrap text-center reveal">
+    <h2 style="font-size: clamp(2rem, 4.5vw, 3rem); margin-bottom: 16px;">Give Claude the right tools.</h2>
+    <p class="lead" style="margin: 0 auto 32px;">Install Operon — the MCP catalog is built-in. No extra setup.</p>
+    <div class="row" style="justify-content: center; gap: 12px;">
+      <a href="download.html" class="btn btn-primary btn-lg">Download Operon</a>
+      <a href="guide.html" class="btn btn-ghost btn-lg">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col"><h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
+</footer>
+
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<style>
+  .mcp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+  }
+  .mcp-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    transition: border-color .2s, transform .2s, background .2s;
+  }
+  .mcp-card:hover {
+    border-color: var(--line-2);
+    transform: translateY(-2px);
+    background: var(--bg-3);
+  }
+  .mcp-head { display: flex; align-items: flex-start; gap: 14px; }
+  .mcp-ic {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    background: rgba(59,130,246,.1);
+    color: var(--accent-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .mcp-ic svg { width: 22px; height: 22px; }
+  .mcp-head h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 2px; }
+  .mcp-tag {
+    font-size: 0.72rem;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 500;
+  }
+  .mcp-card p { font-size: 0.92rem; color: var(--text-3); line-height: 1.55; }
+  .mcp-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    margin-top: auto;
+  }
+  .mcp-tools code {
+    font-size: 0.76rem;
+    padding: 2px 7px;
+    background: var(--bg-3);
+  }
+
+  /* Steps */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+  }
+  .step {
+    padding: 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .step-num {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 1rem;
+  }
+  .step h4 { color: var(--text); margin-bottom: 8px; font-size: 1.05rem; }
+  .step p { color: var(--text-3); font-size: 0.92rem; line-height: 1.55; }
+</style>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ pub mod report;
 pub mod settings;
 pub mod ssh;
 pub mod terminal;
+pub mod watchdog;
 
 pub use claude::{
     archive_current_plan, check_auth_status, check_claude_installed, check_existing_plan,
@@ -74,6 +75,11 @@ pub use ssh::{
 };
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,
+};
+pub use watchdog::{
+    detect_scheduler, get_job_policy, install_watchdog, list_watched_jobs, read_job_events,
+    register_watched_job, set_job_policy, start_job_tail, start_watchdog, stop_job_tail,
+    stop_watchdog, unregister_watched_job, watchdog_status,
 };
 
 #[tauri::command]

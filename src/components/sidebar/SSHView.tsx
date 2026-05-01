@@ -4,6 +4,7 @@ import {
   MonitorSmartphone,
   Trash2,
   Plug,
+  Unplug,
   X,
   Server,
   KeyRound,
@@ -22,9 +23,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { SSHProfile, AuthType, KeySetupProgress } from '../../lib/ssh';
 import { SERVER_CONFIG_FIELDS } from '../../lib/ssh';
+import { getSettings } from '../../lib/settings';
+import { disconnectRemote } from '../../lib/disconnect';
 
 interface SSHViewProps {
   onConnectSSH?: (profileId: string, terminalId: string) => void;
+  /** Profile id of the currently active remote, if any. Drives the inline Disconnect button. */
+  connectedProfileId?: string | null;
 }
 
 // Matches the Rust SSHConfigHost struct returned by `list_ssh_config_hosts`.
@@ -38,7 +43,7 @@ interface SSHConfigHost {
   source_file: string;
 }
 
-export function SSHView({ onConnectSSH }: SSHViewProps) {
+export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   const [profiles, setProfiles] = useState<SSHProfile[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editProfile, setEditProfile] = useState<SSHProfile | null>(null);
@@ -215,12 +220,34 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
       sshCmd += ` -i "${profile.key_file}"`;
     }
 
+    // --- Tmux auto-wrap ---
+    // Survivability: wrap the remote shell in a shared tmux session so
+    // long-running jobs keep going after Operon quits or the laptop sleeps.
+    // Falls through gracefully if tmux is missing — we guard with a shell
+    // `command -v tmux` check so the session still opens on tmux-less hosts.
+    let usedTmux = false;
+    let tmuxSession = '';
+    try {
+      const settings = await getSettings();
+      if (settings.ssh_auto_tmux) {
+        tmuxSession = (settings.ssh_tmux_session || 'operon-main').replace(/[^A-Za-z0-9_-]/g, '');
+        // `-t -t` forces a tty even when a command is given.
+        // Single-quoted remote command — we escape a couple of special chars.
+        const remote = `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec \"$SHELL\" -l`;
+        sshCmd += ` -t -t "${remote.replace(/"/g, '\\"')}"`;
+        usedTmux = true;
+      }
+    } catch {
+      /* settings unavailable — fall back to bare ssh */
+    }
+
     await emit('open-ssh-terminal', {
       terminalId,
-      title: `SSH: ${profile.name}`,
+      title: usedTmux ? `SSH: ${profile.name} (tmux)` : `SSH: ${profile.name}`,
       sshCommand: sshCmd,
       profileId: profile.id,
       profileName: profile.name,
+      tmuxSession: usedTmux ? tmuxSession : null,
     });
     onConnectSSH?.(profile.id, terminalId);
 
@@ -776,16 +803,25 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto py-1">
-          {profiles.map((profile) => (
+          {profiles.map((profile) => {
+            const isConnected = connectedProfileId === profile.id;
+            return (
             <div
               key={profile.id}
-              className="group px-3 py-2 hover:bg-zinc-800/50 cursor-pointer border-b border-zinc-800/30"
+              className={`group px-3 py-2 cursor-pointer border-b border-zinc-800/30 ${
+                isConnected ? 'bg-green-500/5 hover:bg-green-500/10' : 'hover:bg-zinc-800/50'
+              }`}
               onDoubleClick={() => handleEdit(profile)}
             >
               <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-zinc-500 shrink-0" />
+                <Server className={`w-4 h-4 shrink-0 ${isConnected ? 'text-green-500' : 'text-zinc-500'}`} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-zinc-300 truncate">{profile.name}</div>
+                  <div className="text-sm text-zinc-300 truncate flex items-center gap-1.5">
+                    {profile.name}
+                    {isConnected && (
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" title="Connected" />
+                    )}
+                  </div>
                   <div className="text-xs text-zinc-600 truncate">
                     {profile.user}@{profile.host}:{profile.port}
                     {profile.server_config && Object.keys(profile.server_config).length > 0 && (
@@ -795,14 +831,26 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => handleConnect(profile)}
-                    className="p-1 rounded hover:bg-zinc-700 text-green-500"
-                    title="Connect"
-                  >
-                    <Plug className="w-3.5 h-3.5" />
-                  </button>
+                <div className={`flex items-center gap-1 transition-opacity ${
+                  isConnected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                }`}>
+                  {isConnected ? (
+                    <button
+                      onClick={() => disconnectRemote(profile.id)}
+                      className="p-1 rounded hover:bg-zinc-700 text-yellow-500"
+                      title="Disconnect — closes terminals + explorer, returns to local"
+                    >
+                      <Unplug className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleConnect(profile)}
+                      className="p-1 rounded hover:bg-zinc-700 text-green-500"
+                      title="Connect"
+                    >
+                      <Plug className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(profile.id)}
                     className="p-1 rounded hover:bg-zinc-700 text-red-500"
@@ -863,7 +911,8 @@ export function SSHView({ onConnectSSH }: SSHViewProps) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

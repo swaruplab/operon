@@ -25,6 +25,7 @@ import { RemoteExplorer } from './RemoteExplorer';
 import { ProtocolsView } from './ProtocolsView';
 import { GitPanel } from './GitPanel';
 import { ExtensionsView } from './ExtensionsView';
+import { JobsView } from './JobsView';
 import { dockerExtension } from './DockerPanel';
 import { singularityExtension } from './SingularityPanel';
 import { invoke } from '@tauri-apps/api/core';
@@ -32,7 +33,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 
-const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html'; mimeType: string }> = {
+const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
   jpg: { binaryType: 'image', mimeType: 'image/jpeg' },
   jpeg: { binaryType: 'image', mimeType: 'image/jpeg' },
@@ -45,6 +46,12 @@ const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html'; 
   pdf: { binaryType: 'pdf', mimeType: 'application/pdf' },
   html: { binaryType: 'html', mimeType: 'text/html' },
   htm: { binaryType: 'html', mimeType: 'text/html' },
+  xlsx: { binaryType: 'xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  xlsm: { binaryType: 'xlsx', mimeType: 'application/vnd.ms-excel.sheet.macroEnabled.12' },
+  xls: { binaryType: 'xlsx', mimeType: 'application/vnd.ms-excel' },
+  pptx: { binaryType: 'pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  pptm: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12' },
+  ppt: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint' },
 };
 
 interface SidebarProps {
@@ -383,14 +390,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
     } else {
       try {
         const ext = item.name.split('.').pop()?.toLowerCase() || '';
-        const binaryExts: Record<string, { binaryType: 'image' | 'pdf' | 'html'; mimeType: string }> = {
-          png: { binaryType: 'image', mimeType: 'image/png' },
-          jpg: { binaryType: 'image', mimeType: 'image/jpeg' },
-          jpeg: { binaryType: 'image', mimeType: 'image/jpeg' },
-          gif: { binaryType: 'image', mimeType: 'image/gif' },
-          pdf: { binaryType: 'pdf', mimeType: 'application/pdf' },
-        };
-        const binaryInfo = binaryExts[ext];
+        const binaryInfo = BINARY_EXTENSIONS[ext];
         if (binaryInfo) {
           const base64Content = await invoke<string>('read_file_base64', { path: item.path });
           openBinaryFile(item.path, base64Content, binaryInfo.mimeType, binaryInfo.binaryType, false);
@@ -1202,6 +1202,17 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     return () => { unlisten.then((u) => u()); };
   }, [onViewChange]);
 
+  // Listen for disconnect-remote: clear sshConnection so the explorer/search/protocols
+  // panels return to local mode, ready for a fresh connection to a different server.
+  useEffect(() => {
+    const unlisten = listen<{ profileId: string }>('disconnect-remote', (event) => {
+      const { profileId } = event.payload;
+      setSSHConnection((prev) => (prev?.profileId === profileId ? null : prev));
+      setCurrentRemotePath((prev) => (prev ? '' : prev));
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
   // Listen for tool panel events from ExtensionsView
   useEffect(() => {
     const handleOpenToolPanel = (event: Event) => {
@@ -1231,7 +1242,10 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       )}
       {activeView === 'git' && <GitPanel />}
       {activeView === 'extensions' && <ExtensionsView />}
-      {activeView === 'ssh' && <SSHView onConnectSSH={() => {}} />}
+      {activeView === 'ssh' && (
+        <SSHView onConnectSSH={() => {}} connectedProfileId={sshConnection?.profileId ?? null} />
+      )}
+      {activeView === 'jobs' && <JobsView />}
       {activeView === 'protocols' && (
         <ProtocolsView
           activeProtocolIds={activeProtocolIds}

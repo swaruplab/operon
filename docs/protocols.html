@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>Protocols — Operon</title>
+<meta name="description" content="180+ curated bioinformatics protocols — from scRNA-seq to spatial, imaging, ATAC, AlphaFold and more. Each encodes conda envs, QC gates, and SLURM resource hints.">
+<meta property="og:title" content="Protocols — Operon">
+<meta property="og:description" content="180+ curated bioinformatics protocols you can run from the chat panel.">
+<meta property="og:image" content="img/protocols-list.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand"><span class="brand-dot"></span> Operon</a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html" class="active">Protocols</a></li>
+      <li><a href="mcp.html">MCP</a></li>
+      <li><a href="private-llm.html">Private LLM</a></li>
+      <li><a href="hpc.html">HPC</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(36px, 5vw, 56px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Protocols library</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      <span data-protocol-count>180+</span> analyses,<br>curated by biologists.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 0; text-align: center;">
+      Every protocol encodes real-world best practices — conda environments, tool versions, QC gates, SLURM resource hints — so Claude doesn't guess. Pick one to start, generate a new one, or describe your own.
+    </p>
+  </div>
+</header>
+
+<!-- FILTER BAR -->
+<section class="section" style="padding-top: clamp(16px, 3vw, 40px); padding-bottom: 0;">
+  <div class="wrap">
+
+    <!-- Search -->
+    <div class="reveal" style="display:flex; justify-content:center; margin-bottom: 24px;">
+      <div class="search-wrap">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-ic"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input type="search" data-protocol-search placeholder="Search protocols — scanpy, deseq2, alphafold…" aria-label="Search protocols">
+      </div>
+    </div>
+
+    <!-- Category pills -->
+    <div class="reveal cat-bar">
+      <button class="cat-pill active" data-protocol-cat="all">All</button>
+      <button class="cat-pill" data-protocol-cat="single-cell">Single-cell</button>
+      <button class="cat-pill" data-protocol-cat="bulk">Bulk RNA-seq</button>
+      <button class="cat-pill" data-protocol-cat="spatial">Spatial</button>
+      <button class="cat-pill" data-protocol-cat="imaging">Imaging</button>
+      <button class="cat-pill" data-protocol-cat="epigenomics">Epigenomics</button>
+      <button class="cat-pill" data-protocol-cat="structural">Structural</button>
+      <button class="cat-pill" data-protocol-cat="databases">Databases</button>
+      <button class="cat-pill" data-protocol-cat="visualization">Visualization</button>
+      <button class="cat-pill" data-protocol-cat="ml">ML / AI</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- PROTOCOL GRID -->
+<main class="section" style="padding-top: clamp(32px, 4vw, 48px);">
+  <div class="wrap">
+    <div class="proto-grid">
+
+      <!-- Single-cell -->
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="scanpy end-to-end">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>Scanpy end-to-end</h3>
+        <p>QC filtering, normalization, HVG selection, PCA, Leiden clustering, UMAP, marker genes.</p>
+        <div class="proto-meta"><code>scanpy</code> · <code>anndata</code> · Python 3.11</div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="seurat integration harmony sctransform">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>Seurat integration</h3>
+        <p>Multi-dataset harmonization with SCTransform and Harmony — batch correction done right.</p>
+        <div class="proto-meta"><code>Seurat v5</code> · <code>harmony</code> · R 4.4</div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="scrna-seq cell type annotation">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>Cell-type annotation</h3>
+        <p>Automated annotation with CellTypist + manual marker review in a reproducible notebook.</p>
+        <div class="proto-meta"><code>celltypist</code> · <code>scanpy</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="scvelo rna velocity dynamics">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>scVelo RNA velocity</h3>
+        <p>Dynamical and stochastic velocity models with arrow overlays on your UMAP.</p>
+        <div class="proto-meta"><code>scvelo</code> · <code>velocyto</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="doublet detection scrublet">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>Doublet detection</h3>
+        <p>Scrublet on each sample separately, with automatic threshold selection and QC plots.</p>
+        <div class="proto-meta"><code>scrublet</code> · <code>doubletdetection</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="single-cell" data-name="cellchat communication ligand receptor">
+        <span class="pill pill-sc">Single-cell</span>
+        <h3>CellChat communication</h3>
+        <p>Ligand-receptor inference across cell types, with circos and heatmap visualizations.</p>
+        <div class="proto-meta"><code>CellChat</code> · <code>NicheNet</code></div>
+      </article>
+
+      <!-- Bulk RNA-seq -->
+      <article class="proto-card reveal" data-protocol-card data-category="bulk" data-name="deseq2 bulk rna-seq differential expression">
+        <span class="pill pill-bk">Bulk RNA-seq</span>
+        <h3>DESeq2 differential expression</h3>
+        <p>Count modelling with shrinkage, LFC estimates, dispersion plots, and volcano output.</p>
+        <div class="proto-meta"><code>DESeq2</code> · <code>apeglm</code> · R 4.4</div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="bulk" data-name="pydeseq2 python differential expression">
+        <span class="pill pill-bk">Bulk RNA-seq</span>
+        <h3>PyDESeq2</h3>
+        <p>Pure-Python DESeq2 reimplementation — perfect for HPC where R envs are painful.</p>
+        <div class="proto-meta"><code>pydeseq2</code> · <code>pandas</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="bulk" data-name="star salmon quantification">
+        <span class="pill pill-bk">Bulk RNA-seq</span>
+        <h3>STAR + Salmon quantification</h3>
+        <p>Two-pass STAR alignment plus Salmon quant with decoy-aware index, wrapped in Snakemake.</p>
+        <div class="proto-meta"><code>STAR</code> · <code>salmon</code> · <code>snakemake</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="bulk" data-name="gsea enrichment pathway analysis">
+        <span class="pill pill-bk">Bulk RNA-seq</span>
+        <h3>GSEA enrichment</h3>
+        <p>Pre-ranked GSEA with MSigDB hallmark, C5, and custom gene sets. Tidy tables + plots.</p>
+        <div class="proto-meta"><code>fgsea</code> · <code>msigdbr</code></div>
+      </article>
+
+      <!-- Spatial -->
+      <article class="proto-card reveal" data-protocol-card data-category="spatial" data-name="visium 10x spatial transcriptomics">
+        <span class="pill pill-sp">Spatial</span>
+        <h3>Visium / 10x spatial</h3>
+        <p>Space Ranger outputs → Scanpy/Seurat spatial object → spot clustering and niches.</p>
+        <div class="proto-meta"><code>squidpy</code> · <code>SpaceRanger</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="spatial" data-name="cell2location deconvolution">
+        <span class="pill pill-sp">Spatial</span>
+        <h3>cell2location deconvolution</h3>
+        <p>Reference scRNA → spatial cell-type abundance maps with Bayesian uncertainty.</p>
+        <div class="proto-meta"><code>cell2location</code> · <code>scvi-tools</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="spatial" data-name="xenium merfish subcellular">
+        <span class="pill pill-sp">Spatial</span>
+        <h3>Xenium / MERFISH</h3>
+        <p>Subcellular-resolution ingestion, cell-boundary QC, and spatial neighborhood analysis.</p>
+        <div class="proto-meta"><code>squidpy</code> · <code>scanpy</code></div>
+      </article>
+
+      <!-- Imaging -->
+      <article class="proto-card reveal" data-protocol-card data-category="imaging" data-name="cellpose segmentation microscopy">
+        <span class="pill pill-im">Imaging</span>
+        <h3>CellPose segmentation</h3>
+        <p>Cell-boundary masks with Cyto, Nuclei, or custom-trained models; GPU-aware.</p>
+        <div class="proto-meta"><code>cellpose</code> · <code>tifffile</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="imaging" data-name="stardist nuclear segmentation">
+        <span class="pill pill-im">Imaging</span>
+        <h3>StarDist nuclei</h3>
+        <p>Shape-aware star-convex polygon detection for dense nuclei in IF / IHC / DAPI.</p>
+        <div class="proto-meta"><code>stardist</code> · <code>tensorflow</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="imaging" data-name="deepcell tissue segmentation">
+        <span class="pill pill-im">Imaging</span>
+        <h3>DeepCell tissue</h3>
+        <p>Whole-tissue Mesmer segmentation for multiplexed IF (CODEX, MIBI, IMC).</p>
+        <div class="proto-meta"><code>deepcell</code> · <code>tensorflow</code></div>
+      </article>
+
+      <!-- Epigenomics -->
+      <article class="proto-card reveal" data-protocol-card data-category="epigenomics" data-name="atac-seq pipeline chromatin">
+        <span class="pill pill-ep">Epigenomics</span>
+        <h3>ATAC-seq pipeline</h3>
+        <p>Trim, align with bowtie2, call peaks with MACS2, annotate, and compute FRiP / TSS.</p>
+        <div class="proto-meta"><code>bowtie2</code> · <code>MACS2</code> · <code>ataqv</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="epigenomics" data-name="chip-seq pipeline histone">
+        <span class="pill pill-ep">Epigenomics</span>
+        <h3>ChIP-seq pipeline</h3>
+        <p>Broad or narrow peak calling with MACS2; deepTools bigWig QC; motif enrichment.</p>
+        <div class="proto-meta"><code>MACS2</code> · <code>deepTools</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="epigenomics" data-name="cut and run chromatin profiling">
+        <span class="pill pill-ep">Epigenomics</span>
+        <h3>CUT&amp;RUN / CUT&amp;Tag</h3>
+        <p>Low-input chromatin profiling with SEACR peak calling and spike-in normalization.</p>
+        <div class="proto-meta"><code>SEACR</code> · <code>bowtie2</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="epigenomics" data-name="scatac archr signac snapatac">
+        <span class="pill pill-ep">Epigenomics</span>
+        <h3>scATAC-seq (ArchR)</h3>
+        <p>Tile matrix, gene-score inference, peak-to-gene linkage, and motif footprinting.</p>
+        <div class="proto-meta"><code>ArchR</code> · <code>Signac</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="epigenomics" data-name="jaspar transcription factor motif">
+        <span class="pill pill-ep">Epigenomics</span>
+        <h3>JASPAR motif enrichment</h3>
+        <p>TF-binding-site enrichment in peak sets with JASPAR PFMs + HOMER backups.</p>
+        <div class="proto-meta"><code>JASPAR</code> · <code>HOMER</code></div>
+      </article>
+
+      <!-- Structural -->
+      <article class="proto-card reveal" data-protocol-card data-category="structural" data-name="alphafold structure prediction pdb">
+        <span class="pill pill-st">Structural</span>
+        <h3>AlphaFold lookup</h3>
+        <p>Fetch predicted structure by UniProt ID, visualize pLDDT, align homologs.</p>
+        <div class="proto-meta"><code>alphafold-db</code> · <code>PyMOL</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="structural" data-name="pymol molecular visualization">
+        <span class="pill pill-st">Structural</span>
+        <h3>PyMOL scripts</h3>
+        <p>Batch structural rendering with publication-ready ray-traced images.</p>
+        <div class="proto-meta"><code>PyMOL</code> · <code>pymol-remote</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="structural" data-name="biopython sequence analysis">
+        <span class="pill pill-st">Structural</span>
+        <h3>Biopython toolkit</h3>
+        <p>FASTA/PDB parsing, BLAST, multiple-sequence alignment, phylogeny helpers.</p>
+        <div class="proto-meta"><code>biopython</code></div>
+      </article>
+
+      <!-- Databases -->
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="pubmed literature search ncbi">
+        <span class="pill pill-db">Databases</span>
+        <h3>PubMed literature</h3>
+        <p>Search NCBI E-utilities, retrieve abstracts, cite DOIs inline during chat sessions.</p>
+        <div class="proto-meta"><code>eutils</code> · <code>Biopython</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="geo gene expression omnibus">
+        <span class="pill pill-db">Databases</span>
+        <h3>GEO datasets</h3>
+        <p>Query GSE / GSM accessions, pull metadata, stream count matrices to disk.</p>
+        <div class="proto-meta"><code>GEOparse</code> · <code>ffq</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="gtex tissue expression">
+        <span class="pill pill-db">Databases</span>
+        <h3>GTEx expression</h3>
+        <p>Tissue-specific gene expression and eQTL lookup across the GTEx v8 release.</p>
+        <div class="proto-meta"><code>gtexpy</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="kegg pathway enrichment">
+        <span class="pill pill-db">Databases</span>
+        <h3>KEGG pathways</h3>
+        <p>Pathway enrichment and gene-ontology crosswalks — human, mouse, more.</p>
+        <div class="proto-meta"><code>KEGGREST</code> · <code>gseapy</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="ensembl refseq gene annotation">
+        <span class="pill pill-db">Databases</span>
+        <h3>Gene annotation</h3>
+        <p>Cross-species ortholog lookup, Ensembl ↔ RefSeq ↔ HGNC resolution.</p>
+        <div class="proto-meta"><code>mygene</code> · <code>biomaRt</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="databases" data-name="latchbio workflow cloud">
+        <span class="pill pill-db">Databases</span>
+        <h3>LatchBio integration</h3>
+        <p>Submit and track workflows on Latch's cloud-native bioinformatics platform.</p>
+        <div class="proto-meta"><code>latch</code></div>
+      </article>
+
+      <!-- Visualization -->
+      <article class="proto-card reveal" data-protocol-card data-category="visualization" data-name="enhanced volcano plot differential">
+        <span class="pill pill-vz">Visualization</span>
+        <h3>Enhanced volcano plot</h3>
+        <p>Publication-ready volcano plots with labeled hits, thresholds, and custom styling.</p>
+        <div class="proto-meta"><code>EnhancedVolcano</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="visualization" data-name="umap dimensionality reduction">
+        <span class="pill pill-vz">Visualization</span>
+        <h3>UMAP projections</h3>
+        <p>Tune <code>n_neighbors</code>, <code>min_dist</code>, and seed for reproducible embeddings.</p>
+        <div class="proto-meta"><code>umap-learn</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="visualization" data-name="matplotlib seaborn plotting">
+        <span class="pill pill-vz">Visualization</span>
+        <h3>Matplotlib / seaborn</h3>
+        <p>Lab-branded style sheets for consistent figures across manuscripts and grants.</p>
+        <div class="proto-meta"><code>matplotlib</code> · <code>seaborn</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="visualization" data-name="complexheatmap clustering">
+        <span class="pill pill-vz">Visualization</span>
+        <h3>ComplexHeatmap</h3>
+        <p>Multi-annotation heatmaps with dendrograms, splits, and composite color bars.</p>
+        <div class="proto-meta"><code>ComplexHeatmap</code></div>
+      </article>
+
+      <!-- ML / AI -->
+      <article class="proto-card reveal" data-protocol-card data-category="ml" data-name="transformers hugging face biollm">
+        <span class="pill pill-ml">ML / AI</span>
+        <h3>HuggingFace transformers</h3>
+        <p>Fine-tune or run inference with Geneformer, scGPT, and other biology-domain LLMs.</p>
+        <div class="proto-meta"><code>transformers</code> · <code>torch</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="ml" data-name="scvi-tools probabilistic single cell">
+        <span class="pill pill-ml">ML / AI</span>
+        <h3>scVI probabilistic models</h3>
+        <p>Latent-space modelling for batch correction, differential expression, and imputation.</p>
+        <div class="proto-meta"><code>scvi-tools</code></div>
+      </article>
+      <article class="proto-card reveal" data-protocol-card data-category="ml" data-name="pytorch deep learning">
+        <span class="pill pill-ml">ML / AI</span>
+        <h3>PyTorch training loops</h3>
+        <p>GPU-aware templates — DataLoader, mixed precision, checkpointing, W&amp;B logging.</p>
+        <div class="proto-meta"><code>pytorch</code> · <code>accelerate</code></div>
+      </article>
+
+    </div>
+
+    <!-- Empty state (hidden) -->
+    <div class="text-center text-muted" style="margin-top: 64px;">
+      <p>Don't see what you need? Ask the agent — it can write any protocol on demand.</p>
+    </div>
+
+  </div>
+</main>
+
+<!-- GENERATE YOUR OWN -->
+<section class="section section-divider" style="background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 40%, var(--bg) 100%);">
+  <div class="wrap">
+    <div class="frow">
+      <div class="frow-text reveal">
+        <span class="eyebrow">Protocol generator</span>
+        <h2>Don't find it?<br>Generate it.</h2>
+        <p>Describe the workflow you need — "cross-species single-cell integration with batch correction and SCENIC TF inference" — and Operon writes the full protocol: tool choices, parameters, conda env, QC gates, and output plots.</p>
+        <ul>
+          <li>Every generated protocol is saved locally and version-controlled</li>
+          <li>Reviewed inline before the agent executes a single command</li>
+          <li>Shareable with your lab as a starting point for future sessions</li>
+        </ul>
+        <div class="mt-6 row" style="gap: 12px;">
+          <a href="download.html" class="btn btn-primary">Download Operon</a>
+          <a href="guide.html#protocols" class="btn btn-ghost">Protocol docs →</a>
+        </div>
+      </div>
+      <div class="frow-media reveal">
+        <img src="img/protocol-generate.png" alt="Operon protocol generator interface" loading="lazy" onerror="this.style.display='none'">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col"><h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
+</footer>
+
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<style>
+  /* Search bar */
+  .search-wrap {
+    position: relative;
+    width: min(560px, 100%);
+  }
+  .search-wrap .search-ic {
+    position: absolute;
+    top: 50%; left: 18px;
+    transform: translateY(-50%);
+    color: var(--text-3);
+    pointer-events: none;
+  }
+  .search-wrap input {
+    width: 100%;
+    padding: 14px 18px 14px 48px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 0.98rem;
+    transition: border-color .15s, background .15s;
+  }
+  .search-wrap input::placeholder { color: var(--text-3); }
+  .search-wrap input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--bg-3);
+    box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+  }
+
+  /* Category pills */
+  .cat-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+  .cat-pill {
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--text-3);
+    font-size: 0.86rem;
+    font-weight: 500;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .cat-pill:hover { color: var(--text); border-color: var(--text-3); }
+  .cat-pill.active {
+    color: var(--bg);
+    background: var(--text);
+    border-color: var(--text);
+  }
+
+  /* Protocol cards */
+  .proto-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .proto-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 22px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color .2s, transform .2s, background .2s;
+  }
+  .proto-card:hover {
+    border-color: var(--line-2);
+    transform: translateY(-2px);
+    background: var(--bg-3);
+  }
+  .proto-card h3 { font-size: 1.05rem; color: var(--text); }
+  .proto-card p { font-size: 0.9rem; color: var(--text-3); line-height: 1.55; }
+  .proto-meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    color: var(--muted);
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+    margin-top: auto;
+  }
+  .proto-meta code {
+    font-size: 0.72rem;
+    padding: 0 4px;
+  }
+
+  .pill-sc { align-self: flex-start; background: rgba(59,130,246,.1); color: var(--accent-2); border-color: rgba(59,130,246,.3); }
+  .pill-bk { align-self: flex-start; background: rgba(168,85,247,.1); color: #c4b5fd; border-color: rgba(168,85,247,.3); }
+  .pill-sp { align-self: flex-start; background: rgba(236,72,153,.1); color: #f9a8d4; border-color: rgba(236,72,153,.3); }
+  .pill-im { align-self: flex-start; background: rgba(249,115,22,.1); color: #fdba74; border-color: rgba(249,115,22,.3); }
+  .pill-ep { align-self: flex-start; background: rgba(34,197,94,.1); color: #86efac; border-color: rgba(34,197,94,.3); }
+  .pill-st { align-self: flex-start; background: rgba(6,182,212,.1); color: #67e8f9; border-color: rgba(6,182,212,.3); }
+  .pill-db { align-self: flex-start; background: rgba(234,179,8,.1); color: #fde047; border-color: rgba(234,179,8,.3); }
+  .pill-vz { align-self: flex-start; background: rgba(239,68,68,.1); color: #fca5a5; border-color: rgba(239,68,68,.3); }
+  .pill-ml { align-self: flex-start; background: rgba(99,102,241,.1); color: #a5b4fc; border-color: rgba(99,102,241,.3); }
+</style>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

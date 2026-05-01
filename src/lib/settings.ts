@@ -29,6 +29,11 @@ export interface AppSettings {
    *  WebGL atlas renders with hairline / ghost-stroke artifacts (seen on
    *  some Apple-silicon + Studio Display scaled modes). */
   terminal_use_webgl: boolean;
+  /** Wrap new SSH terminals in a shared tmux session so jobs survive Operon
+   *  quitting / laptop sleeping. No-op if the remote has no tmux installed. */
+  ssh_auto_tmux: boolean;
+  /** Name of the shared tmux session Operon attaches to. */
+  ssh_tmux_session: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -53,6 +58,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_model: '',
   use_translation_proxy: true,
   terminal_use_webgl: true,
+  ssh_auto_tmux: true,
+  ssh_tmux_session: 'operon-main',
 };
 
 export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {

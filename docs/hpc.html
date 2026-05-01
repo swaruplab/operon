@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>HPC Mode — Operon</title>
+<meta name="description" content="Run Claude inside your SLURM / PBS / SGE compute jobs. Persistent tmux sessions, shared-filesystem aware, resumable from any machine.">
+<meta property="og:title" content="HPC Mode — Operon">
+<meta property="og:description" content="The AI IDE that actually understands your cluster.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand"><span class="brand-dot"></span> Operon</a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html">Protocols</a></li>
+      <li><a href="mcp.html">MCP</a></li>
+      <li><a href="private-llm.html">Private LLM</a></li>
+      <li><a href="hpc.html" class="active">HPC</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(36px, 5vw, 56px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">HPC-native</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      Run on your cluster,<br>not your laptop.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 0; text-align: center;">
+      Operon's terminal mode runs Claude inside a persistent <code>tmux</code> session on your HPC compute node. Sessions survive dropped Wi-Fi, closed laptops, and overnight jobs. Your data never leaves the cluster.
+    </p>
+    <div class="row reveal" style="justify-content: center; margin-top: 28px; gap: 10px;">
+      <span class="pill">SLURM</span>
+      <span class="pill">PBS / Torque</span>
+      <span class="pill">SGE</span>
+      <span class="pill">tmux + SSH</span>
+      <span class="pill">ProxyJump</span>
+    </div>
+  </div>
+</header>
+
+<!-- SCREENSHOT -->
+<section class="section" style="padding-top: clamp(16px, 3vw, 40px); padding-bottom: 0;">
+  <div class="wrap-wide">
+    <figure class="reveal" style="border-radius: var(--radius-lg); border: 1px solid var(--line); overflow: hidden; background: var(--bg-2); box-shadow: 0 40px 100px rgba(0,0,0,.55);">
+      <img src="img/tour-hpc.png" alt="Operon connected to an HPC cluster over SSH" style="display: block; width: 100%; height: auto;" onerror="this.style.display='none'">
+    </figure>
+  </div>
+</section>
+
+<!-- HPC COST/TIME ESTIMATOR -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal" style="max-width: 760px;">
+      <span class="eyebrow">Back-of-envelope estimator</span>
+      <h2>How much time will this cost me?</h2>
+      <p class="lead">Adjust the knobs for a rough sketch of runtime and node allocation — based on what our lab has actually observed on real clusters.</p>
+    </div>
+
+    <div class="reveal hpc-estimator" data-hpc-estimator>
+      <div class="hpc-controls">
+        <div class="hpc-field">
+          <label for="hpc-type">Analysis type</label>
+          <select id="hpc-type" data-hpc-type>
+            <option value="scrna">scRNA-seq (Seurat + CellRanger)</option>
+            <option value="bulk" selected>Bulk RNA-seq (STAR + DESeq2)</option>
+            <option value="atac">ATAC-seq (Bowtie2 + MACS2)</option>
+            <option value="wgs">Whole-genome (BWA + GATK)</option>
+            <option value="spatial">Spatial (Space Ranger)</option>
+          </select>
+        </div>
+        <div class="hpc-field">
+          <label for="hpc-samples">Number of samples <span class="hpc-value" data-hpc-echo-samples>6</span></label>
+          <input type="range" id="hpc-samples" data-hpc-samples min="1" max="96" step="1" value="6">
+        </div>
+        <div class="hpc-field">
+          <label for="hpc-size">Average FASTQ size (GB per sample) <span class="hpc-value"><span data-hpc-echo-size>10</span> GB</span></label>
+          <input type="range" id="hpc-size" data-hpc-size min="1" max="100" step="1" value="10">
+        </div>
+        <p class="hpc-note">Estimator treats runtime as <code>baseHours × samples × (size/10GB)^0.7</code>. Real wall-time depends on queue times, I/O contention, and reference genome.</p>
+      </div>
+      <div class="hpc-output">
+        <h4>Estimate</h4>
+        <div class="hpc-metric highlight">
+          <span class="hpc-metric-label">HPC runtime</span>
+          <span class="hpc-metric-value" data-hpc-hours>—</span>
+        </div>
+        <div class="hpc-metric">
+          <span class="hpc-metric-label">Suggested partition</span>
+          <span class="hpc-metric-value" data-hpc-partition>—</span>
+        </div>
+        <div class="hpc-metric">
+          <span class="hpc-metric-label">Cores per job</span>
+          <span class="hpc-metric-value" data-hpc-cores>—</span>
+        </div>
+        <div class="hpc-metric">
+          <span class="hpc-metric-label">Peak memory</span>
+          <span class="hpc-metric-value" data-hpc-memory>—</span>
+        </div>
+        <div class="hpc-metric">
+          <span class="hpc-metric-label">Laptop → HPC</span>
+          <span class="hpc-metric-value" data-hpc-speedup>—</span>
+        </div>
+        <p class="hpc-note" style="margin-top: 12px;">For <strong><span data-hpc-echo-type>—</span></strong> on <strong><span data-hpc-echo-samples>—</span></strong> samples × <strong><span data-hpc-echo-size>—</span> GB</strong> each.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CORE BENEFITS -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Why HPC mode</span>
+      <h2>An AI IDE that actually understands your cluster.</h2>
+    </div>
+
+    <div class="feature-grid reveal">
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 20h8M12 17v3"/></svg>
+        <h4>Persistent tmux sessions</h4>
+        <p>Every chat runs inside a named tmux session. Close your laptop, switch machines, or reconnect next week — the session's still there.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 12l3 3 5-6"/></svg>
+        <h4>Claude on the compute node</h4>
+        <p>The agent runs where the data lives. No round-tripping TB-scale files back to your Mac. SLURM jobs, GPU nodes, anywhere.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        <h4>Respects your shell</h4>
+        <p>Your conda envs, lmod modules, <code>.bashrc</code> aliases — all work. Operon injects commands into your actual shell, not <code>bash -c</code>.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h4>Session resume</h4>
+        <p>Reopen Operon on any Mac, Windows, or Linux machine. Your active and completed sessions are waiting, hydrated from metadata on disk.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h5M8 16h8"/></svg>
+        <h4>Shared-filesystem aware</h4>
+        <p>Operon writes output files to the shared working directory, not node-local <code>/tmp</code>. Login and compute nodes see the same state.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 0 1 5 5v3a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"/><path d="M12 14v6M8 20h8"/></svg>
+        <h4>Duo, MFA, ProxyJump</h4>
+        <p>Native <code>openssh</code> under the hood. Whatever auth dance your institution requires, Operon honours it — including SSH agent forwarding.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/><circle cx="7" cy="6" r="1.5" fill="currentColor"/><circle cx="11" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="18" r="1.5" fill="currentColor"/></svg>
+        <h4>SLURM · PBS · SGE</h4>
+        <p>Schedule jobs directly from chat. Operon knows the grammar of the big three schedulers and picks the right one based on the host's toolchain.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6 4 4 6-6"/><path d="M14 9h6v6"/></svg>
+        <h4>Live output streaming</h4>
+        <p>A second SSH connection tails the agent's NDJSON log from the login node, so you can watch a job execute on a compute node in real time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section section-divider" style="background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 40%, var(--bg) 100%);">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Architecture</span>
+      <h2>How it actually works.</h2>
+      <p class="lead">Three processes, one cluster. Here's the flow, honestly — no hand-waving.</p>
+    </div>
+
+    <div class="flow reveal">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div>
+          <h4>You send a prompt</h4>
+          <p>Operon writes a command into your existing tmux session — preserving aliases and conda envs:</p>
+          <pre><code>cd /scratch/project && claude -p "$PROMPT" \
+  --verbose --output-format stream-json \
+  &gt; .operon-SESSION.jsonl 2&gt;&amp;1</code></pre>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div>
+          <h4>A separate SSH tails the output</h4>
+          <p>The NDJSON stream is tailed from the login node and fed back to Operon over SSH. Output files live on the shared filesystem — never <code>/tmp</code>.</p>
+          <pre><code>ssh login-node "tail -f /scratch/project/.operon-SESSION.jsonl"</code></pre>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div>
+          <h4>Operon parses + renders</h4>
+          <p>Each NDJSON line is parsed into a typed event and rendered into the chat panel — tool calls, thinking blocks, tokens, the lot.</p>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div>
+          <h4>Session metadata persists</h4>
+          <p>Claude's session ID, working directory, SSH profile, and timestamps are saved to <code>~/.operon/sessions/</code>. Resume with <code>--resume SESSION_ID</code> from any machine.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SLURM WALKTHROUGH -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">SLURM walkthrough</span>
+      <h2>From login node to GPU job.</h2>
+    </div>
+
+    <div class="recipe reveal">
+      <div class="recipe-step">
+        <div class="step-num">1</div>
+        <h4>Connect over SSH</h4>
+        <p>Activity bar → SSH → New connection. Hostname, username, key or password. Supports ProxyJump via <code>~/.ssh/config</code>.</p>
+      </div>
+      <div class="recipe-step">
+        <div class="step-num">2</div>
+        <h4>Grab an interactive compute node</h4>
+        <pre><code>srun --pty --nodes=1 --cpus-per-task=8 \
+     --mem=64G --time=04:00:00 \
+     --gres=gpu:1 --partition=gpu bash</code></pre>
+      </div>
+      <div class="recipe-step">
+        <div class="step-num">3</div>
+        <h4>Start (or attach to) a tmux session</h4>
+        <pre><code>tmux new-session -A -s operon</code></pre>
+        <p class="text-muted" style="font-size: .88rem;"><code>-A</code> attaches if the session exists, creates if it doesn't.</p>
+      </div>
+      <div class="recipe-step">
+        <div class="step-num">4</div>
+        <h4>Chat in Operon</h4>
+        <p>Your chat panel now targets the compute node. Ask for an analysis — Claude runs it here, with access to the GPU you allocated.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCHEDULERS -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Scheduler templates</span>
+      <h2>Three schedulers, zero gotchas.</h2>
+    </div>
+
+    <div class="sched-grid">
+      <div class="card reveal">
+        <h4>SLURM</h4>
+        <pre><code>#!/bin/bash
+#SBATCH --job-name=operon
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=04:00:00
+#SBATCH --gres=gpu:1</code></pre>
+      </div>
+      <div class="card reveal">
+        <h4>PBS / Torque</h4>
+        <pre><code>#!/bin/bash
+#PBS -N operon
+#PBS -l nodes=1:ppn=8:gpus=1
+#PBS -l mem=64gb
+#PBS -l walltime=04:00:00
+#PBS -q gpu</code></pre>
+      </div>
+      <div class="card reveal">
+        <h4>SGE</h4>
+        <pre><code>#!/bin/bash
+#$ -N operon
+#$ -pe smp 8
+#$ -l h_vmem=8G
+#$ -l h_rt=04:00:00
+#$ -l gpu=1</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GOTCHAS -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">HPC gotchas, honestly</span>
+      <h2>What we learned running this on real clusters.</h2>
+    </div>
+
+    <div class="gotcha-list">
+      <div class="gotcha reveal">
+        <h4><span class="gotcha-tag">/tmp</span> is node-local</h4>
+        <p>Writing output to <code>/tmp</code> on a compute node means the login node can't tail it. Operon writes to your shared working directory so both sides see the same file.</p>
+      </div>
+      <div class="gotcha reveal">
+        <h4><span class="gotcha-tag">claude</span> is often an alias</h4>
+        <p>On most HPCs, <code>claude</code> resolves to <code>npx @anthropic-ai/claude-code</code>. That alias only exists in your interactive shell — piping to <code>bash</code> loses it. Operon runs commands in your shell directly.</p>
+      </div>
+      <div class="gotcha reveal">
+        <h4><span class="gotcha-tag">ssh</span> 9.x post-quantum warnings</h4>
+        <p>Newer OpenSSH emits warnings about <code>sntrup</code> / <code>mlkem</code> key exchange. We filter those from stderr so they don't show up as false errors in the chat.</p>
+      </div>
+      <div class="gotcha reveal">
+        <h4><span class="gotcha-tag">Quoting</span> across SSH chains</h4>
+        <p>Local shell → SSH → remote shell → <code>bash -c</code> is a nightmare of layered quoting. Operon base64-encodes complex scripts to avoid the whole mess.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="background: radial-gradient(ellipse 60% 80% at 50% 120%, var(--accent-glow) 0%, transparent 60%); border-top: 1px solid var(--line);">
+  <div class="wrap text-center reveal">
+    <h2 style="font-size: clamp(2rem, 4.5vw, 3rem); margin-bottom: 16px;">Bring your cluster.</h2>
+    <p class="lead" style="margin: 0 auto 32px;">Set up a profile once. Resume sessions forever.</p>
+    <div class="row" style="justify-content: center; gap: 12px;">
+      <a href="download.html" class="btn btn-primary btn-lg">Download Operon</a>
+      <a href="tutorials.html#ssh" class="btn btn-ghost btn-lg">Watch the SSH tutorial</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col"><h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
+</footer>
+
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<style>
+  /* Flow steps */
+  .flow { display: flex; flex-direction: column; gap: 16px; max-width: 820px; margin: 0 auto; }
+  .flow-step {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 20px;
+    padding: 24px 28px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .flow-num {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+  }
+  .flow-step h4 { color: var(--text); margin-bottom: 8px; }
+  .flow-step p { color: var(--text-3); font-size: 0.95rem; }
+  .flow-step pre { margin-top: 12px; font-size: 0.84rem; }
+
+  /* Recipe */
+  .recipe { display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 780px; margin: 0 auto; }
+  .recipe-step {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .recipe-step .step-num {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+  }
+  .recipe-step h4 { color: var(--text); margin-bottom: 10px; grid-column: 2; }
+  .recipe-step pre { grid-column: 2; font-size: 0.84rem; }
+  .recipe-step p { grid-column: 2; color: var(--text-3); }
+
+  /* Scheduler grid */
+  .sched-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .sched-grid .card h4 { color: var(--text); margin-bottom: 14px; }
+  .sched-grid pre { font-size: 0.82rem; padding: 16px; margin: 0; }
+
+  /* Gotchas */
+  .gotcha-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .gotcha {
+    padding: 22px 26px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .gotcha h4 { color: var(--text); margin-bottom: 8px; font-size: 1rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .gotcha p { color: var(--text-3); font-size: 0.9rem; line-height: 1.55; }
+  .gotcha-tag {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.78rem;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(234,179,8,.12);
+    color: #fde047;
+    border: 1px solid rgba(234,179,8,.3);
+  }
+</style>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

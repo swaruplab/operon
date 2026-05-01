@@ -2396,13 +2396,15 @@ pub async fn start_claude_session(
                    TAIL_CMD=\"tail -f '{}'\"; \
                  fi; \
                  eval $TAIL_CMD & TAIL_PID=$!; \
+                 ( while [ ! -f '{}' ]; do sleep 30; printf '{{\"type\":\"heartbeat\"}}\\n'; done ) & HB_PID=$!; \
                  while [ ! -f '{}' ]; do sleep 0.5; done; \
-                 sleep 0.5; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null; \
+                 sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
                  cat '{}'; \
                  rm -f '{}' '{}'",
                 output_file, output_file,
                 output_file.replace('\'', "'\\''"),
                 output_file.replace('\'', "'\\''"),
+                done_file,
                 done_file,
                 output_file.replace('\'', "'\\''"),
                 output_file, done_file,
@@ -3435,13 +3437,15 @@ pub async fn reconnect_tail(
          else \
            cat '{}'; tail -f -n +$(($(wc -l < '{}' | tr -d ' ') + 1)) '{}' & TAIL_PID=$!; \
          fi; \
+         ( while [ ! -f '{}' ]; do sleep 30; printf '{{\"type\":\"heartbeat\"}}\\n'; done ) & HB_PID=$!; \
          while [ ! -f '{}' ]; do sleep 0.5; done; \
-         sleep 0.5; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null; \
+         sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
          cat '{}'",
         done_file, output_file,
         output_file,
         output_file, output_file, output_file,
         output_file, output_file, output_file,
+        done_file,
         done_file,
         output_file,
     );

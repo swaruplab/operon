@@ -35,6 +35,8 @@ use commands::{
     delete_session,
     delete_ssh_profile,
     detect_custom_models,
+    // Watchdog (Operon 0.6.1 — HPC job monitoring)
+    detect_scheduler,
     detect_server_config,
     disable_extension,
     disable_mcp_server,
@@ -59,6 +61,7 @@ use commands::{
     get_extension_reviews,
     get_extension_settings,
     get_home_dir,
+    get_job_policy,
     // MCP
     get_mcp_catalog,
     get_namespace_extensions,
@@ -112,6 +115,7 @@ use commands::{
     install_remote_extension,
     install_remote_mcp_server,
     install_remote_ripgrep,
+    install_watchdog,
     install_xcode_cli,
     kill_terminal,
     launch_claude_login,
@@ -129,12 +133,14 @@ use commands::{
     list_sessions,
     list_ssh_config_hosts,
     list_ssh_profiles,
+    list_watched_jobs,
     open_url,
     read_csv_for_report,
     read_extension_snippets,
     read_extension_theme,
     read_file,
     read_file_base64,
+    read_job_events,
     read_plan_history_entry,
     read_protocol,
     read_remote_file,
@@ -143,6 +149,7 @@ use commands::{
     reconnect_session,
     reconnect_tail,
     refresh_environment,
+    register_watched_job,
     remote_claude_login,
     remove_mcp_server,
     rename_path,
@@ -170,6 +177,7 @@ use commands::{
     // Knowledge Base
     search_pubmed,
     send_lsp_message,
+    set_job_policy,
     setup_ssh_key,
     sideload_vsix,
     singularity_action,
@@ -180,26 +188,32 @@ use commands::{
     spawn_terminal,
     start_claude_session,
     start_dictation,
+    start_job_tail,
     start_language_server,
     start_remote_language_server,
     // Translation proxy (Anthropic ↔ OpenAI)
     start_translation_proxy,
+    start_watchdog,
     stop_claude_session,
     stop_control_master,
     stop_dictation,
+    stop_job_tail,
     stop_language_server,
     stop_translation_proxy,
+    stop_watchdog,
     store_api_key,
     test_custom_endpoint,
     test_ssh_connection,
     translation_proxy_status,
     uninstall_extension,
+    unregister_watched_job,
     update_extension_settings,
     update_mcp_server_env,
     update_session_claude_id,
     update_session_status,
     update_settings,
     validate_extension_install,
+    watchdog_status,
     write_file,
     write_remote_file,
     write_terminal,
@@ -212,6 +226,7 @@ use commands::proxy::ProxyManager;
 use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
 use commands::terminal::TerminalManager;
+use commands::watchdog::WatchdogManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -225,6 +240,7 @@ pub fn run() {
         .manage(SettingsManager::new())
         .manage(ExtensionManager::new())
         .manage(ProxyManager::new())
+        .manage(WatchdogManager::new())
         .setup(|app| {
             // Build platform-appropriate menu
             let menu = platform::build_menu(app)
@@ -448,6 +464,20 @@ pub fn run() {
             batch_read_remote_file_previews,
             // Utilities
             open_url,
+            // Watchdog (Operon 0.6.1)
+            detect_scheduler,
+            install_watchdog,
+            start_watchdog,
+            stop_watchdog,
+            watchdog_status,
+            register_watched_job,
+            unregister_watched_job,
+            list_watched_jobs,
+            get_job_policy,
+            set_job_policy,
+            read_job_events,
+            start_job_tail,
+            stop_job_tail,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

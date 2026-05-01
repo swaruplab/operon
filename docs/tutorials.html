@@ -3,413 +3,310 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
 <title>Video Tutorials — Operon</title>
-<style>
-  /* ── Reset & Base ─────────────────────────────────────── */
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --bg: #0b0e14;
-    --bg-card: #111620;
-    --bg-code: #0d1117;
-    --border: #1e2733;
-    --text: #c9d1d9;
-    --text-muted: #8b949e;
-    --heading: #e6edf3;
-    --accent: #7c3aed;
-    --accent-light: #a78bfa;
-    --accent-glow: rgba(124,58,237,.25);
-    --green: #3fb950;
-    --blue: #58a6ff;
-    --orange: #d29922;
-    --radius: 12px;
-    --max-w: 1100px;
-  }
-  html { scroll-behavior: smooth; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.7;
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: var(--accent-light); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-
-  /* ── Top Nav ──────────────────────────────────────────── */
-  .topnav {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 32px;
-    background: rgba(11,14,20,.85);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-  }
-  .topnav-brand {
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: var(--heading);
-    letter-spacing: -.01em;
-  }
-  .topnav-brand span { color: var(--accent-light); }
-  .topnav-links { display: flex; gap: 8px; align-items: center; }
-  .topnav-links a {
-    padding: 8px 14px;
-    border-radius: 6px;
-    color: var(--text-muted);
-    font-size: .9rem;
-    transition: all .15s;
-  }
-  .topnav-links a:hover {
-    color: var(--heading);
-    background: rgba(124,58,237,.12);
-    text-decoration: none;
-  }
-
-  /* ── Hero ──────────────────────────────────────────────── */
-  .hero {
-    text-align: center;
-    padding: 80px 24px 50px;
-    background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, transparent 70%);
-  }
-  .hero-kicker {
-    display: inline-block;
-    font-size: .75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .12em;
-    color: var(--accent-light);
-    background: var(--accent-glow);
-    padding: 6px 14px;
-    border-radius: 30px;
-    margin-bottom: 18px;
-  }
-  .hero h1 {
-    font-size: clamp(2.2rem, 5vw, 3.2rem);
-    color: var(--heading);
-    font-weight: 800;
-    letter-spacing: -.02em;
-    margin-bottom: 16px;
-  }
-  .hero h1 span { color: var(--accent-light); }
-  .hero p {
-    font-size: 1.1rem;
-    color: var(--text-muted);
-    max-width: 680px;
-    margin: 0 auto;
-  }
-
-  /* ── Main content ─────────────────────────────────────── */
-  .wrapper {
-    max-width: var(--max-w);
-    margin: 0 auto;
-    padding: 48px 32px 100px;
-  }
-
-  /* ── Category pills ───────────────────────────────────── */
-  .categories {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 40px;
-  }
-  .cat-pill {
-    padding: 8px 18px;
-    border-radius: 30px;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: .88rem;
-    cursor: pointer;
-    transition: all .2s;
-    background: transparent;
-  }
-  .cat-pill.active {
-    color: var(--heading);
-    border-color: var(--accent);
-    background: var(--accent-glow);
-  }
-  .cat-pill:hover:not(.active) {
-    color: var(--heading);
-    border-color: var(--accent-light);
-  }
-
-  /* ── Video tutorial grid ──────────────────────────────── */
-  .video-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-    gap: 28px;
-  }
-  .video-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    transition: border-color .2s, transform .2s, box-shadow .2s;
-    display: flex;
-    flex-direction: column;
-  }
-  .video-card:hover {
-    border-color: var(--accent);
-    transform: translateY(-3px);
-    box-shadow: 0 12px 40px rgba(124,58,237,.15);
-  }
-  .video-card.hidden { display: none; }
-  .video-embed {
-    position: relative;
-    width: 100%;
-    padding-bottom: 56.25%; /* 16:9 */
-    height: 0;
-    background: #000;
-  }
-  .video-embed iframe {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%;
-    height: 100%;
-    border: 0;
-  }
-  .video-card-body {
-    padding: 20px 22px 22px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  .video-card h3 {
-    margin: 0 0 8px;
-    color: var(--heading);
-    font-size: 1.1rem;
-    line-height: 1.35;
-    font-weight: 700;
-  }
-  .video-card p {
-    color: var(--text-muted);
-    font-size: .92rem;
-    margin: 0;
-    line-height: 1.55;
-  }
-  .video-badge {
-    display: inline-block;
-    font-size: .7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: var(--accent-light);
-    background: var(--accent-glow);
-    padding: 4px 10px;
-    border-radius: 4px;
-    margin-bottom: 12px;
-    align-self: flex-start;
-  }
-  .video-badge.getting-started { color: #60a5fa; background: rgba(96,165,250,.15); }
-  .video-badge.remote { color: #34d399; background: rgba(52,211,153,.15); }
-  .video-badge.analysis { color: #fb923c; background: rgba(251,146,60,.15); }
-
-  /* ── CTA card at bottom ───────────────────────────────── */
-  .cta-card {
-    text-align: center;
-    margin-top: 60px;
-    padding: 40px 32px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-  .cta-card h3 {
-    color: var(--heading);
-    font-size: 1.3rem;
-    margin-bottom: 10px;
-    font-weight: 700;
-  }
-  .cta-card p {
-    color: var(--text-muted);
-    margin-bottom: 20px;
-  }
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 22px;
-    border-radius: 8px;
-    font-weight: 600;
-    font-size: .9rem;
-    transition: all .2s;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    color: var(--text);
-    background: transparent;
-  }
-  .btn:hover { border-color: var(--accent-light); text-decoration: none; color: var(--heading); }
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-  .btn-primary:hover { background: #6d28d9; border-color: #6d28d9; color: #fff; }
-
-  /* ── Footer ────────────────────────────────────────────── */
-  footer {
-    text-align: center;
-    padding: 40px 24px;
-    color: var(--text-muted);
-    font-size: .85rem;
-    border-top: 1px solid var(--border);
-  }
-  footer a { color: var(--accent-light); }
-
-  /* ── Mobile ────────────────────────────────────────────── */
-  @media (max-width: 800px) {
-    .topnav { padding: 12px 16px; }
-    .topnav-links a { padding: 6px 10px; font-size: .85rem; }
-    .hero { padding: 50px 16px 36px; }
-    .wrapper { padding: 32px 16px 80px; }
-    .video-grid { grid-template-columns: 1fr; gap: 20px; }
-    .categories { margin-bottom: 28px; }
-  }
-</style>
+<meta name="description" content="Short, focused video walkthroughs for Operon — install, remote/HPC setup, and real bioinformatics analyses.">
+<meta property="og:title" content="Video Tutorials — Operon">
+<meta property="og:description" content="Watch Operon in action: install, connect to HPC, run Scanpy, CellPose, and more.">
+<meta property="og:image" content="img/main-workspace.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
 
-<!-- ════════════════════════════════════════════════════════
-     TOP NAV
-     ════════════════════════════════════════════════════════ -->
-<nav class="topnav">
-  <a href="index.html" class="topnav-brand"><span>Operon</span> Docs</a>
-  <div class="topnav-links">
-    <a href="index.html">Home</a>
-    <a href="index.html#installation">Install</a>
-    <a href="index.html#faq">FAQ</a>
-    <a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a>
+<!-- ═══════════════════════════════════════════════════════
+     NAV
+     ═══════════════════════════════════════════════════════ -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand">
+      <span class="brand-dot"></span> Operon
+    </a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html">Protocols</a></li>
+      <li><a href="mcp.html">MCP</a></li>
+      <li><a href="private-llm.html">Private LLM</a></li>
+      <li><a href="hpc.html">HPC</a></li>
+      <li><a href="tutorials.html" class="active">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
   </div>
 </nav>
 
-<!-- ════════════════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════════════════
      HERO
-     ════════════════════════════════════════════════════════ -->
-<header class="hero">
-  <span class="hero-kicker">▶ Learn Operon</span>
-  <h1>Video <span>Tutorials</span></h1>
-  <p>Short, focused walkthroughs covering everything from first-time install to running real bioinformatics analyses. Each video stays under the essentials so you can get back to your research.</p>
+     ═══════════════════════════════════════════════════════ -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(36px, 6vw, 64px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Video tutorials</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      Watch a biologist<br>use Operon.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 8px; text-align: center;">
+      Short, focused walkthroughs — from first-time install to running real single-cell and imaging analyses end-to-end. Every feature on the homepage has a video here.
+    </p>
+  </div>
 </header>
 
-<!-- ════════════════════════════════════════════════════════
-     TUTORIALS GRID
-     ════════════════════════════════════════════════════════ -->
-<main class="wrapper">
+<!-- ═══════════════════════════════════════════════════════
+     MAIN
+     ═══════════════════════════════════════════════════════ -->
+<main class="section" style="padding-top: clamp(24px, 4vw, 48px);">
+  <div class="wrap">
 
-  <div class="categories" id="category-pills">
-    <button class="cat-pill active" data-category="all">All Tutorials</button>
-    <button class="cat-pill" data-category="getting-started">Getting Started</button>
-    <button class="cat-pill" data-category="remote">Remote &amp; HPC</button>
-    <button class="cat-pill" data-category="analysis">Analysis</button>
+    <!-- Category pills -->
+    <div class="reveal" style="display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin-bottom: clamp(32px, 4vw, 48px);">
+      <button class="cat-pill active" data-category="all">All tutorials</button>
+      <button class="cat-pill" data-category="getting-started">Getting started</button>
+      <button class="cat-pill" data-category="remote">Remote &amp; HPC</button>
+      <button class="cat-pill" data-category="analysis">Analysis</button>
+    </div>
+
+    <!-- Video grid -->
+    <div class="video-grid">
+
+      <!-- Install macOS -->
+      <article class="video-card reveal" data-category="getting-started" id="install">
+        <div class="yt-box" data-yt="xTiIVEWWH-M" data-yt-title="Installing Operon on macOS"></div>
+        <div class="video-body">
+          <span class="pill pill-gs">Getting started</span>
+          <h3>Installing Operon on macOS</h3>
+          <p>Download the app, drag it into Applications, and walk through the first-launch setup wizard. Covers both Apple Silicon and Intel builds, plus automatic dependency installation.</p>
+        </div>
+      </article>
+
+      <!-- Connect SSH -->
+      <article class="video-card reveal" data-category="remote" id="ssh">
+        <div class="yt-box" data-yt="i4pS9DA9LAg" data-yt-title="Connecting to a remote server"></div>
+        <div class="video-body">
+          <span class="pill pill-rm">Remote &amp; HPC</span>
+          <h3>Connecting to a Remote Server</h3>
+          <p>Set up an SSH connection profile to a remote server or HPC cluster. Covers hostname, port, SSH keys, password authentication, and Duo / MFA logins.</p>
+        </div>
+      </article>
+
+      <!-- Claude on remote -->
+      <article class="video-card reveal" data-category="remote" id="remote-claude">
+        <div class="yt-box" data-yt="6hU7m5w4X9o" data-yt-title="Installing Claude on a remote server"></div>
+        <div class="video-body">
+          <span class="pill pill-rm">Remote &amp; HPC</span>
+          <h3>Installing Claude on a Remote Server</h3>
+          <p>Install Claude Code on your HPC login node so that agent and plan modes run on compute resources instead of your laptop. Shell detection, curl install, and verification.</p>
+        </div>
+      </article>
+
+      <!-- Scanpy -->
+      <article class="video-card reveal" data-category="analysis" id="scanpy">
+        <div class="yt-box" data-yt="5S7LkFsbpr8" data-yt-title="Single-cell RNA-seq with Scanpy"></div>
+        <div class="video-body">
+          <span class="pill pill-an">Analysis</span>
+          <h3>Single-cell RNA-seq with Scanpy</h3>
+          <p>Run a basic scRNA-seq analysis end-to-end using Scanpy inside Operon — loading data, QC filtering, normalization, clustering, and UMAP — all driven by the chat panel.</p>
+        </div>
+      </article>
+
+      <!-- CellPose -->
+      <article class="video-card reveal" data-category="analysis" id="cellpose">
+        <div class="yt-box" data-yt="_LmOG-k9MjI" data-yt-title="Cell segmentation with CellPose"></div>
+        <div class="video-body">
+          <span class="pill pill-an">Analysis</span>
+          <h3>Cell Segmentation with CellPose</h3>
+          <p>Use CellPose within Operon to segment cells from microscopy images. Model selection, input preparation, running segmentation, and inspecting the output masks.</p>
+        </div>
+      </article>
+
+    </div>
+
+    <!-- CTA -->
+    <div class="callout callout-accent reveal" style="margin-top: clamp(48px, 6vw, 80px); text-align: center; padding: 32px clamp(24px, 4vw, 40px);">
+      <h3 style="margin-bottom: 10px;">Want to see more tutorials?</h3>
+      <p style="max-width: 52ch; margin: 0 auto 20px;">Got a workflow or feature you'd like us to cover? Open an issue on GitHub and we'll add it to the queue.</p>
+      <div class="row" style="justify-content: center; gap: 12px;">
+        <a href="https://github.com/swaruplab/operon/issues/new" target="_blank" rel="noopener" class="btn btn-accent">Request a tutorial</a>
+        <a href="guide.html" class="btn btn-ghost">Read the docs</a>
+      </div>
+    </div>
+
   </div>
-
-  <div class="video-grid" id="video-grid">
-
-    <!-- Installation on macOS -->
-    <div class="video-card" data-category="getting-started">
-      <div class="video-embed">
-        <iframe src="https://www.youtube.com/embed/xTiIVEWWH-M" title="Installation Tutorial of Operon on macOS" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-      </div>
-      <div class="video-card-body">
-        <span class="video-badge getting-started">Getting Started</span>
-        <h3>Installing Operon on macOS</h3>
-        <p>Download the app, drag it into Applications, and walk through the first-launch setup wizard. Covers both Apple Silicon and Intel builds, plus automatic dependency installation.</p>
-      </div>
-    </div>
-
-    <!-- Connecting to Remote Server -->
-    <div class="video-card" data-category="remote">
-      <div class="video-embed">
-        <iframe src="https://www.youtube.com/embed/i4pS9DA9LAg" title="Connection of Remote Server in Operon" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-      </div>
-      <div class="video-card-body">
-        <span class="video-badge remote">Remote &amp; HPC</span>
-        <h3>Connecting to a Remote Server</h3>
-        <p>Set up an SSH connection profile to a remote server or HPC cluster. Covers hostname, port, SSH keys, password authentication, and Duo/MFA logins.</p>
-      </div>
-    </div>
-
-    <!-- Installing Claude on Remote -->
-    <div class="video-card" data-category="remote">
-      <div class="video-embed">
-        <iframe src="https://www.youtube.com/embed/6hU7m5w4X9o" title="Claude Installation in Remote Server Operon Tutorial" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-      </div>
-      <div class="video-card-body">
-        <span class="video-badge remote">Remote &amp; HPC</span>
-        <h3>Installing Claude on a Remote Server</h3>
-        <p>Install Claude Code on your HPC login node or remote server so that agent and plan modes can run on compute resources instead of your laptop.</p>
-      </div>
-    </div>
-
-    <!-- Single-cell RNA-seq -->
-    <div class="video-card" data-category="analysis">
-      <div class="video-embed">
-        <iframe src="https://www.youtube.com/embed/5S7LkFsbpr8" title="Basic Single-cell RNA-seq analysis using scanpy tutorial of Operon" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-      </div>
-      <div class="video-card-body">
-        <span class="video-badge analysis">Analysis</span>
-        <h3>Single-cell RNA-seq with Scanpy</h3>
-        <p>Run a basic single-cell RNA-seq analysis end-to-end using Scanpy inside Operon. Loading data, QC filtering, normalization, clustering, and UMAP visualization.</p>
-      </div>
-    </div>
-
-    <!-- CellPose -->
-    <div class="video-card" data-category="analysis">
-      <div class="video-embed">
-        <iframe src="https://www.youtube.com/embed/_LmOG-k9MjI" title="Basic Cell-Segmentation analysis using CellPose tutorial of Operon" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen loading="lazy"></iframe>
-      </div>
-      <div class="video-card-body">
-        <span class="video-badge analysis">Analysis</span>
-        <h3>Cell Segmentation with CellPose</h3>
-        <p>Use CellPose within Operon to segment cells from microscopy images. Covers model selection, input preparation, running segmentation, and inspecting the output masks.</p>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- CTA card -->
-  <div class="cta-card">
-    <h3>Want to see more tutorials?</h3>
-    <p>Have a workflow or feature you'd like us to cover? Let us know.</p>
-    <a href="https://github.com/swaruplab/operon/issues/new" target="_blank" rel="noopener" class="btn btn-primary">Request a Tutorial</a>
-  </div>
-
 </main>
 
-<!-- ════════════════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════════════════
      FOOTER
-     ════════════════════════════════════════════════════════ -->
-<footer>
-  <p>Operon is open-source software developed by <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
-  <p style="margin-top: 10px;"><a href="index.html">← Back to documentation</a></p>
+     ═══════════════════════════════════════════════════════ -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col">
+      <h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
 </footer>
 
-<!-- ════════════════════════════════════════════════════════
-     SCRIPTS
-     ════════════════════════════════════════════════════════ -->
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<!-- ═══════════════════════════════════════════════════════
+     Page-specific styles
+     ═══════════════════════════════════════════════════════ -->
+<style>
+  /* Category pills */
+  .cat-pill {
+    padding: 9px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--text-3);
+    font-size: 0.88rem;
+    font-weight: 500;
+    transition: color .15s, background .15s, border-color .15s;
+  }
+  .cat-pill:hover { color: var(--text); border-color: var(--text-3); }
+  .cat-pill.active {
+    color: var(--bg);
+    background: var(--text);
+    border-color: var(--text);
+  }
+
+  /* Video grid */
+  .video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+  }
+  .video-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color .2s, transform .2s, box-shadow .2s;
+  }
+  .video-card:hover {
+    border-color: var(--line-2);
+    transform: translateY(-3px);
+    box-shadow: 0 24px 60px rgba(0,0,0,.35);
+  }
+  .video-card.hidden { display: none; }
+  .video-body { padding: 22px 24px 24px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .video-body h3 { font-size: 1.15rem; color: var(--text); line-height: 1.3; }
+  .video-body p { font-size: 0.92rem; color: var(--text-3); line-height: 1.55; }
+
+  .pill-gs { background: rgba(59,130,246,.1); color: var(--accent-2); border-color: rgba(59,130,246,.3); align-self: flex-start; }
+  .pill-rm { background: rgba(34,197,94,.1); color: #4ade80; border-color: rgba(34,197,94,.3); align-self: flex-start; }
+  .pill-an { background: rgba(234,179,8,.1); color: #fde047; border-color: rgba(234,179,8,.3); align-self: flex-start; }
+
+  /* YouTube lazy-load boxes */
+  .yt-box {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .yt-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .yt-box .yt-play {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: transparent;
+    padding: 0;
+    transition: transform .2s;
+  }
+  .yt-box:hover .yt-play { transform: translate(-50%, -50%) scale(1.08); }
+  .yt-box iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .yt-box .yt-ext {
+    position: absolute; right: 10px; bottom: 10px;
+    font-size: 0.78rem; font-weight: 500;
+    padding: 6px 10px; border-radius: 999px;
+    background: rgba(0,0,0,.65); color: #fff;
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,.18);
+    backdrop-filter: blur(4px);
+    opacity: 0; transition: opacity .15s;
+    z-index: 3;
+  }
+  .yt-box:hover .yt-ext { opacity: 1; }
+  .yt-box .yt-ext:hover { background: rgba(0,0,0,.85); border-color: rgba(255,255,255,.4); }
+  .yt-box .yt-ext-over { opacity: 1; right: 14px; bottom: 14px; }
+</style>
+
+<!-- ═══════════════════════════════════════════════════════
+     Page-specific JS — category filter
+     ═══════════════════════════════════════════════════════ -->
 <script>
-  // Category filter
-  const pills = document.querySelectorAll('.cat-pill');
-  const cards = document.querySelectorAll('.video-card');
-  pills.forEach(pill => {
-    pill.addEventListener('click', () => {
-      pills.forEach(p => p.classList.remove('active'));
-      pill.classList.add('active');
-      const cat = pill.dataset.category;
-      cards.forEach(card => {
-        if (cat === 'all' || card.dataset.category === cat) {
-          card.classList.remove('hidden');
-        } else {
-          card.classList.add('hidden');
-        }
+  document.addEventListener('DOMContentLoaded', () => {
+    const pills = document.querySelectorAll('.cat-pill');
+    const cards = document.querySelectorAll('.video-card');
+    pills.forEach(pill => {
+      pill.addEventListener('click', () => {
+        pills.forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        const cat = pill.dataset.category;
+        cards.forEach(card => {
+          if (cat === 'all' || card.dataset.category === cat) {
+            card.classList.remove('hidden');
+          } else {
+            card.classList.add('hidden');
+          }
+        });
       });
     });
   });
 </script>
 
+<script src="assets/site.js"></script>
 </body>
 </html>

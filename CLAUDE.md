@@ -263,3 +263,13 @@ cargo tauri build
 - **xterm.js Unicode in JSX**: `\u25CF` in JSX text is rendered literally. Must use `{'\u25CF'}` (JavaScript expression).
 - **Lucide icon click interception**: SVG icons inside buttons intercept pointer events. Add `pointer-events-none` class to icons.
 - **FileViewer download in Tauri**: Data URIs are blocked by Tauri webview CSP. Use Blob + `URL.createObjectURL()` instead.
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)

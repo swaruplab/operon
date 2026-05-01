@@ -503,6 +503,47 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   className="mt-1 h-4 w-4 accent-blue-500"
                 />
               </label>
+
+              <label className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="text-sm text-zinc-400">
+                    Auto-wrap SSH in tmux
+                  </div>
+                  <div className="text-xs text-zinc-500 mt-0.5">
+                    Wrap each new SSH terminal in a shared tmux session so
+                    jobs keep running after Operon quits or your laptop
+                    sleeps. No-op on hosts without tmux. Open a new terminal
+                    to apply.
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.ssh_auto_tmux}
+                  onChange={(e) =>
+                    saveSettings({
+                      ...settings,
+                      ssh_auto_tmux: e.target.checked,
+                    })
+                  }
+                  className="mt-1 h-4 w-4 accent-blue-500"
+                />
+              </label>
+
+              <label className="flex items-center justify-between">
+                <span className="text-sm text-zinc-400">tmux session name</span>
+                <input
+                  type="text"
+                  value={settings.ssh_tmux_session}
+                  disabled={!settings.ssh_auto_tmux}
+                  onChange={(e) =>
+                    saveSettings({
+                      ...settings,
+                      ssh_tmux_session: e.target.value,
+                    })
+                  }
+                  className="w-40 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none disabled:opacity-40"
+                />
+              </label>
             </div>
           )}
 

@@ -27,6 +27,17 @@ fn default_terminal_use_webgl() -> bool {
     true
 }
 
+fn default_ssh_auto_tmux() -> bool {
+    // Default ON: wrap SSH sessions in `tmux new-session -A` so long-running
+    // jobs survive the user logging out of Operon. User can switch this off
+    // if they prefer plain bare-ssh (or if the remote has no tmux installed).
+    true
+}
+
+fn default_ssh_tmux_session() -> String {
+    "operon-main".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -80,6 +91,15 @@ pub struct AppSettings {
     /// the canvas renderer here (slower, always correct).
     #[serde(default = "default_terminal_use_webgl")]
     pub terminal_use_webgl: bool,
+    /// When true, new SSH terminals automatically wrap the remote shell in a
+    /// shared tmux session (`new-session -A -s ssh_tmux_session`). Persistent
+    /// tmux means jobs you launch keep running after Operon (or your laptop)
+    /// goes to sleep. Auto-wrap is a no-op if the remote has no tmux.
+    #[serde(default = "default_ssh_auto_tmux")]
+    pub ssh_auto_tmux: bool,
+    /// Name of the shared tmux session Operon attaches to on the remote.
+    #[serde(default = "default_ssh_tmux_session")]
+    pub ssh_tmux_session: String,
 }
 
 impl Default for AppSettings {
@@ -107,6 +127,8 @@ impl Default for AppSettings {
             custom_model: String::new(),
             use_translation_proxy: true,
             terminal_use_webgl: true,
+            ssh_auto_tmux: true,
+            ssh_tmux_session: default_ssh_tmux_session(),
         }
     }
 }

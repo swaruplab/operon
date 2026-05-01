@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { X, FileText, Code2, Image as ImageIcon, Globe, Pencil, Save, Check, Server } from 'lucide-react';
+import { X, FileText, Code2, Image as ImageIcon, Globe, Pencil, Save, Check, Server, Sheet, Presentation } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { CodeEditor } from './CodeEditor';
 import { DiffViewer } from './DiffViewer';
@@ -69,6 +69,14 @@ export function EditorArea() {
         return 'text-yellow-400';
       case 'pdf':
         return 'text-red-400';
+      case 'xlsx':
+      case 'xlsm':
+      case 'xls':
+        return 'text-green-400';
+      case 'pptx':
+      case 'pptm':
+      case 'ppt':
+        return 'text-orange-400';
       case 'png':
       case 'jpg':
       case 'jpeg':
@@ -89,6 +97,8 @@ export function EditorArea() {
     if (tab.binaryType === 'image') return <ImageIcon className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
     if (tab.binaryType === 'pdf') return <FileText className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
     if (tab.binaryType === 'html') return <Globe className={`w-3.5 h-3.5 text-orange-400`} />;
+    if (tab.binaryType === 'xlsx') return <Sheet className={`w-3.5 h-3.5 text-green-400`} />;
+    if (tab.binaryType === 'pptx') return <Presentation className={`w-3.5 h-3.5 text-orange-400`} />;
     return <FileText className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
   };
 

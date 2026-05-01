@@ -33,7 +33,7 @@ import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 import { RegexAddDialog } from './Sidebar';
 
-const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html'; mimeType: string }> = {
+const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
   jpg: { binaryType: 'image', mimeType: 'image/jpeg' },
   jpeg: { binaryType: 'image', mimeType: 'image/jpeg' },
@@ -46,6 +46,12 @@ const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html'; 
   pdf: { binaryType: 'pdf', mimeType: 'application/pdf' },
   html: { binaryType: 'html', mimeType: 'text/html' },
   htm: { binaryType: 'html', mimeType: 'text/html' },
+  xlsx: { binaryType: 'xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  xlsm: { binaryType: 'xlsx', mimeType: 'application/vnd.ms-excel.sheet.macroEnabled.12' },
+  xls: { binaryType: 'xlsx', mimeType: 'application/vnd.ms-excel' },
+  pptx: { binaryType: 'pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+  pptm: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12' },
+  ppt: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint' },
 };
 
 interface RemoteExplorerProps {

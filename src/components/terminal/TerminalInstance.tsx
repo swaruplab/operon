@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getSettings } from '../../lib/settings';
+import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -61,12 +62,15 @@ interface TerminalInstanceProps {
   isVisible: boolean;
   /** Command to send to the shell once it's ready (e.g. an SSH command) */
   initialCommand?: string;
+  /** SSH profile id — if set, Operon auto-registers any `Submitted batch job NNNN`
+   *  line with the HPC watchdog for this profile. */
+  sshProfileId?: string;
   onTitleChange?: (title: string) => void;
   onExit?: () => void;
   onCwdChange?: (cwd: string) => void;
 }
 
-export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
+export function TerminalInstance({ terminalId, isVisible, initialCommand, sshProfileId, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -232,10 +236,26 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, onTitl
     // Per-instance buffer for partial URL accumulation (not shared across terminals)
     let oauthBuffer = '';
 
+    // Small line buffer for detecting `Submitted batch job NNN` — the scheduler
+    // prints exactly this one line, so we only need the tail of the stream.
+    let sbatchBuffer = '';
+    const registered = new Set<string>();
+
     // Listen for PTY output from Rust backend
     listen<{ output: string }>(`pty-output-${terminalId}`, (event) => {
       const data = event.payload.output;
       term.write(data);
+
+      // --- sbatch auto-register (HPC watchdog, SSH terminals only) ---
+      if (sshProfileId) {
+        sbatchBuffer = (sbatchBuffer + data.replace(ANSI_REGEX, '')).slice(-4096);
+        const ids = parseSbatchIds(sbatchBuffer);
+        for (const id of ids) {
+          if (registered.has(id)) continue;
+          registered.add(id);
+          registerWatchedJob(sshProfileId, id, 'slurm', null).catch(() => {});
+        }
+      }
 
       // --- OSC 7 CWD detection (shell reports working directory) ---
       // Format: \x1b]7;file://hostname/path\x07  or  \x1b]7;file://hostname/path\x1b\\

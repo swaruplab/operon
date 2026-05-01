@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Operon — AI-Powered IDE for Bioinformatics</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0e14;
+    --bg-card: #111620;
+    --bg-code: #0d1117;
+    --border: #1e2733;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #e6edf3;
+    --accent: #7c3aed;
+    --accent-light: #a78bfa;
+    --accent-glow: rgba(124,58,237,.25);
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --orange: #d29922;
+    --radius: 12px;
+    --max-w: 960px;
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-light); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  img { max-width: 100%; border-radius: var(--radius); display: block; }
+  code {
+    font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+    background: var(--bg-code);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: .9em;
+    color: var(--accent-light);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: .88em;
+    line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* ── Layout ───────────────────────────────────────────── */
+  .wrapper { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+
+  /* ── Hero ──────────────────────────────────────────────── */
+  .hero {
+    text-align: center;
+    padding: 100px 24px 70px;
+    background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, transparent 70%);
+  }
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 3.6rem);
+    color: var(--heading);
+    font-weight: 800;
+    letter-spacing: -.02em;
+    margin-bottom: 16px;
+  }
+  .hero h1 span { color: var(--accent-light); }
+  .hero p {
+    font-size: 1.15rem;
+    color: var(--text-muted);
+    max-width: 620px;
+    margin: 0 auto 36px;
+  }
+  .hero-buttons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: .95rem;
+    transition: all .2s;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover { background: #6d28d9; text-decoration: none; }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent-light); text-decoration: none; }
+  .btn-star { border-color: #eab308; color: #facc15; }
+  .btn-star:hover { background: #eab30820; border-color: #facc15; color: #fef08a; }
+  .btn-video { border-color: #ef4444; color: #f87171; }
+  .btn-video:hover { background: #ef444420; border-color: #f87171; color: #fca5a5; }
+  .hero-img {
+    margin: 50px auto 0;
+    max-width: 860px;
+    border: 1px solid var(--border);
+    box-shadow: 0 24px 80px rgba(0,0,0,.5);
+  }
+
+  /* ── Sidebar Navigation ────────────────────────────────── */
+  .page-layout { display: flex; gap: 0; }
+  .sidebar {
+    width: 260px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 20px;
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+    z-index: 10;
+  }
+  .sidebar-title {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text-muted);
+    margin: 20px 0 8px;
+  }
+  .sidebar-title:first-child { margin-top: 0; }
+  .sidebar a {
+    display: block;
+    padding: 6px 12px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: .88rem;
+    transition: all .15s;
+  }
+  .sidebar a:hover, .sidebar a.active {
+    color: var(--heading);
+    background: rgba(124,58,237,.12);
+    text-decoration: none;
+  }
+  .main-content {
+    flex: 1;
+    min-width: 0;
+    padding: 48px 48px 120px;
+  }
+
+  /* ── Sections ──────────────────────────────────────────── */
+  section { margin-bottom: 72px; }
+  section h2 {
+    font-size: 1.85rem;
+    color: var(--heading);
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding-top: 16px;
+  }
+  section h3 {
+    font-size: 1.25rem;
+    color: var(--heading);
+    font-weight: 600;
+    margin: 32px 0 12px;
+  }
+  section h4 {
+    font-size: 1.05rem;
+    color: var(--accent-light);
+    font-weight: 600;
+    margin: 24px 0 8px;
+  }
+  .section-lead {
+    color: var(--text-muted);
+    margin-bottom: 28px;
+    font-size: 1.02rem;
+  }
+  p + p { margin-top: 14px; }
+
+  /* ── Screenshot figure ─────────────────────────────────── */
+  .fig {
+    margin: 24px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+  .fig img { border-radius: 0; }
+  .fig figcaption {
+    padding: 10px 16px;
+    font-size: .82rem;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+  }
+  /* Size classes for screenshots — keep dialog/popup shots compact */
+  .fig-sm { max-width: 420px; }
+  .fig-md { max-width: 560px; }
+  .fig-lg { max-width: 720px; }
+
+  /* ── Callout boxes ─────────────────────────────────────── */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--bg-card);
+    padding: 16px 20px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    margin: 20px 0;
+  }
+  .callout.tip { border-left-color: var(--green); }
+  .callout.warn { border-left-color: var(--orange); }
+  .callout strong { color: var(--heading); }
+
+  /* ── Step cards ─────────────────────────────────────────── */
+  .step {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    margin: 28px 0;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .9rem;
+  }
+  .step-body { flex: 1; }
+  .step-body h4 { margin-top: 2px; color: var(--heading); }
+
+  /* ── Feature grid ──────────────────────────────────────── */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+    margin: 28px 0;
+  }
+  .feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    transition: border-color .2s;
+  }
+  .feature-card:hover { border-color: var(--accent); }
+  .feature-card h4 { margin-top: 0; color: var(--heading); }
+  .feature-card p { color: var(--text-muted); font-size: .92rem; margin-top: 6px; }
+
+  /* Video tutorial grid */
+  .video-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    margin: 32px 0;
+  }
+  .video-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color .2s, transform .2s;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .video-embed {
+    position: relative;
+    width: 100%;
+    padding-bottom: 56.25%; /* 16:9 */
+    height: 0;
+    background: #000;
+  }
+  .video-embed iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .video-card-body {
+    padding: 18px 20px 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  .video-card h4 {
+    margin: 0 0 6px;
+    color: var(--heading);
+    font-size: 1rem;
+    line-height: 1.35;
+  }
+  .video-card p {
+    color: var(--text-muted);
+    font-size: .9rem;
+    margin: 0;
+    line-height: 1.5;
+  }
+  .video-badge {
+    display: inline-block;
+    font-size: .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--accent-light);
+    background: var(--accent-glow);
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    align-self: flex-start;
+  }
+  .feature-icon {
+    width: 40px; height: 40px;
+    background: var(--accent-glow);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 14px;
+    font-size: 1.3rem;
+  }
+
+  /* ── Shortcuts table ───────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: .92rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--text-muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  td code { font-size: .85rem; }
+  kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: .82rem;
+    color: var(--heading);
+    white-space: nowrap;
+  }
+
+  /* ── Accordion / collapsible ────────────────────────────── */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 14px 0;
+  }
+  details + details { margin-top: 8px; }
+  summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--heading);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  summary::before {
+    content: "▸";
+    transition: transform .2s;
+    color: var(--accent-light);
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary::-webkit-details-marker { display: none; }
+  details .inner { padding: 0 20px 16px; color: var(--text); }
+
+  /* ── Lightbox ──────────────────────────────────────────── */
+  .lightbox-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.88);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    cursor: zoom-out;
+  }
+  .lightbox-overlay.show { display: flex; }
+  .lightbox-overlay img {
+    max-width: 92vw;
+    max-height: 92vh;
+    border-radius: var(--radius);
+    box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  }
+  .fig img { cursor: zoom-in; }
+
+  /* ── Mobile ────────────────────────────────────────────── */
+  .menu-toggle {
+    display: none;
+    position: fixed;
+    bottom: 24px; right: 24px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(124,58,237,.4);
+  }
+  @media (max-width: 800px) {
+    .sidebar {
+      position: fixed;
+      left: -280px;
+      top: 0;
+      transition: left .3s;
+      box-shadow: 4px 0 20px rgba(0,0,0,.5);
+    }
+    .sidebar.open { left: 0; }
+    .menu-toggle { display: flex; align-items: center; justify-content: center; }
+    .main-content { padding: 32px 16px 100px; }
+    .hero { padding: 70px 16px 50px; }
+    .hero h1 { font-size: 1.8rem; }
+    .hero p { font-size: 1rem; }
+    .hero-buttons { flex-direction: column; align-items: center; }
+    .hero-buttons .btn { width: 100%; max-width: 320px; justify-content: center; }
+    .hero-img { max-width: 100%; }
+    .fig-sm, .fig-md, .fig-lg { max-width: 100%; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .video-grid { grid-template-columns: 1fr; }
+    .step { flex-direction: column; gap: 10px; }
+    table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    section h2 { font-size: 1.45rem; }
+    section h3 { font-size: 1.1rem; }
+    pre { font-size: .82em; padding: 12px 14px; }
+    kbd { padding: 1px 5px; font-size: .78rem; }
+  }
+  @media (max-width: 400px) {
+    .main-content { padding: 24px 12px 90px; }
+    .hero { padding: 50px 12px 36px; }
+    .feature-card { padding: 18px; }
+  }
+
+  /* ── Back to top ───────────────────────────────────────── */
+  .back-top {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: .85rem;
+    cursor: pointer;
+    transition: transform .3s;
+    z-index: 50;
+  }
+  .back-top.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Footer ────────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--text-muted);
+    font-size: .85rem;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════ -->
+<header class="hero">
+  <h1><span>Operon</span> — The AI-Powered IDE for Bioinformatics</h1>
+  <p>A native desktop environment that pairs Claude AI with your bioinformatics workflows. From RNA-seq to GWAS, run analyses locally or on remote HPC clusters — all from a single, intuitive interface.</p>
+  <div class="hero-buttons">
+    <a id="hero-dl-apple" href="#" class="btn btn-primary" download>Download for Apple Silicon</a>
+    <a id="hero-dl-intel" href="#" class="btn btn-primary" download style="background:#4f46e5">Download for Intel Mac</a>
+    <a href="#installation" class="btn btn-secondary">Get Started</a>
+    <a href="tutorials.html" class="btn btn-secondary btn-video">▶ Video Tutorials</a>
+    <a href="https://github.com/swaruplab/operon" class="btn btn-secondary btn-star" target="_blank" rel="noopener">⭐ Star on GitHub</a>
+  </div>
+  <figure class="hero-img">
+    <img src="img/main-workspace.png" alt="Operon main workspace">
+  </figure>
+</header>
+
+<!-- ════════════════════════════════════════════════════════
+     PAGE BODY
+     ════════════════════════════════════════════════════════ -->
+<div class="page-layout">
+
+  <!-- Sidebar Nav -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-title">Getting Started</div>
+    <a href="#installation">Installation</a>
+    <a href="#setup-wizard">Setup Wizard</a>
+    <a href="#authentication">Authentication</a>
+    <a href="#app-tour">App Tour</a>
+
+    <div class="sidebar-title">The Workspace</div>
+    <a href="#workspace-overview">Overview</a>
+    <a href="#file-explorer">File Explorer</a>
+    <a href="#editor">Code Editor</a>
+    <a href="#terminal">Terminal</a>
+    <a href="#ai-chat">AI Chat Panel</a>
+
+    <div class="sidebar-title">AI Features</div>
+    <a href="#ai-modes">Three AI Modes</a>
+    <a href="#protocols">Protocols</a>
+    <a href="#pubmed">PubMed Search</a>
+
+    <div class="sidebar-title">Tutorials</div>
+    <a href="tutorials.html">Video Tutorials</a>
+    <a href="#tutorial-local">Local Analysis</a>
+    <a href="#tutorial-remote">Remote Server / HPC</a>
+
+    <div class="sidebar-title">Remote & HPC</div>
+    <a href="#ssh">SSH Connections</a>
+    <a href="#remote-workflows">Remote Workflows</a>
+
+    <div class="sidebar-title">Tools</div>
+    <a href="#git">Git & GitHub</a>
+    <a href="#settings">Settings</a>
+    <a href="#keyboard-shortcuts">Keyboard Shortcuts</a>
+    <a href="#help-panel">Help Panel</a>
+
+    <div class="sidebar-title">Reference</div>
+    <a href="#faq">FAQ</a>
+    <a href="#requirements">System Requirements</a>
+  </nav>
+
+  <main class="main-content">
+
+    <!-- ── FEATURES AT A GLANCE ───────────────────────── -->
+    <section id="features">
+      <h2>Why Operon?</h2>
+      <p class="section-lead">Operon is purpose-built for bioinformaticians who want a modern, AI-augmented development environment without leaving their domain tools behind.</p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🧬</div>
+          <h4>Built for Biology</h4>
+          <p>Understands bioinformatics file formats (FASTA, FASTQ, VCF, BAM, GFF), common pipelines, and domain-specific best practices out of the box.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🤖</div>
+          <h4>Three AI Modes</h4>
+          <p>Agent mode executes multi-step tasks. Plan mode architects solutions. Ask mode answers questions — with optional PubMed integration.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🖥️</div>
+          <h4>Remote HPC</h4>
+          <p>Connect to university clusters and remote servers via SSH. Edit, run, and debug code on remote machines as if they were local.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📋</div>
+          <h4>Analysis Protocols</h4>
+          <p>Curate and share reusable analysis protocols. Generate new ones with AI or write them manually in Markdown.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔀</div>
+          <h4>Git Integration</h4>
+          <p>Full Git and GitHub workflow built into the sidebar — stage, commit, push, and publish repositories without leaving the app.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h4>Native Performance</h4>
+          <p>Built with Tauri (Rust) and React. Lightweight, fast, and uses your system's native webview — not Electron.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── INSTALLATION ───────────────────────────────── -->
+    <section id="installation">
+      <h2>Installation</h2>
+      <p class="section-lead">Operon ships as a native app for macOS, Windows, and Linux. Pick a build from the <a href="download.html">download page</a> — the rest of this guide assumes a fresh install.</p>
+
+      <div class="callout tip">
+        <strong>Download:</strong> <a id="install-dl-apple" href="#" download>Loading...</a> · <a id="install-dl-intel" href="#" download>Loading...</a> · <a href="download.html">Windows &amp; Linux</a>
+      </div>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Open &amp; move into Applications (macOS)</h4>
+          <p>macOS builds are distributed as signed <code>.dmg</code> disk images. Open the <code>.dmg</code> and drag Operon.app into <code>/Applications</code>:</p>
+          <pre><code>open Operon_0.5.3_aarch64.dmg
+# then drag Operon.app into the Applications shortcut</code></pre>
+          <p>On Windows, run the <code>.exe</code> or <code>.msi</code> installer. On Linux, install the <code>.deb</code>, <code>.rpm</code>, or mark the <code>.AppImage</code> executable — see the <a href="download.html">download page</a> for commands.</p>
+        </div>
+      </div>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> If you see "app can't be opened because Apple cannot check it for malicious software," go to <strong>System Settings → Privacy & Security</strong> and click <strong>Open Anyway</strong>.
+      </div>
+    </section>
+
+    <!-- ── SETUP WIZARD ───────────────────────────────── -->
+    <section id="setup-wizard">
+      <h2>Setup Wizard</h2>
+      <p class="section-lead">When you first launch Operon, a guided setup wizard walks you through installing all required dependencies. The process has three phases.</p>
+
+      <h3>Phase 1: Xcode Command Line Tools</h3>
+      <p>Xcode CLT provides essential build tools (git, make, clang) needed by almost everything else. Click <strong>Install Xcode CLI</strong> to begin.</p>
+      <figure class="fig">
+        <img src="img/setup-xcode.png" alt="Xcode setup step" loading="lazy">
+        <figcaption>The Xcode CLI installation page with a one-click install button.</figcaption>
+      </figure>
+      <p>A system dialog will appear asking you to confirm the installation. Accept the license agreement and wait for the download to complete.</p>
+      <figure class="fig">
+        <img src="img/setup-xcode-progress.png" alt="Xcode installing" loading="lazy">
+        <figcaption>Operon tracks install progress in real time.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="img/setup-xcode-done.png" alt="Xcode installed" loading="lazy">
+        <figcaption>Xcode CLI installed successfully — on to the next phase.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <strong>Manual fallback:</strong> If the automated install fails, open Terminal and run: <code>xcode-select --install</code>
+      </div>
+
+      <h3>Phase 2: Developer Tools</h3>
+      <p>This phase installs <strong>Homebrew</strong> (the macOS package manager), <strong>Node.js</strong>, and <strong>GitHub CLI</strong>. Click <strong>Install Developer Tools</strong> and enter your password when prompted.</p>
+      <figure class="fig">
+        <img src="img/setup-tools.png" alt="Developer tools page" loading="lazy">
+        <figcaption>Phase 2: install Homebrew, Node, and gh.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="img/setup-tools-progress.png" alt="Tools installing" loading="lazy">
+        <figcaption>Real-time progress with individual status indicators for each tool.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="img/setup-tools-done.png" alt="Tools done" loading="lazy">
+        <figcaption>All developer tools installed with green check marks.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <strong>Manual fallback:</strong> If any tool fails, you can install them individually:
+        <pre><code># Homebrew
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Node.js
+brew install node
+
+# GitHub CLI
+brew install gh</code></pre>
+      </div>
+
+      <h3>Phase 3: Claude Code</h3>
+      <p>Operon uses <strong>Claude Code</strong> (Anthropic's CLI agent) as its AI backend. This step installs it globally via npm.</p>
+      <figure class="fig">
+        <img src="img/setup-claude.png" alt="Claude Code install" loading="lazy">
+        <figcaption>One-click Claude Code installation.</figcaption>
+      </figure>
+      <figure class="fig">
+        <img src="img/setup-claude-done.png" alt="Claude Code installed" loading="lazy">
+        <figcaption>Claude Code installed and ready.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <strong>Manual fallback:</strong> <code>npm install -g @anthropic-ai/claude-code</code>
+      </div>
+
+      <div class="callout tip">
+        <strong>Learn more about Claude Code:</strong> For full documentation, visit <a href="https://code.claude.com/docs/en/overview" target="_blank" rel="noopener">code.claude.com/docs</a>. To explore Claude subscription plans and pricing, see <a href="https://support.claude.com/en/articles/11049762-choosing-a-claude-plan" target="_blank" rel="noopener">Choosing a Claude Plan</a>.
+      </div>
+    </section>
+
+    <!-- ── AUTHENTICATION ─────────────────────────────── -->
+    <section id="authentication">
+      <h2>Authentication</h2>
+      <p class="section-lead">Operon needs access to Claude AI. You can authenticate via <strong>OAuth</strong> (recommended — uses your Anthropic account) or by providing an <strong>API key</strong>.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/auth-selection.png" alt="Auth method selection" loading="lazy">
+        <figcaption>Choose between API Key and OAuth login.</figcaption>
+      </figure>
+
+      <h3>OAuth Login (Recommended)</h3>
+      <p>Click <strong>Open Login Page</strong>. Operon will launch Claude's authorization page in your browser. Sign in, authorize the app, and paste the resulting code back into Operon.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/auth-oauth.png" alt="OAuth flow" loading="lazy">
+        <figcaption>The OAuth login flow with the "Open Login" button.</figcaption>
+      </figure>
+      <figure class="fig fig-md">
+        <img src="img/auth-authorize.png" alt="Authorize dialog" loading="lazy">
+        <figcaption>Authorize Operon in your browser.</figcaption>
+      </figure>
+      <figure class="fig fig-md">
+        <img src="img/auth-code.png" alt="Auth code" loading="lazy">
+        <figcaption>Copy the authorization code and paste it into Operon.</figcaption>
+      </figure>
+
+      <h3>API Key</h3>
+      <p>Alternatively, paste an Anthropic API key directly. This is stored securely in the system keychain. Useful for institutional or shared setups.</p>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> OAuth tokens refresh automatically. API keys don't expire but should be kept secret.
+      </div>
+
+      <div class="callout">
+        <strong>Subscription:</strong> Operon's AI features require a Claude subscription. To learn about available plans and choose one that fits your needs, visit <a href="https://support.claude.com/en/articles/11049762-choosing-a-claude-plan" target="_blank" rel="noopener">Choosing a Claude Plan</a>.
+      </div>
+    </section>
+
+    <!-- ── APP TOUR ───────────────────────────────────── -->
+    <section id="app-tour">
+      <h2>App Tour</h2>
+      <p class="section-lead">After authentication, Operon walks you through a quick visual tour highlighting the key areas of the interface.</p>
+
+      <div class="feature-grid">
+        <figure class="fig" style="margin:0">
+          <img src="img/tour-workspace.png" alt="Tour: workspace" loading="lazy">
+          <figcaption>Your Workspace — four-panel overview.</figcaption>
+        </figure>
+        <figure class="fig" style="margin:0">
+          <img src="img/tour-ai-modes.png" alt="Tour: AI modes" loading="lazy">
+          <figcaption>Three AI Modes — Agent, Plan, Ask.</figcaption>
+        </figure>
+        <figure class="fig" style="margin:0">
+          <img src="img/tour-hpc.png" alt="Tour: HPC" loading="lazy">
+          <figcaption>Run on HPC & remote servers.</figcaption>
+        </figure>
+        <figure class="fig" style="margin:0">
+          <img src="img/tour-biologists.png" alt="Tour: biology" loading="lazy">
+          <figcaption>Built for biologists.</figcaption>
+        </figure>
+      </div>
+      <figure class="fig">
+        <img src="img/tour-shortcuts.png" alt="Tour: shortcuts" loading="lazy">
+        <figcaption>Tips & keyboard shortcuts to speed up your workflow.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ── WORKSPACE OVERVIEW ─────────────────────────── -->
+    <section id="workspace-overview">
+      <h2>Workspace Overview</h2>
+      <p class="section-lead">The Operon workspace is divided into four main areas: the <strong>activity bar</strong> on the left, the <strong>sidebar</strong>, the <strong>editor / terminal</strong> in the center, and the <strong>AI chat panel</strong> on the right.</p>
+
+      <figure class="fig">
+        <img src="img/main-workspace.png" alt="Main workspace" loading="lazy">
+        <figcaption>The complete Operon workspace: file explorer, code editor, integrated terminal, and AI chat side-by-side.</figcaption>
+      </figure>
+
+      <p>The <strong>activity bar</strong> (thin left column) lets you switch between views: File Explorer, Git, SSH, Protocols, Settings, and Help. The main area adapts based on which view is selected.</p>
+    </section>
+
+    <!-- ── FILE EXPLORER ──────────────────────────────── -->
+    <section id="file-explorer">
+      <h2>File Explorer</h2>
+      <p class="section-lead">Browse, create, rename, and delete files and folders directly within Operon. The explorer supports project indexing for quick navigation.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/file-explorer.png" alt="File explorer" loading="lazy">
+        <figcaption>The file explorer sidebar showing a project's directory structure.</figcaption>
+      </figure>
+
+      <p>Right-click any file or folder for context actions. The file explorer also serves as the entry point for opening files in the editor. Supported file types get syntax highlighting automatically.</p>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> Use <kbd>⌘</kbd> + <kbd>P</kbd> to quickly search for files by name without scrolling through the tree.</p>
+      </div>
+    </section>
+
+    <!-- ── EDITOR ─────────────────────────────────────── -->
+    <section id="editor">
+      <h2>Code Editor</h2>
+      <p class="section-lead">Operon includes a built-in code editor with syntax highlighting for all major bioinformatics languages: Python, R, Bash, Nextflow, Snakemake, and more.</p>
+
+      <p>Files open in tabs in the main panel. The editor supports standard features like find-and-replace, line numbers, word wrap, and configurable font size. You can adjust all of these in <a href="#settings">Settings</a>.</p>
+
+      <div class="callout">
+        <strong>Supported formats:</strong> The editor recognizes <code>.py</code>, <code>.R</code>, <code>.sh</code>, <code>.nf</code> (Nextflow), <code>.smk</code> (Snakemake), <code>.wdl</code> (WDL), <code>.json</code>, <code>.yaml</code>, <code>.toml</code>, <code>.md</code>, <code>.csv</code>, <code>.tsv</code>, and many more.
+      </div>
+    </section>
+
+    <!-- ── TERMINAL ───────────────────────────────────── -->
+    <section id="terminal">
+      <h2>Integrated Terminal</h2>
+      <p class="section-lead">A fully functional terminal is embedded at the bottom of the workspace. It uses your system shell (zsh/bash) and inherits your existing environment, aliases, and conda/mamba setups.</p>
+
+      <p>You can resize the terminal by dragging its top edge, or toggle it with <kbd>⌘</kbd> + <kbd>`</kbd>. Multiple terminal sessions are supported. The terminal is also used by Claude in Agent mode to execute commands on your behalf.</p>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> The terminal respects your <code>~/.zshrc</code> and <code>~/.bashrc</code> — conda environments, custom PATHs, and module systems work seamlessly.
+      </div>
+    </section>
+
+    <!-- ── AI CHAT ────────────────────────────────────── -->
+    <section id="ai-chat">
+      <h2>AI Chat Panel</h2>
+      <p class="section-lead">The right-hand panel is your direct line to Claude. Type natural-language requests and Claude will respond with explanations, code, or take actions in your workspace.</p>
+
+      <p>The chat panel supports full Markdown rendering, code blocks with syntax highlighting, and inline action buttons. You can start new sessions, rename them, or revisit previous conversations from the session list.</p>
+    </section>
+
+    <!-- ── AI MODES ───────────────────────────────────── -->
+    <section id="ai-modes">
+      <h2>Three AI Modes</h2>
+      <p class="section-lead">Switch between modes using the dropdown at the top of the chat panel. Each mode changes how Claude approaches your request.</p>
+
+      <figure class="fig fig-sm">
+        <img src="img/ai-modes-dropdown.png" alt="AI modes dropdown" loading="lazy">
+        <figcaption>The mode selector dropdown showing Agent, Plan, and Ask modes.</figcaption>
+      </figure>
+
+      <h3>Agent Mode</h3>
+      <p><strong>Agent</strong> is the default and most powerful mode. Claude can read and write files, run terminal commands, install packages, execute scripts, and iteratively debug — all autonomously. Use this for tasks like "Run a DESeq2 analysis on my count matrix" or "Set up a Nextflow pipeline for variant calling."</p>
+
+      <h3>Plan Mode</h3>
+      <p><strong>Plan</strong> mode asks Claude to think before it acts. Instead of executing immediately, Claude produces a detailed step-by-step plan that you can review and approve before execution. Ideal for complex multi-stage workflows where you want oversight.</p>
+
+      <h3>Ask Mode</h3>
+      <p><strong>Ask</strong> mode is pure Q&A. Claude answers questions, explains code, and provides guidance — without making any changes to your files or running any commands. Perfect for learning, troubleshooting, or literature review.</p>
+
+      <figure class="fig fig-sm">
+        <img src="img/pubmed-toggle.png" alt="PubMed toggle" loading="lazy">
+        <figcaption>In Ask mode, toggle PubMed search to ground Claude's answers in published literature.</figcaption>
+      </figure>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> In Ask mode, enable the <strong>PubMed</strong> toggle to have Claude search the biomedical literature and cite papers in its responses.
+      </div>
+    </section>
+
+    <!-- ── PROTOCOLS ──────────────────────────────────── -->
+    <section id="protocols">
+      <h2>Analysis Protocols</h2>
+      <p class="section-lead">Protocols are reusable, domain-specific instructions that guide Claude's behavior for particular types of analyses. Think of them as expert templates — they encode best practices for tools, data formats, quality control, and reproducibility.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/protocols-list.png" alt="Protocols list" loading="lazy">
+        <figcaption>The protocols sidebar showing <span class="protocol-count">180+</span> built-in analysis protocols.</figcaption>
+      </figure>
+
+      <p>Operon ships with a comprehensive library of over <span class="protocol-count">180+</span> built-in protocols covering RNA-seq, ChIP-seq, ATAC-seq, WGS, scRNA-seq, metagenomics, GWAS, proteomics, molecular dynamics, and more. When you select a protocol and start a session, its instructions are automatically injected into Claude's context.</p>
+
+      <h3>Creating Your Own Protocols</h3>
+      <p>You're not limited to the built-in set. Click the <strong>+</strong> button in the protocols sidebar to create your own. There are two ways:</p>
+
+      <h4>AI-Generated (Recommended)</h4>
+      <p>Describe what you need in plain English — for example, "A protocol for 16S rRNA amplicon analysis using QIIME2 with DADA2 denoising" — and Claude will generate a comprehensive protocol with sections for environment setup, SLURM configuration, tool parameters, QC checkpoints, and reproducibility guidelines.</p>
+      <figure class="fig fig-md">
+        <img src="img/protocol-generate.png" alt="AI protocol generation" loading="lazy">
+        <figcaption>Describe your analysis and let AI generate a full protocol.</figcaption>
+      </figure>
+
+      <h4>Manual Editor</h4>
+      <p>Prefer to write your own? Switch to the "Write Manually" tab and compose your protocol in Markdown. You have full control over the structure and content.</p>
+      <figure class="fig fig-md">
+        <img src="img/protocol-manual.png" alt="Manual protocol editor" loading="lazy">
+        <figcaption>The manual Markdown editor for hand-crafted protocols.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <strong>Storage location:</strong> All user-created protocols are saved as Markdown files in <code>~/.operon/protocols/</code>. You can edit them directly with any text editor, share them with colleagues, or version-control them with Git.
+      </div>
+    </section>
+
+    <!-- ── PUBMED ─────────────────────────────────────── -->
+    <section id="pubmed">
+      <h2>PubMed Search</h2>
+      <p class="section-lead">Operon integrates with NCBI's PubMed database so Claude can search and cite biomedical literature directly in your conversations.</p>
+
+      <p>Enable the PubMed toggle (available in Ask mode) and ask questions like "What are the latest methods for single-cell ATAC-seq peak calling?" Claude will search PubMed, retrieve relevant papers, and incorporate their findings into its answer with proper citations.</p>
+
+      <p>This is powered by the NCBI E-utilities API and requires no additional setup or API keys.</p>
+    </section>
+
+    <!-- ── TUTORIAL: LOCAL ANALYSIS ─────────────────────── -->
+    <section id="tutorial-local">
+      <h2>Tutorial: Running a Local Analysis</h2>
+      <p class="section-lead">A practical, step-by-step walkthrough for first-time users. By the end of this tutorial you will have run a complete analysis on your own machine using Operon.</p>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Install Operon</h4>
+          <p>Grab the right build for your machine from the <a href="download.html">download page</a> — macOS (Apple Silicon or Intel), Windows (.exe or .msi), or Linux (.deb, .rpm, or .AppImage). On first launch the Setup Wizard installs every dependency for you — just follow the prompts.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Authenticate with Claude</h4>
+          <p>When prompted, log in with your Anthropic account or paste your API key. Operon needs this to communicate with Claude. You can change your key later in <a href="#settings">Settings</a>.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Open Your Data Folder</h4>
+          <p>Click <strong>File → Open Folder</strong> (or use <kbd>⌘</kbd> + <kbd>O</kbd>) and navigate to the folder that contains your data — for example, a directory with FASTQ files, a count matrix, or VCF files. This sets the working directory so Claude can see and access your files.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Select a Protocol</h4>
+          <p>Click the <strong>Protocols</strong> icon in the activity bar and browse the library of <span class="protocol-count">180+</span> built-in protocols. Pick the one that matches your analysis — for example, <em>DESeq2 Differential Expression</em> or <em>scRNA-seq (Seurat)</em>. Selecting a protocol gives Claude expert-level context for that specific workflow.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Start in Plan Mode — Iterate Before Executing</h4>
+          <p>Switch the mode dropdown to <strong>Plan</strong> and describe what you want to do — for example, <em>"I have paired-end RNA-seq FASTQs in this folder. Run QC, align to GRCh38, and perform differential expression with DESeq2."</em></p>
+          <p>Claude will produce a detailed, step-by-step plan — the tools it will use, the order of operations, expected outputs, and any assumptions. <strong>Read the plan carefully.</strong> Ask follow-up questions, request changes, or point out things you want done differently. Keep iterating in Plan mode until you are fully confident the plan is correct.</p>
+          <div class="callout tip">
+            <strong>Key practice:</strong> Do not rush to execution. Spending a few extra minutes refining the plan in Plan mode can save hours of debugging later. Treat it as a conversation with a colleague who is outlining their approach before starting.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h4>Execute with Agent Mode</h4>
+          <p>Once you are happy with the plan, switch to <strong>Agent</strong> mode. You can paste or reference the finalized plan and tell Claude to proceed. Agent mode will execute each step autonomously — installing packages, writing scripts, running commands, and handling errors — while you watch the progress in the chat and terminal panels.</p>
+          <div class="callout tip">
+            <strong>Tip:</strong> You can interrupt Agent mode at any time by clicking the <strong>Stop</strong> button. If something goes wrong, switch back to Plan mode, discuss what happened, and revise the approach before trying again.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h4>Use Ask Mode for Quick Questions</h4>
+          <p>At any point during your analysis, switch to <strong>Ask</strong> mode to get explanations without Claude making any changes. This is useful for understanding outputs (<em>"What does this volcano plot tell me?"</em>), clarifying statistics (<em>"Why did DESeq2 shrink these log-fold changes?"</em>), or searching the literature with PubMed toggled on.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <h4>Review Results and Iterate</h4>
+          <p>Check the output files in the File Explorer. If you need to adjust parameters, add a visualization, or run a follow-up analysis, just tell Claude. You can go back and forth between Plan and Agent modes as many times as you need. Each session preserves the full conversation history so Claude remembers what was done previously.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TUTORIAL: REMOTE SERVER / HPC ─────────────────── -->
+    <section id="tutorial-remote">
+      <h2>Tutorial: Running on a Remote Server / HPC</h2>
+      <p class="section-lead">Most bioinformatics workloads run on institutional HPC clusters or cloud servers. This tutorial walks you through using Operon to work on a remote machine, with practical tips for long-running jobs.</p>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Install Operon Locally</h4>
+          <p>Install Operon on your Mac using the same steps from the <a href="#tutorial-local">local tutorial</a> above. Operon runs locally on your laptop and connects to the remote server over SSH — you do not need to install Operon on the server itself.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Connect via SSH</h4>
+          <p>Click the <strong>SSH</strong> icon in the activity bar and set up a new connection with your server's hostname, port, and credentials. Operon supports password, SSH key, and Duo/MFA authentication. Once connected, the file explorer and terminal switch to the remote filesystem.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Start a tmux or screen Session</h4>
+          <p>Before doing anything else, open the terminal panel and start a persistent terminal multiplexer session:</p>
+          <pre><code># Using tmux (recommended)
+tmux new -s operon
+
+# Or using screen
+screen -S operon</code></pre>
+          <p>This is <strong>critical</strong> for remote work. If your SSH connection drops — laptop goes to sleep, Wi-Fi hiccup, VPN reconnect — a bare SSH session would kill any running processes. With tmux or screen, your session survives disconnections and you can reattach later:</p>
+          <pre><code># Reattach to tmux
+tmux attach -t operon
+
+# Reattach to screen
+screen -r operon</code></pre>
+          <div class="callout tip">
+            <strong>Tip:</strong> Always run inside tmux or screen on remote servers. This is a best practice for any long-running bioinformatics work, not just Operon.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Request an Interactive Compute Node</h4>
+          <p>On most HPC clusters the login node is shared and has limited resources. Do not run analyses on the login node. Instead, request an interactive session on a compute node:</p>
+          <pre><code># SLURM (most common)
+srun --pty --mem=16G --cpus-per-task=4 --time=4:00:00 bash
+
+# PBS/Torque
+qsub -I -l nodes=1:ppn=4,mem=16gb,walltime=04:00:00
+
+# SGE
+qlogin -l h_vmem=16G,h_rt=04:00:00</code></pre>
+          <p>Once you land on a compute node, Claude can use it to run tools, process data, and execute scripts with the allocated resources. This is where your actual analysis will happen.</p>
+          <div class="callout">
+            <strong>Why an interactive node?</strong> Claude's Agent mode executes commands in real time and reads their output to decide what to do next. It needs an interactive shell on a node that has enough CPU, memory, and time to run bioinformatics tools. A login node will be too slow and may get your session killed by system administrators.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Navigate to Your Data</h4>
+          <p>Use the file explorer or terminal to <code>cd</code> into the directory where your data lives — for example, <code>/scratch/username/rnaseq_project/</code>. Open this folder in Operon so Claude can see the files.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h4>Select a Protocol and Plan First</h4>
+          <p>Just like the local workflow: pick a protocol, switch to <strong>Plan</strong> mode, and describe your analysis. Iterate on the plan until you are confident. This is even more important on a remote server where resources are limited and mistakes can waste queued compute time.</p>
+          <p>When discussing the plan, tell Claude about your cluster environment — available modules (<code>module avail</code>), conda environments, scratch vs. home directories, and any job submission conventions your lab follows.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h4>Execute in Agent Mode</h4>
+          <p>Switch to <strong>Agent</strong> mode and let Claude run the analysis on the compute node. Claude will write scripts, execute commands, and adapt based on output — all within your tmux/screen session. For very long-running steps (e.g., genome alignment), Claude can write and submit a batch job script instead of running interactively:</p>
+          <pre><code># Claude can generate and submit SLURM scripts like:
+sbatch alignment_job.sh</code></pre>
+          <p>You can then monitor the job with <code>squeue -u $USER</code> or ask Claude to check on it.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <h4>Reconnect If Disconnected</h4>
+          <p>If your connection drops, simply reconnect via SSH in Operon and reattach your tmux/screen session. Your analysis will still be running (or will have completed) and all the output will be intact. Start a new Operon chat session and point Claude to the working directory — it can pick up where things left off by examining the files and logs.</p>
+        </div>
+      </div>
+
+      <div class="callout tip">
+        <strong>Summary of the remote workflow:</strong> SSH in → start tmux/screen → get an interactive compute node → open your data folder → Plan mode to design the analysis → Agent mode to execute → Ask mode for questions along the way. Always keep tmux/screen running so nothing is lost if the connection drops.
+      </div>
+    </section>
+
+    <!-- ── SSH ─────────────────────────────────────────── -->
+    <section id="ssh">
+      <h2>SSH Connections</h2>
+      <p class="section-lead">Connect to remote servers and HPC clusters directly from Operon. Browse files, edit code, and run analyses on remote machines without leaving the app.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/ssh-connect.png" alt="SSH connection dialog" loading="lazy">
+        <figcaption>The SSH connection dialog with fields for host, port, and authentication options including Duo/MFA and SSH key support.</figcaption>
+      </figure>
+
+      <h3>Setting Up a Connection</h3>
+      <p>Click the <strong>SSH</strong> icon in the activity bar, then <strong>New Connection</strong>. Fill in your server details: hostname, port (defaults to 22), username. Operon supports both password and SSH key authentication, as well as Duo/MFA for university clusters that require two-factor auth.</p>
+
+      <h3>Working Remotely</h3>
+      <p>Once connected, the file explorer switches to show the remote filesystem. You can browse directories, open files in the editor, and run commands in a remote terminal session — all through the same interface you use locally.</p>
+
+      <div class="callout">
+        <strong>SSH Control Master:</strong> Operon uses SSH connection multiplexing under the hood, so multiple operations share a single connection. This makes remote file browsing fast and reduces authentication prompts.
+      </div>
+
+      <div class="callout tip">
+        <strong>Tip:</strong> You can set up SSH keys directly from Operon — no need to manually run <code>ssh-keygen</code> and <code>ssh-copy-id</code>.
+      </div>
+    </section>
+
+    <!-- ── REMOTE WORKFLOWS ───────────────────────────── -->
+    <section id="remote-workflows">
+      <h2>Remote Workflows</h2>
+      <p class="section-lead">Operon can install Claude Code on your remote server and run AI-assisted sessions directly on HPC infrastructure.</p>
+
+      <p>This means you can use Agent mode on a remote cluster: Claude will execute commands via SSH, write scripts to the remote filesystem, submit SLURM/PBS jobs, and monitor their progress. Your data never leaves the server — only the terminal I/O travels over the SSH connection.</p>
+
+      <p>The setup wizard on the remote tab checks for Node.js and Claude Code on the remote machine and offers to install them if missing.</p>
+    </section>
+
+    <!-- ── GIT ─────────────────────────────────────────── -->
+    <section id="git">
+      <h2>Git &amp; GitHub</h2>
+      <p class="section-lead">Operon includes a full Git integration in the sidebar. Track changes, commit, push, and publish repositories — all without leaving the app.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/git-panel.png" alt="Git panel" loading="lazy">
+        <figcaption>The Git sidebar showing branch info, changed files, and commit/push controls.</figcaption>
+      </figure>
+
+      <h3>Key Git Features</h3>
+
+      <details>
+        <summary>Initialize a Repository</summary>
+        <div class="inner">
+          <p>If your project doesn't have a <code>.git</code> folder, Operon shows an <strong>Initialize Repository</strong> button. Click it to run <code>git init</code> and start tracking your files.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Stage, Commit &amp; Push</summary>
+        <div class="inner">
+          <p>The Git panel lists all modified, added, and deleted files. Write a commit message and click <strong>Commit All</strong> to stage and commit everything at once. Then click <strong>Push</strong> to send your changes to the remote.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Publish to GitHub</summary>
+        <div class="inner">
+          <p>Authenticate with GitHub via <code>gh auth login</code> (Operon walks you through this). Then use the <strong>Publish</strong> button to create a new GitHub repository and push your code — public or private, your choice.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Version Tagging</summary>
+        <div class="inner">
+          <p>Operon supports semantic version tagging. Tag releases directly from the Git panel to mark milestones in your analysis pipelines.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── SETTINGS ───────────────────────────────────── -->
+    <section id="settings">
+      <h2>Settings</h2>
+      <p class="section-lead">Customize Operon to match your preferences. Access settings from the gear icon in the activity bar.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/settings-panel.png" alt="Settings panel" loading="lazy">
+        <figcaption>The Settings panel with editor configuration options.</figcaption>
+      </figure>
+
+      <h3>Available Settings</h3>
+
+      <table>
+        <thead><tr><th>Setting</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Font Size</td><td>Adjust the editor and terminal font size.</td></tr>
+          <tr><td>Font Family</td><td>Choose your preferred monospace font.</td></tr>
+          <tr><td>Tab Size</td><td>Set tab width (2 or 4 spaces).</td></tr>
+          <tr><td>Word Wrap</td><td>Toggle soft line wrapping in the editor.</td></tr>
+          <tr><td>Line Numbers</td><td>Show or hide line numbers.</td></tr>
+          <tr><td>Minimap</td><td>Toggle the code minimap on the right edge.</td></tr>
+          <tr><td>Auto-save</td><td>Automatically save files after changes.</td></tr>
+          <tr><td>Theme</td><td>Switch between dark themes.</td></tr>
+          <tr><td>Voice Dictation</td><td>Enable voice input for the AI chat panel.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ── KEYBOARD SHORTCUTS ─────────────────────────── -->
+    <section id="keyboard-shortcuts">
+      <h2>Keyboard Shortcuts</h2>
+      <p class="section-lead">Press a shortcut on this page and we'll highlight it in the list. Or just type in the search box.</p>
+
+      <input type="search" id="kbd-search" placeholder="Search shortcuts — save, terminal, chat…" style="width:100%; padding:10px 14px; background:var(--bg-2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:.95rem; margin-bottom:16px; font-family:inherit;">
+
+      <table id="shortcut-table">
+        <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr data-kbd-keys="meta+s"><td><kbd>⌘</kbd> + <kbd>S</kbd></td><td>Save current file</td></tr>
+          <tr data-kbd-keys="meta+p"><td><kbd>⌘</kbd> + <kbd>P</kbd></td><td>Quick file search</td></tr>
+          <tr data-kbd-keys="meta+`"><td><kbd>⌘</kbd> + <kbd>`</kbd></td><td>Toggle terminal</td></tr>
+          <tr data-kbd-keys="meta+b"><td><kbd>⌘</kbd> + <kbd>B</kbd></td><td>Toggle sidebar</td></tr>
+          <tr data-kbd-keys="meta+j"><td><kbd>⌘</kbd> + <kbd>J</kbd></td><td>Toggle bottom panel</td></tr>
+          <tr data-kbd-keys="meta+n"><td><kbd>⌘</kbd> + <kbd>N</kbd></td><td>New file</td></tr>
+          <tr data-kbd-keys="meta+shift+n"><td><kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>N</kbd></td><td>New folder</td></tr>
+          <tr data-kbd-keys="meta+w"><td><kbd>⌘</kbd> + <kbd>W</kbd></td><td>Close current tab</td></tr>
+          <tr data-kbd-keys="meta+enter"><td><kbd>⌘</kbd> + <kbd>Enter</kbd></td><td>Send message in AI chat</td></tr>
+          <tr data-kbd-keys="meta+/"><td><kbd>⌘</kbd> + <kbd>/</kbd></td><td>Toggle comment in editor</td></tr>
+          <tr data-kbd-keys="meta+f"><td><kbd>⌘</kbd> + <kbd>F</kbd></td><td>Find in file</td></tr>
+          <tr data-kbd-keys="meta+shift+f"><td><kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>F</kbd></td><td>Find in project</td></tr>
+          <tr data-kbd-keys="escape"><td><kbd>Esc</kbd></td><td>Stop AI session / Cancel</td></tr>
+        </tbody>
+      </table>
+
+      <style>
+        #shortcut-table tr.flash { background: rgba(59,130,246,.14); transition: background .25s; }
+        #shortcut-table tr[hidden] { display: none; }
+      </style>
+      <script>
+        (function(){
+          const search = document.getElementById('kbd-search');
+          const rows = document.querySelectorAll('#shortcut-table tbody tr');
+          if (search) {
+            search.addEventListener('input', () => {
+              const q = search.value.toLowerCase().trim();
+              rows.forEach(r => {
+                const match = !q || r.textContent.toLowerCase().includes(q);
+                r.hidden = !match;
+              });
+            });
+          }
+          // Highlight matching row on keypress
+          document.addEventListener('keydown', (e) => {
+            // Only when this section is in view and no input focused
+            const kb = document.getElementById('keyboard-shortcuts');
+            if (!kb) return;
+            const rect = kb.getBoundingClientRect();
+            if (rect.bottom < 0 || rect.top > window.innerHeight) return;
+            const tag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea') return;
+            const parts = [];
+            if (e.metaKey || e.ctrlKey) parts.push('meta');
+            if (e.shiftKey) parts.push('shift');
+            if (e.altKey) parts.push('alt');
+            const k = e.key === ' ' ? 'space' : e.key.toLowerCase();
+            if (!['control','meta','shift','alt'].includes(k)) parts.push(k);
+            const combo = parts.join('+');
+            rows.forEach(r => {
+              if (r.dataset.kbdKeys === combo) {
+                r.classList.add('flash');
+                setTimeout(() => r.classList.remove('flash'), 900);
+              }
+            });
+          });
+        })();
+      </script>
+    </section>
+
+    <!-- ── HELP PANEL ─────────────────────────────────── -->
+    <section id="help-panel">
+      <h2>Help Panel</h2>
+      <p class="section-lead">The built-in help panel (click the <strong>?</strong> icon in the activity bar, or use the <strong>Help</strong> menu) provides quick-access documentation organized into sections.</p>
+
+      <figure class="fig fig-md">
+        <img src="img/help-panel.png" alt="Help panel" loading="lazy">
+        <figcaption>The Help panel showing the Getting Started section.</figcaption>
+      </figure>
+
+      <p>The help panel covers:</p>
+
+      <details>
+        <summary>Getting Started</summary>
+        <div class="inner">
+          <p>Overview of the workspace layout, how to open projects, and first steps with the AI assistant.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Working with Files</summary>
+        <div class="inner">
+          <p>How to create, rename, delete, and organize files. Project indexing for large codebases.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Using the Terminal</summary>
+        <div class="inner">
+          <p>Terminal basics, resizing, multiple sessions, and environment configuration.</p>
+        </div>
+      </details>
+      <details>
+        <summary>AI Assistant</summary>
+        <div class="inner">
+          <p>Deep dive into Agent, Plan, and Ask modes. How to write effective prompts. Session management.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Analysis Protocols</summary>
+        <div class="inner">
+          <p>How protocols work, using built-in protocols, and creating your own (AI-generated or manual).</p>
+        </div>
+      </details>
+      <details>
+        <summary>Remote Servers (SSH)</summary>
+        <div class="inner">
+          <p>Setting up connections, SSH key management, Duo/MFA, and running remote sessions.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Git &amp; GitHub</summary>
+        <div class="inner">
+          <p>Repository management, committing, pushing, and publishing to GitHub.</p>
+        </div>
+      </details>
+      <details>
+        <summary>PubMed Integration</summary>
+        <div class="inner">
+          <p>Searching biomedical literature within the AI chat interface.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Voice Dictation</summary>
+        <div class="inner">
+          <p>Enable and use voice input for hands-free interaction with the AI assistant. Powered by macOS dictation.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Customization</summary>
+        <div class="inner">
+          <p>Theme settings, font configuration, editor preferences, and workspace customization.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Keyboard Shortcuts</summary>
+        <div class="inner">
+          <p>Complete list of keyboard shortcuts for navigation, editing, and AI interaction.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Troubleshooting</summary>
+        <div class="inner">
+          <p>Common issues with installation, authentication, SSH connections, and Claude Code — plus their fixes.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── FAQ ─────────────────────────────────────────── -->
+    <section id="faq">
+      <h2>Frequently Asked Questions</h2>
+
+      <details>
+        <summary>What is Claude Code and why does Operon need it?</summary>
+        <div class="inner">
+          <p>Claude Code is Anthropic's command-line AI agent. Operon uses it as the backend for all AI features — it's what allows Claude to read your files, run commands, and execute multi-step analyses. Operon provides the visual interface; Claude Code provides the AI engine. For more details, see the <a href="https://code.claude.com/docs/en/overview" target="_blank" rel="noopener">Claude Code documentation</a>.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Does my data leave my computer?</summary>
+        <div class="inner">
+          <p>When using Claude, your prompts and relevant file contents are sent to Anthropic's API for processing. For remote/HPC workflows, data stays on the remote server — only terminal I/O is transmitted over SSH. Operon itself doesn't collect or transmit any telemetry.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Can I use Operon offline?</summary>
+        <div class="inner">
+          <p>The editor, file explorer, terminal, and Git features all work offline. AI features (Agent, Plan, Ask, PubMed) require an internet connection to reach the Claude API.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>What HPC schedulers are supported?</summary>
+        <div class="inner">
+          <p>Operon's protocols include templates for <strong>SLURM</strong>, <strong>PBS/Torque</strong>, and <strong>SGE</strong>. Claude can generate and submit job scripts for any of these schedulers when working in Agent mode on a remote cluster.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Can I use my own conda environments?</summary>
+        <div class="inner">
+          <p>Yes. The integrated terminal inherits your shell configuration, including conda/mamba initialization. Your environments are available in both the terminal and when Claude executes commands in Agent mode.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>How do I update Operon?</summary>
+        <div class="inner">
+          <p>Grab the latest build for your platform from the <a href="download.html">download page</a> and replace the existing install (drag over on macOS, re-run the installer on Windows, <code>dpkg</code>/<code>dnf</code> on Linux). Your settings, protocols, and sessions are stored in <code>~/.operon/</code> and won't be affected.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Is Operon open source?</summary>
+        <div class="inner">
+          <p>Operon is built with Tauri (Rust) and React. Check the project repository for licensing details and contribution guidelines.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── REQUIREMENTS ───────────────────────────────── -->
+    <section id="requirements">
+      <h2>System Requirements</h2>
+
+      <table>
+        <thead><tr><th>Requirement</th><th>Details</th></tr></thead>
+        <tbody>
+          <tr><td>Operating System</td><td>macOS 12 (Monterey) or later</td></tr>
+          <tr><td>Architecture</td><td>Apple Silicon (M1/M2/M3/M4) or Intel — separate downloads available for each</td></tr>
+          <tr><td>Disk Space</td><td>~500 MB (including dependencies)</td></tr>
+          <tr><td>RAM</td><td>4 GB minimum, 8 GB recommended</td></tr>
+          <tr><td>Internet</td><td>Required for AI features and initial setup</td></tr>
+          <tr><td>Dependencies</td><td>Installed automatically: Xcode CLT, Homebrew, Node.js, GitHub CLI, Claude Code</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>Note:</strong> All dependencies are installed automatically by the setup wizard. You only need macOS and an internet connection to get started.
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ── Footer ──────────────────────────────────────────── -->
+<footer>
+  <p>Operon — AI-Powered IDE for Bioinformatics</p>
+  <p style="margin-top: 6px;">Built with Tauri, React &amp; Rust · <a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">GitHub</a></p>
+</footer>
+
+<!-- ── Mobile menu toggle ──────────────────────────────── -->
+<button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation">☰</button>
+
+<!-- ── Back to top ─────────────────────────────────────── -->
+<button class="back-top" id="backTop" onclick="window.scrollTo({top:0})">↑ Back to top</button>
+
+<!-- ── Lightbox ────────────────────────────────────────── -->
+<div class="lightbox-overlay" id="lightbox">
+  <img src="" alt="Enlarged screenshot" id="lightboxImg">
+</div>
+
+<script>
+  // ── Sidebar toggle (mobile) ──
+  const sidebar = document.getElementById('sidebar');
+  const menuBtn = document.getElementById('menuToggle');
+  menuBtn.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+  });
+  // Close sidebar when a link is clicked or tapping outside (mobile)
+  sidebar.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', () => sidebar.classList.remove('open'));
+  });
+  document.querySelector('.main-content').addEventListener('click', () => {
+    sidebar.classList.remove('open');
+  });
+
+  // ── Active sidebar link tracking ──
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.sidebar a[href^="#"]');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -75% 0px' });
+  sections.forEach(s => observer.observe(s));
+
+  // ── Back to top button ──
+  const backTop = document.getElementById('backTop');
+  window.addEventListener('scroll', () => {
+    backTop.classList.toggle('show', window.scrollY > 600);
+  });
+
+  // ── Lightbox for images ──
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImg = document.getElementById('lightboxImg');
+  document.querySelectorAll('.fig img').forEach(img => {
+    img.addEventListener('click', () => {
+      lightboxImg.src = img.src;
+      lightboxImg.alt = img.alt;
+      lightbox.classList.add('show');
+    });
+  });
+  lightbox.addEventListener('click', () => lightbox.classList.remove('show'));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') lightbox.classList.remove('show');
+  });
+</script>
+
+<!-- Load download links and version from external config -->
+<script>
+  fetch('downloads.json')
+    .then(r => r.json())
+    .then(cfg => {
+      const v = cfg.version;
+      const apple = cfg.downloads.apple_silicon;
+      const intel = cfg.downloads.intel;
+
+      // Hero buttons
+      const heroApple = document.getElementById('hero-dl-apple');
+      const heroIntel = document.getElementById('hero-dl-intel');
+      if (heroApple) { heroApple.href = apple.url; heroApple.setAttribute('download', apple.filename); }
+      if (heroIntel) { heroIntel.href = intel.url; heroIntel.setAttribute('download', intel.filename); }
+
+      // Installation section links
+      const installApple = document.getElementById('install-dl-apple');
+      const installIntel = document.getElementById('install-dl-intel');
+      if (installApple) { installApple.href = apple.url; installApple.setAttribute('download', apple.filename); installApple.textContent = 'Operon v' + v + ' for ' + apple.label; }
+      if (installIntel) { installIntel.href = intel.url; installIntel.setAttribute('download', intel.filename); installIntel.textContent = 'Operon v' + v + ' for ' + intel.label; }
+
+      // Protocol count
+      document.querySelectorAll('.protocol-count').forEach(el => { el.textContent = cfg.protocol_count; });
+    })
+    .catch(err => console.warn('Could not load downloads.json:', err));
+</script>
+</body>
+</html>

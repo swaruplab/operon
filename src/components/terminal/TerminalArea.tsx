@@ -11,6 +11,8 @@ interface TerminalTab {
   type: 'local' | 'ssh';
   /** Command to run once the shell is ready (e.g. an SSH command) */
   initialCommand?: string;
+  /** SSH profile id — present for SSH tabs, enables HPC watchdog auto-register. */
+  sshProfileId?: string;
   exited: boolean;
 }
 
@@ -23,19 +25,43 @@ export function TerminalArea() {
 
   // Listen for SSH terminal open events from the sidebar
   useEffect(() => {
-    const unlisten = listen<{ terminalId: string; title: string; sshCommand?: string }>('open-ssh-terminal', (event) => {
-      const { terminalId, title, sshCommand } = event.payload;
+    const unlisten = listen<{ terminalId: string; title: string; sshCommand?: string; profileId?: string }>('open-ssh-terminal', (event) => {
+      const { terminalId, title, sshCommand, profileId } = event.payload;
       const newTab: TerminalTab = {
         id: terminalId,
         title,
         type: 'ssh',
         initialCommand: sshCommand,
+        sshProfileId: profileId,
         exited: false,
       };
       setTabs((prev) => [...prev, newTab]);
       setActiveTab(terminalId);
     });
 
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  // Listen for disconnect-remote events: kill all SSH tabs for this profile
+  // so the user can cleanly switch to a different server.
+  useEffect(() => {
+    const unlisten = listen<{ profileId: string }>('disconnect-remote', (event) => {
+      const { profileId } = event.payload;
+      setTabs((prev) => {
+        const toClose = prev.filter((t) => t.type === 'ssh' && t.sshProfileId === profileId);
+        toClose.forEach((t) => {
+          invoke('kill_terminal', { terminalId: t.id }).catch(() => {});
+        });
+        const remaining = prev.filter((t) => !toClose.includes(t));
+        // If the active tab was closed, focus a remaining tab (or none)
+        setActiveTab((curr) =>
+          toClose.some((t) => t.id === curr)
+            ? remaining[remaining.length - 1]?.id ?? curr
+            : curr,
+        );
+        return remaining;
+      });
+    });
     return () => { unlisten.then((u) => u()); };
   }, []);
 
@@ -223,6 +249,7 @@ export function TerminalArea() {
               terminalId={tab.id}
               isVisible={activeTab === tab.id}
               initialCommand={tab.initialCommand}
+              sshProfileId={tab.sshProfileId}
               onTitleChange={(title) => handleTitleChange(tab.id, title)}
               onExit={() => handleExit(tab.id)}
               onCwdChange={(cwd) => handleCwdChange(tab.id, cwd)}

@@ -48,7 +48,25 @@ Desktop.ini
 # Operon session temp files
 .operon-*.jsonl
 .operon-*.done
+.operon/
 
 # Vendored sidecar binaries — fetched by scripts/fetch-ripgrep.sh,
 # also fetched on CI before each build. Not checked in to keep repo lean.
 src-tauri/binaries/
+
+# Local working scratch dirs (Dropbox sync, audit output, mount points)
+tmp/
+mnt/
+operon/
+
+# Knowledge graph artifacts — regenerable via `graphify update .`
+graphify-out/
+
+# Claude Code session state and per-project auto-memory
+.claude/
+memory/
+
+# Shell dotfiles that occasionally land here from Dropbox sync
+.bash_logout
+.bashrc
+.profile

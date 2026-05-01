@@ -61,6 +61,7 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
+import { disconnectRemote } from '../../lib/disconnect';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -1172,7 +1173,10 @@ export function ChatPanel() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamStalled, setStreamStalled] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const lastEventTime = useRef<number>(0);
+  const reconnectAttempts = useRef<number>(0);
+  const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [model, setModel] = useState('claude-opus-4-20250514');
@@ -1753,6 +1757,28 @@ export function ChatPanel() {
     return () => unlisteners.forEach((u) => u());
   }, []);
 
+  // Disconnect-remote: clear remote state. If a session is in flight against
+  // this profile, stop it — the agent on the (now-disconnected) server can't
+  // be reached and continuing to stream events would be misleading.
+  // Separate useEffect (not [] deps) so it sees the current sessionId/isStreaming.
+  useEffect(() => {
+    const unlisten = listen<{ profileId: string }>('disconnect-remote', (event) => {
+      const { profileId } = event.payload;
+      const ri = remoteInfoRef.current;
+      if (!ri || ri.profileId !== profileId) return;
+      if (isStreaming) {
+        invoke('stop_claude_session', { sessionId }).catch(() => {});
+        setIsStreaming(false);
+      }
+      setRemoteInfo(null);
+      setSshTerminalId(null);
+      setStreamStalled(false);
+      setReconnecting(false);
+      reconnectAttempts.current = 0;
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, [sessionId, isStreaming]);
+
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
     if (!remoteInfo?.profileId) {
@@ -1865,25 +1891,66 @@ export function ChatPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Watchdog: detect stalled remote streams.
+  // Watchdog: detect stalled remote streams and auto-reconnect.
   // On remote SSH, the connection can drop silently (network hiccup, SSH timeout,
-  // NFS stall) leaving the UI stuck in streaming mode with no way to recover.
-  // Agent mode gets 8 min because tool calls like package installation or long
-  // Bash commands can legitimately produce no output for extended periods.
-  // Ask and report modes use 90 seconds.
+  // NFS stall) leaving the UI stuck in streaming mode. The remote tail script now
+  // emits a `{"type":"heartbeat"}` line every 30s, so any stall longer than
+  // ~45s strongly implies the SSH stream itself is broken (the agent in tmux
+  // keeps running regardless). When that happens we automatically respawn the
+  // tail SSH up to MAX_RECONNECTS times before surfacing the user-facing banner.
+  // Reconnect only applies to terminal-mode (agent/plan) sessions where the
+  // tail is a separate SSH channel; ask/report modes use a single SSH stream.
+  const MAX_RECONNECTS = 3;
+  const STALL_THRESHOLD_MS = 60_000; // > 2x heartbeat interval
   useEffect(() => {
     if (!isStreaming || !remoteInfo) {
       setStreamStalled(false);
+      setReconnecting(false);
+      reconnectAttempts.current = 0;
+      reconnectInFlight.current = false;
       return;
     }
-    const stallThreshold = mode === 'agent' ? 480_000 : 90_000; // 8 min vs 90s
+    const canAutoReconnect = mode === 'agent' || mode === 'plan';
     const interval = setInterval(() => {
-      if (lastEventTime.current > 0 && Date.now() - lastEventTime.current > stallThreshold) {
+      if (lastEventTime.current === 0) return;
+      const elapsed = Date.now() - lastEventTime.current;
+      if (elapsed <= STALL_THRESHOLD_MS) return;
+      if (reconnectInFlight.current) return;
+
+      if (!canAutoReconnect) {
+        // ask/report — no reconnect path, just surface the banner
         setStreamStalled(true);
+        return;
       }
+
+      if (reconnectAttempts.current >= MAX_RECONNECTS) {
+        setStreamStalled(true);
+        setReconnecting(false);
+        return;
+      }
+
+      // Attempt auto-reconnect
+      reconnectInFlight.current = true;
+      reconnectAttempts.current += 1;
+      setReconnecting(true);
+      invoke('reconnect_tail', {
+        sessionId,
+        remote: { profileId: remoteInfo.profileId, remotePath: remoteInfo.remotePath },
+      })
+        .then(() => {
+          // Give the new tail a moment to start producing lines; the event
+          // listener will reset reconnectAttempts on the next real event.
+          lastEventTime.current = Date.now();
+        })
+        .catch((err) => {
+          console.error('Auto-reconnect failed:', err);
+        })
+        .finally(() => {
+          reconnectInFlight.current = false;
+        });
     }, 10_000);
     return () => clearInterval(interval);
-  }, [isStreaming, remoteInfo, mode]);
+  }, [isStreaming, remoteInfo, mode, sessionId]);
 
   // Listen for Claude events
   useEffect(() => {
@@ -1893,6 +1960,12 @@ export function ChatPanel() {
       lastEventTime.current = Date.now();
       setStreamStalled(false);
       const line = event.payload.line;
+      // Receiving any line — including a heartbeat — proves the SSH stream is
+      // healthy, so clear the auto-reconnect attempt counter. Heartbeats then
+      // skip JSON parsing / message rendering entirely.
+      reconnectAttempts.current = 0;
+      setReconnecting(false);
+      if (line.includes('"type":"heartbeat"')) return;
       try {
         const data = JSON.parse(line) as ClaudeEvent;
 
@@ -2845,7 +2918,33 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       mentionPrefix = `The user is referencing the following files/folders:\n${contextParts.join('\n')}\n\n`;
     }
     if (currentAttachments.length > 0) {
-      const attachParts = currentAttachments.map(a =>
+      // In remote mode, the agent runs on the HPC server and cannot read local
+      // clipboard/picker paths like /var/folders/.../operon-clipboard/foo.png.
+      // SCP each attachment to <remote_workdir>/.operon-attachments/<basename>
+      // and rewrite the path before embedding it in the prompt.
+      let resolvedAttachments = currentAttachments;
+      if (remoteInfo?.profileId && remoteInfo?.remotePath) {
+        const remoteAttachDir = `${remoteInfo.remotePath.replace(/\/+$/, '')}/.operon-attachments`;
+        const uploaded = await Promise.all(
+          currentAttachments.map(async (a) => {
+            const basename = a.path.split(/[\\/]/).pop() || a.name;
+            const remotePath = `${remoteAttachDir}/${basename}`;
+            try {
+              await invoke('scp_to_remote', {
+                profileId: remoteInfo.profileId,
+                localPath: a.path,
+                remotePath,
+              });
+              return { ...a, path: remotePath };
+            } catch (err) {
+              console.error('Failed to upload attachment to remote:', a.path, err);
+              return a; // fall back to local path; agent Read will fail but message still sends
+            }
+          }),
+        );
+        resolvedAttachments = uploaded;
+      }
+      const attachParts = resolvedAttachments.map(a =>
         `- ${a.type === 'image' ? 'Image' : 'File'}: ${a.path} (use Read tool to view this file)`
       );
       mentionPrefix += `The user has attached these files for context:\n${attachParts.join('\n')}\n\n`;
@@ -3287,9 +3386,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           </button>
 
           <button
-            onClick={() => setRemoteInfo(null)}
+            onClick={() => {
+              const pid = remoteInfo?.profileId;
+              if (pid) disconnectRemote(pid);
+              else setRemoteInfo(null);
+            }}
             className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors shrink-0 ml-1"
-            title="Disconnect from remote — run Claude locally"
+            title="Disconnect server — closes terminals + explorer, returns to local"
           >
             {'\u2715'}
           </button>
@@ -3953,6 +4056,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           <div className="flex items-center gap-2 text-zinc-500 text-sm">
             <span className="animate-pulse">{'\u25CF'}</span>
             <span>Claude is thinking...</span>
+          </div>
+        )}
+        {/* Auto-reconnect indicator — shown while attempting silent reconnect, before the user-facing stall banner appears */}
+        {isStreaming && reconnecting && !streamStalled && (
+          <div className="my-2 p-2 rounded-lg bg-blue-950/30 border border-blue-800/40 text-[11px] flex items-center gap-2">
+            <span className="animate-pulse text-blue-300">{'\u25CF'}</span>
+            <span className="text-blue-200/70">
+              SSH stream quiet — reconnecting (attempt {reconnectAttempts.current}/{MAX_RECONNECTS})…
+            </span>
           </div>
         )}
         {/* Stalled stream warning — threshold is mode-dependent */}

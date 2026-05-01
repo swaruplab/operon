@@ -1,18 +1,74 @@
 {
-  "version": "0.5.4",
+  "version": "0.5.9",
   "protocol_count": "180+",
+  "mcp_count": "12+",
+  "github": "https://github.com/swaruplab/operon",
+  "releases_url": "https://github.com/swaruplab/operon/releases",
+  "updater_manifest": "https://github.com/swaruplab/operon/releases/latest/download/latest.json",
+  "pub_date": "2026-04-20T19:30:39.906Z",
   "downloads": {
     "apple_silicon": {
-      "url": "https://dl.dropboxusercontent.com/scl/fi/bj2ro264kmx155btqdopw/Operon_0.5.4_aarch64.dmg?rlkey=7kqmpal39dzrb5j61zg9jthdj&dl=1",
-      "filename": "Operon_0.5.4_aarch64.dmg",
-      "label": "Apple Silicon (M1/M2/M3/M4)"
+      "url": "https://dl.dropboxusercontent.com/scl/fi/bj2ro264kmx155btqdopw/Operon_0.5.3_aarch64.dmg?rlkey=7kqmpal39dzrb5j61zg9jthdj&dl=1",
+      "filename": "Operon_0.5.3_aarch64.dmg",
+      "label": "Apple Silicon (M1 – M4)",
+      "os": "macOS",
+      "arch": "arm64",
+      "format": ".dmg",
+      "size": "~40 MB"
     },
     "intel": {
-      "url": "https://dl.dropboxusercontent.com/scl/fi/0esvmwd9aq8mcr4srp292/Operon_0.5.4_x64.dmg?rlkey=u4fhx1n4mbtly4tglelu9t5pl&dl=1",
-      "filename": "Operon_0.5.4_x64.dmg",
-      "label": "Intel Mac"
+      "url": "https://dl.dropboxusercontent.com/scl/fi/0esvmwd9aq8mcr4srp292/Operon_0.5.3_x64.dmg?rlkey=u4fhx1n4mbtly4tglelu9t5pl&dl=1",
+      "filename": "Operon_0.5.3_x64.dmg",
+      "label": "Intel Mac",
+      "os": "macOS",
+      "arch": "x64",
+      "format": ".dmg",
+      "size": "~40 MB"
+    },
+    "windows": {
+      "url": "https://github.com/swaruplab/operon/releases/download/v0.5.9/Operon_0.5.9_x64-setup.exe",
+      "filename": "Operon_0.5.9_x64-setup.exe",
+      "label": "Windows 10 / 11 (installer)",
+      "os": "Windows",
+      "arch": "x64",
+      "format": ".exe",
+      "size": "~40 MB"
+    },
+    "windows_msi": {
+      "url": "https://github.com/swaruplab/operon/releases/download/v0.5.9/Operon_0.5.9_x64_en-US.msi",
+      "filename": "Operon_0.5.9_x64_en-US.msi",
+      "label": "Windows 10 / 11 (MSI)",
+      "os": "Windows",
+      "arch": "x64",
+      "format": ".msi",
+      "size": "~40 MB"
+    },
+    "linux_deb": {
+      "url": "https://github.com/swaruplab/operon/releases/download/v0.5.9/Operon_0.5.9_amd64.deb",
+      "filename": "Operon_0.5.9_amd64.deb",
+      "label": "Linux (Debian / Ubuntu)",
+      "os": "Linux",
+      "arch": "x64",
+      "format": ".deb",
+      "size": "~40 MB"
+    },
+    "linux_appimage": {
+      "url": "https://github.com/swaruplab/operon/releases/download/v0.5.9/Operon_0.5.9_amd64.AppImage",
+      "filename": "Operon_0.5.9_amd64.AppImage",
+      "label": "Linux (AppImage)",
+      "os": "Linux",
+      "arch": "x64",
+      "format": ".AppImage",
+      "size": "~40 MB"
+    },
+    "linux_rpm": {
+      "url": "https://github.com/swaruplab/operon/releases/download/v0.5.9/Operon-0.5.9-1.x86_64.rpm",
+      "filename": "Operon-0.5.9-1.x86_64.rpm",
+      "label": "Linux (Fedora / RHEL)",
+      "os": "Linux",
+      "arch": "x64",
+      "format": ".rpm",
+      "size": "~40 MB"
     }
   }
 }
-
-

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>Download Operon</title>
+<meta name="description" content="Download Operon for macOS (Apple Silicon, Intel), Windows 10/11, or Linux (.deb, AppImage). Free, open-source, no account required.">
+<meta property="og:title" content="Download Operon">
+<meta property="og:description" content="Mac, Windows, Linux. Free, open-source, no account.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand"><span class="brand-dot"></span> Operon</a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html">Protocols</a></li>
+      <li><a href="mcp.html">MCP</a></li>
+      <li><a href="private-llm.html">Private LLM</a></li>
+      <li><a href="hpc.html">HPC</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta active">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(24px, 4vw, 48px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Download</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      Get Operon.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 0; text-align: center;">
+      Free. Open-source. No account required. Available for macOS, Windows, and Linux.
+    </p>
+    <div class="row reveal" style="justify-content: center; margin-top: 28px; gap: 10px;">
+      <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span> · released this month</span>
+      <span class="pill">MIT-licensed</span>
+      <span class="pill">~40 MB</span>
+    </div>
+  </div>
+</header>
+
+<!-- SMART PICK -->
+<section class="section" style="padding-top: clamp(24px, 4vw, 48px);">
+  <div class="wrap text-center">
+    <div class="reveal" style="display:inline-block;">
+      <div class="download-menu" style="display:inline-block;">
+        <a href="#" class="btn-split" data-download-trigger>
+          <span class="main" data-download="primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M6 11l6 6 6-6M4 21h16"/></svg>
+            <span data-download-label>Download for your platform</span>
+          </span>
+          <span class="chev" aria-label="Other platforms">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </span>
+        </a>
+        <div class="download-panel" role="menu">
+          <a data-dl="dl-apple-silicon" href="#"><span class="os">macOS · Apple Silicon</span><span class="arch">.dmg · arm64</span></a>
+          <a data-dl="dl-intel" href="#"><span class="os">macOS · Intel</span><span class="arch">.dmg · x64</span></a>
+          <a data-dl="dl-windows" href="#"><span class="os">Windows 10 / 11 · installer</span><span class="arch">.exe · x64</span></a>
+          <a data-dl="dl-windows-msi" href="#"><span class="os">Windows 10 / 11 · MSI</span><span class="arch">.msi · x64</span></a>
+          <a data-dl="dl-linux-deb" href="#"><span class="os">Linux · Debian / Ubuntu</span><span class="arch">.deb · x64</span></a>
+          <a data-dl="dl-linux-appimage" href="#"><span class="os">Linux · AppImage</span><span class="arch">.AppImage · x64</span></a>
+          <a data-dl="dl-linux-rpm" href="#"><span class="os">Linux · Fedora / RHEL</span><span class="arch">.rpm · x86_64</span></a>
+        </div>
+      </div>
+    </div>
+    <p class="text-muted reveal" style="margin-top: 16px; font-size: .88rem;">We detected your OS. The button picks the right build — use the dropdown for everything else.</p>
+  </div>
+</section>
+
+<!-- ALL PLATFORMS -->
+<section class="section section-divider" style="padding-top: clamp(40px, 6vw, 72px);">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">All downloads</span>
+      <h2>Pick your platform.</h2>
+    </div>
+
+    <div class="dl-grid">
+
+      <!-- macOS Apple Silicon -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 1.43c.07.9-.24 1.78-.8 2.44-.6.7-1.53 1.24-2.44 1.17-.09-.9.36-1.84.88-2.4.6-.7 1.63-1.2 2.36-1.2zm3.43 16.32c-.6 1.34-.88 1.94-1.65 3.13-1.07 1.66-2.59 3.73-4.47 3.75-1.67.02-2.1-1.09-4.37-1.07-2.28.02-2.75 1.1-4.42 1.08-1.88-.02-3.32-1.9-4.39-3.56C-.28 17.57-.58 12.03 1.35 9.17c1.37-2.03 3.53-3.22 5.56-3.22 2.07 0 3.37 1.14 5.08 1.14 1.66 0 2.67-1.14 5.06-1.14 1.81 0 3.72.99 5.08 2.69-4.46 2.44-3.74 8.82-1.33 9.11z"/></svg>
+          <div>
+            <h3>macOS · Apple Silicon</h3>
+            <div class="dl-sub">M1 · M2 · M3 · M4</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .dmg</span>
+          <span><strong>Arch:</strong> arm64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Min OS:</strong> macOS 12 Monterey</span>
+        </div>
+        <a data-dl="dl-apple-silicon" class="btn btn-primary" href="#">Download for Apple Silicon</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.3_aarch64.dmg</span>
+        </p>
+      </article>
+
+      <!-- macOS Intel -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M16.37 1.43c.07.9-.24 1.78-.8 2.44-.6.7-1.53 1.24-2.44 1.17-.09-.9.36-1.84.88-2.4.6-.7 1.63-1.2 2.36-1.2zm3.43 16.32c-.6 1.34-.88 1.94-1.65 3.13-1.07 1.66-2.59 3.73-4.47 3.75-1.67.02-2.1-1.09-4.37-1.07-2.28.02-2.75 1.1-4.42 1.08-1.88-.02-3.32-1.9-4.39-3.56C-.28 17.57-.58 12.03 1.35 9.17c1.37-2.03 3.53-3.22 5.56-3.22 2.07 0 3.37 1.14 5.08 1.14 1.66 0 2.67-1.14 5.06-1.14 1.81 0 3.72.99 5.08 2.69-4.46 2.44-3.74 8.82-1.33 9.11z"/></svg>
+          <div>
+            <h3>macOS · Intel</h3>
+            <div class="dl-sub">Core i5 / i7 / i9</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .dmg</span>
+          <span><strong>Arch:</strong> x86_64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Min OS:</strong> macOS 12 Monterey</span>
+        </div>
+        <a data-dl="dl-intel" class="btn btn-primary" href="#">Download for Intel</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.3_x64.dmg</span>
+        </p>
+      </article>
+
+      <!-- Windows NSIS -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 11 4v7H3V5.5zM12 4l9-1.5V11h-9V4zM3 12h8v7L3 17.5V12zm9 0h9v8.5L12 19v-7z"/></svg>
+          <div>
+            <h3>Windows 10 / 11</h3>
+            <div class="dl-sub">NSIS installer (recommended)</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .exe</span>
+          <span><strong>Arch:</strong> x64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Min OS:</strong> Windows 10 (1809+)</span>
+        </div>
+        <a data-dl="dl-windows" class="btn btn-primary" href="#">Download .exe</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.9_x64-setup.exe</span>
+        </p>
+      </article>
+
+      <!-- Windows MSI -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 11 4v7H3V5.5zM12 4l9-1.5V11h-9V4zM3 12h8v7L3 17.5V12zm9 0h9v8.5L12 19v-7z"/></svg>
+          <div>
+            <h3>Windows 10 / 11</h3>
+            <div class="dl-sub">MSI (for IT &amp; GPO rollouts)</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .msi</span>
+          <span><strong>Arch:</strong> x64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Min OS:</strong> Windows 10 (1809+)</span>
+        </div>
+        <a data-dl="dl-windows-msi" class="btn btn-primary" href="#">Download .msi</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.9_x64_en-US.msi</span>
+        </p>
+      </article>
+
+      <!-- Linux .deb -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a5 5 0 0 0-4.86 6.18c-.12.55-.4 1.01-.84 1.4-.86.75-1.3 1.53-1.3 2.61 0 1.1.42 1.9 1.02 2.65.47.58.7 1.04.62 1.64-.06.43-.3.92-.62 1.3-.32.38-.52.78-.52 1.22 0 1.1 1.34 1.5 3.5 1.5.8 0 1.5-.2 2.5-.5.97-.3 1.5-.5 2.5-.5s1.53.2 2.5.5c1 .3 1.7.5 2.5.5 2.16 0 3.5-.4 3.5-1.5 0-.44-.2-.84-.52-1.22-.32-.38-.56-.87-.62-1.3-.08-.6.15-1.06.62-1.64.6-.75 1.02-1.55 1.02-2.65 0-1.08-.44-1.86-1.3-2.61-.44-.39-.72-.85-.84-1.4A5 5 0 0 0 12 2z"/></svg>
+          <div>
+            <h3>Linux · Debian / Ubuntu</h3>
+            <div class="dl-sub">.deb package</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .deb</span>
+          <span><strong>Arch:</strong> amd64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Distros:</strong> Ubuntu 22.04+, Debian 12+</span>
+        </div>
+        <a data-dl="dl-linux-deb" class="btn btn-primary" href="#">Download .deb</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.9_amd64.deb</span>
+        </p>
+      </article>
+
+      <!-- Linux AppImage -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a5 5 0 0 0-4.86 6.18c-.12.55-.4 1.01-.84 1.4-.86.75-1.3 1.53-1.3 2.61 0 1.1.42 1.9 1.02 2.65.47.58.7 1.04.62 1.64-.06.43-.3.92-.62 1.3-.32.38-.52.78-.52 1.22 0 1.1 1.34 1.5 3.5 1.5.8 0 1.5-.2 2.5-.5.97-.3 1.5-.5 2.5-.5s1.53.2 2.5.5c1 .3 1.7.5 2.5.5 2.16 0 3.5-.4 3.5-1.5 0-.44-.2-.84-.52-1.22-.32-.38-.56-.87-.62-1.3-.08-.6.15-1.06.62-1.64.6-.75 1.02-1.55 1.02-2.65 0-1.08-.44-1.86-1.3-2.61-.44-.39-.72-.85-.84-1.4A5 5 0 0 0 12 2z"/></svg>
+          <div>
+            <h3>Linux · AppImage</h3>
+            <div class="dl-sub">Universal, no install</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .AppImage</span>
+          <span><strong>Arch:</strong> x64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Works on:</strong> Fedora, Arch, RHEL, more</span>
+        </div>
+        <a data-dl="dl-linux-appimage" class="btn btn-primary" href="#">Download .AppImage</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon_0.5.9_amd64.AppImage</span>
+        </p>
+      </article>
+
+      <!-- Linux RPM -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a5 5 0 0 0-4.86 6.18c-.12.55-.4 1.01-.84 1.4-.86.75-1.3 1.53-1.3 2.61 0 1.1.42 1.9 1.02 2.65.47.58.7 1.04.62 1.64-.06.43-.3.92-.62 1.3-.32.38-.52.78-.52 1.22 0 1.1 1.34 1.5 3.5 1.5.8 0 1.5-.2 2.5-.5.97-.3 1.5-.5 2.5-.5s1.53.2 2.5.5c1 .3 1.7.5 2.5.5 2.16 0 3.5-.4 3.5-1.5 0-.44-.2-.84-.52-1.22-.32-.38-.56-.87-.62-1.3-.08-.6.15-1.06.62-1.64.6-.75 1.02-1.55 1.02-2.65 0-1.08-.44-1.86-1.3-2.61-.44-.39-.72-.85-.84-1.4A5 5 0 0 0 12 2z"/></svg>
+          <div>
+            <h3>Linux · Fedora / RHEL</h3>
+            <div class="dl-sub">.rpm package</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Format:</strong> .rpm</span>
+          <span><strong>Arch:</strong> x86_64</span>
+          <span><strong>Size:</strong> ~40 MB</span>
+          <span><strong>Distros:</strong> Fedora 39+, RHEL 9, Rocky, Alma</span>
+        </div>
+        <a data-dl="dl-linux-rpm" class="btn btn-primary" href="#">Download .rpm</a>
+        <p class="dl-fn text-muted" data-filename-wrap>
+          <span data-filename>Operon-0.5.9-1.x86_64.rpm</span>
+        </p>
+      </article>
+
+      <!-- Build from source -->
+      <article class="dl-card reveal">
+        <div class="dl-head">
+          <svg class="dl-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 8v8M8 6c4 2 10 3 10 6M8 18c4-2 10-3 10-6"/></svg>
+          <div>
+            <h3>Build from source</h3>
+            <div class="dl-sub">GitHub · swaruplab/operon</div>
+          </div>
+        </div>
+        <div class="dl-meta">
+          <span><strong>Requires:</strong> Rust, Node 20+, Xcode CLI / MSVC</span>
+          <span><strong>License:</strong> MIT</span>
+        </div>
+        <a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener" class="btn btn-ghost">View on GitHub</a>
+        <p class="dl-fn text-muted">cargo tauri build</p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL NOTES -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Install notes</span>
+      <h2>First-time setup, by platform.</h2>
+    </div>
+
+    <div class="notes-grid">
+      <div class="card reveal">
+        <h4>macOS</h4>
+        <p>Open the <code>.dmg</code> and drag Operon into <code>/Applications</code>.</p>
+        <pre><code>open Operon_0.5.3_aarch64.dmg
+# then drag Operon.app into the Applications shortcut</code></pre>
+        <p>First launch: right-click → <strong>Open</strong> to bypass Gatekeeper (we're not a paying Apple developer yet).</p>
+        <p>The setup wizard will install Xcode Command Line Tools and Claude Code for you.</p>
+      </div>
+      <div class="card reveal">
+        <h4>Windows</h4>
+        <p>Run the <code>.exe</code> installer (or <code>.msi</code> for managed deployments). SmartScreen may warn — click <strong>More info → Run anyway</strong>.</p>
+        <p>Installs to <code>%LOCALAPPDATA%\Operon</code>. Claude Code installed via the setup wizard.</p>
+        <p>Windows Terminal / PowerShell Core recommended but not required.</p>
+      </div>
+      <div class="card reveal">
+        <h4>Linux (.deb)</h4>
+        <pre><code>sudo dpkg -i Operon_0.5.9_amd64.deb
+sudo apt install -f   # fix any missing deps</code></pre>
+        <p>Tested on Ubuntu 22.04, 24.04, and Debian 12.</p>
+      </div>
+      <div class="card reveal">
+        <h4>Linux (.rpm)</h4>
+        <pre><code>sudo dnf install ./Operon-0.5.9-1.x86_64.rpm
+# or: sudo rpm -i Operon-0.5.9-1.x86_64.rpm</code></pre>
+        <p>Tested on Fedora 39+, RHEL 9, Rocky Linux, and AlmaLinux.</p>
+      </div>
+      <div class="card reveal">
+        <h4>Linux (AppImage)</h4>
+        <pre><code>chmod +x Operon_0.5.9_amd64.AppImage
+./Operon_0.5.9_amd64.AppImage</code></pre>
+        <p>No install step. Works anywhere with FUSE. Integrate with the system menu using <code>AppImageLauncher</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- RELEASES / CHECKSUMS -->
+<section class="section section-divider">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Releases</span>
+    <h2 class="reveal" style="margin-top: 14px;">Every build is on GitHub.</h2>
+    <p class="lead reveal" style="margin: 20px auto 32px;">Release notes, SHA-256 checksums, and older versions are all published to the <code>swaruplab/operon</code> releases page.</p>
+    <div class="row reveal" style="justify-content: center; gap: 12px;">
+      <a href="https://github.com/swaruplab/operon/releases/latest" target="_blank" rel="noopener" class="btn btn-primary">Latest release</a>
+      <a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener" class="btn btn-ghost">All releases</a>
+      <a href="https://github.com/swaruplab/operon/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="btn btn-ghost">Changelog</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col"><h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
+</footer>
+
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<style>
+  .dl-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+  }
+  .dl-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 26px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: border-color .2s, transform .2s;
+  }
+  .dl-card:hover { border-color: var(--line-2); transform: translateY(-2px); }
+  .dl-head { display: flex; align-items: flex-start; gap: 14px; }
+  .dl-ic {
+    width: 40px; height: 40px;
+    color: var(--accent-2);
+    flex-shrink: 0;
+  }
+  .dl-head h3 { font-size: 1.1rem; color: var(--text); margin-bottom: 2px; }
+  .dl-sub { font-size: 0.82rem; color: var(--text-3); }
+  .dl-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 14px;
+    font-size: 0.84rem;
+    color: var(--text-3);
+    padding: 14px 0;
+    border-top: 1px dashed var(--line);
+    border-bottom: 1px dashed var(--line);
+  }
+  .dl-meta strong { color: var(--text-2); font-weight: 500; }
+  .dl-fn {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.76rem;
+    margin: 0;
+    word-break: break-all;
+  }
+
+  .notes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+  .notes-grid .card h4 { color: var(--text); margin-bottom: 12px; font-size: 1.05rem; }
+  .notes-grid .card p { color: var(--text-3); font-size: 0.92rem; line-height: 1.55; margin-bottom: 10px; }
+  .notes-grid .card pre { font-size: 0.82rem; padding: 12px 14px; margin: 10px 0; }
+</style>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

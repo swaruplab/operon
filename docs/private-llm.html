@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0c">
+<title>Private LLM — Operon</title>
+<meta name="description" content="Your data. Your model. Your machine. Run Operon against Ollama, vLLM, LM Studio, or any OpenAI-compatible backend. Nothing leaves your network.">
+<meta property="og:title" content="Private LLM — Operon">
+<meta property="og:description" content="Run Operon fully offline with Ollama, vLLM, or LM Studio. Built for clinical cohorts and embargoed data.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav" aria-label="Primary">
+  <div class="wrap-wide nav-inner">
+    <a href="index.html" class="brand"><span class="brand-dot"></span> Operon</a>
+    <ul class="nav-links" role="menu">
+      <li><a href="protocols.html">Protocols</a></li>
+      <li><a href="mcp.html">MCP</a></li>
+      <li><a href="private-llm.html" class="active">Private LLM</a></li>
+      <li><a href="hpc.html">HPC</a></li>
+      <li><a href="tutorials.html">Tutorials</a></li>
+      <li><a href="guide.html">Docs</a></li>
+      <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+    </ul>
+    <a href="download.html" class="nav-cta">Download</a>
+    <button class="nav-toggle" aria-label="Toggle menu">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="section section-grad" style="padding-top: clamp(80px, 12vw, 140px); padding-bottom: clamp(36px, 5vw, 56px);">
+  <div class="wrap text-center">
+    <span class="eyebrow reveal">Private LLM stack</span>
+    <h1 class="reveal" style="margin-top: 16px; font-size: clamp(2.4rem, 5.5vw, 4rem);">
+      Your data. Your model.<br>Your machine.
+    </h1>
+    <p class="lead reveal" style="margin: 24px auto 0; text-align: center;">
+      Clinical cohorts. Embargoed sequencing data. Industry collaborations under NDA. Some of your work simply cannot leave your network. Operon was built for that reality from day one.
+    </p>
+    <div class="row reveal" style="justify-content: center; margin-top: 28px; gap: 10px;">
+      <span class="pill">Ollama · local</span>
+      <span class="pill">vLLM · on-prem</span>
+      <span class="pill">LM Studio · desktop</span>
+      <span class="pill">40+ OpenAI-compat backends</span>
+    </div>
+  </div>
+</header>
+
+<!-- THREE COLUMN -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Pick your stack</span>
+      <h2>Three paths to a private model.</h2>
+    </div>
+
+    <div class="stack-grid">
+      <!-- Ollama -->
+      <article class="stack-card reveal">
+        <div class="stack-top">
+          <span class="stack-label">Easiest</span>
+          <h3>Ollama</h3>
+          <p>A single command installs a daemon that serves local models on an OpenAI-compatible endpoint. Perfect for laptops and lab workstations with a GPU.</p>
+        </div>
+        <pre><code>curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.1:8b
+ollama serve</code></pre>
+        <div class="stack-meta">
+          <span>Runs on: Mac · Windows · Linux</span>
+          <span>Hardware: CPU ok · GPU preferred</span>
+        </div>
+      </article>
+
+      <!-- vLLM -->
+      <article class="stack-card reveal">
+        <div class="stack-top">
+          <span class="stack-label">Most performant</span>
+          <h3>vLLM</h3>
+          <p>Production-grade serving with paged attention, speculative decoding, and tensor parallelism. Drop it on your lab's A100 / H100 node and share across the team.</p>
+        </div>
+        <pre><code>pip install vllm
+
+vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \
+  --host 0.0.0.0 --port 8000 \
+  --tensor-parallel-size 2</code></pre>
+        <div class="stack-meta">
+          <span>Runs on: Linux · NVIDIA GPUs</span>
+          <span>Hardware: A100 / H100 / 4090+</span>
+        </div>
+      </article>
+
+      <!-- LM Studio -->
+      <article class="stack-card reveal">
+        <div class="stack-top">
+          <span class="stack-label">Most UI-friendly</span>
+          <h3>LM Studio</h3>
+          <p>A desktop GUI for browsing, pulling, and running GGUF models. Exposes the same OpenAI-compatible endpoint — toggle it in the Server tab.</p>
+        </div>
+        <pre><code># Install LM Studio, then:
+# Server tab → toggle "Start Server"
+# Default: http://localhost:1234/v1</code></pre>
+        <div class="stack-meta">
+          <span>Runs on: Mac · Windows · Linux</span>
+          <span>Hardware: Apple Silicon · NVIDIA · AMD</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- TRANSLATION PROXY -->
+<section class="section section-divider" style="background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 40%, var(--bg) 100%);">
+  <div class="wrap">
+    <div class="frow">
+      <div class="frow-text reveal">
+        <span class="eyebrow">OpenAI-compatible bridge</span>
+        <h2>One config,<br>forty backends.</h2>
+        <p>Operon ships a translation proxy that turns any OpenAI-compatible endpoint into a first-class Claude backend. Point it at anything that speaks <code>/v1/chat/completions</code> and Operon handles the rest — streaming, tool-calling, system prompts.</p>
+        <ul>
+          <li>LiteLLM — unified gateway to 100+ providers</li>
+          <li>OpenRouter — pay-as-you-go with no lock-in</li>
+          <li>Together · Groq · DeepInfra · Cerebras · Anyscale</li>
+          <li>Self-hosted Ollama / vLLM / LM Studio / llama.cpp</li>
+        </ul>
+      </div>
+      <div class="frow-media reveal" style="background: var(--bg-3); padding: 0;">
+        <pre style="margin: 0; border: 0; border-radius: var(--radius-lg); padding: 28px;"><code># ~/.operon/backends.toml
+
+[[backend]]
+name = "local-ollama"
+url  = "http://localhost:11434/v1"
+model = "llama3.1:8b"
+
+[[backend]]
+name = "lab-vllm"
+url  = "http://gpu-node-01:8000/v1"
+model = "Qwen2.5-Coder-32B"
+api_key_env = "VLLM_TOKEN"
+
+[[backend]]
+name = "openrouter"
+url  = "https://openrouter.ai/api/v1"
+model = "anthropic/claude-sonnet-4"
+api_key_env = "OPENROUTER_KEY"
+</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECURITY FEATURES -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Built for private data</span>
+      <h2>Zero telemetry. OS-grade secret storage.</h2>
+    </div>
+
+    <div class="feature-grid reveal">
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <h4>Secrets in the OS keychain</h4>
+        <p>API keys live in macOS Keychain, Windows Credential Manager, or libsecret on Linux — never in plain-text config files.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg>
+        <h4>No telemetry</h4>
+        <p>Operon collects nothing. Not a session count, not a crash breadcrumb, not a ping. The source is on GitHub — verify it yourself.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12l4-4M5 12l4 4M19 4v16"/></svg>
+        <h4>Reverse-tunnel to your cluster</h4>
+        <p>Host a 70B model on an A100 node, tunnel it over SSH, and query it from your laptop like it's localhost. Fully documented.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h4>Per-session backend switching</h4>
+        <p>Switch between local Ollama, on-prem vLLM, and cloud Claude per-session — not per-install. Granular audit trail included.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6 4 4 6-6"/><path d="M14 9h6v6"/></svg>
+        <h4>Streaming &amp; tool calls</h4>
+        <p>The translation proxy preserves streaming tokens and tool-calls end-to-end — local models feel as responsive as hosted ones.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h10M7 12h10M7 16h6"/></svg>
+        <h4>Logs stay local</h4>
+        <p>Every prompt, tool call, and response is logged to <code>~/.operon/logs/</code>. Your data, on your disk — not Anthropic's, not ours.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/><circle cx="12" cy="12" r="3"/></svg>
+        <h4>Runs fully air-gapped</h4>
+        <p>No license server, no update pings, no anonymous analytics. Unplug the Ethernet cable and Operon still starts, still runs Ollama, still executes protocols.</p>
+      </div>
+      <div class="fcard">
+        <svg class="fcard-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v6H4z"/><path d="M4 14h16v6H4z"/><circle cx="8" cy="7" r="1" fill="currentColor"/><circle cx="8" cy="17" r="1" fill="currentColor"/></svg>
+        <h4>Per-model token budgets</h4>
+        <p>Set hard ceilings on tokens-per-session and dollars-per-month. Operon will stop and ask before it crosses a limit — no surprise invoices from cloud backends.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- REVERSE TUNNEL GUIDE -->
+<section class="section section-divider">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Recipe: Cluster-hosted 70B</span>
+      <h2>70B on your cluster,<br>querying from your laptop.</h2>
+      <p class="lead">One of the most-requested patterns. Here's the full walkthrough — no magic, just SSH and vLLM.</p>
+    </div>
+
+    <div class="recipe reveal">
+      <div class="recipe-step">
+        <div class="step-num">1</div>
+        <h4>Start vLLM on the GPU node</h4>
+        <pre><code>ssh gpu-node
+vllm serve meta-llama/Llama-3.3-70B-Instruct \
+  --host 127.0.0.1 --port 8000 \
+  --tensor-parallel-size 4</code></pre>
+      </div>
+
+      <div class="recipe-step">
+        <div class="step-num">2</div>
+        <h4>Tunnel from your laptop</h4>
+        <pre><code>ssh -N -L 8000:localhost:8000 \
+  -J login.hpc.edu gpu-node.hpc.edu</code></pre>
+        <p class="text-muted" style="font-size: .88rem; margin-top: 8px;">The <code>-J</code> (ProxyJump) flag handles the login-node bounce automatically.</p>
+      </div>
+
+      <div class="recipe-step">
+        <div class="step-num">3</div>
+        <h4>Point Operon at localhost</h4>
+        <pre><code># ~/.operon/backends.toml
+
+[[backend]]
+name = "lab-70b"
+url  = "http://localhost:8000/v1"
+model = "meta-llama/Llama-3.3-70B-Instruct"</code></pre>
+        <p class="text-muted" style="font-size: .88rem; margin-top: 8px;">Pick <code>lab-70b</code> from Operon's model selector. Every chat now runs on your cluster's GPU.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="background: radial-gradient(ellipse 60% 80% at 50% 120%, var(--accent-glow) 0%, transparent 60%); border-top: 1px solid var(--line);">
+  <div class="wrap text-center reveal">
+    <h2 style="font-size: clamp(2rem, 4.5vw, 3rem); margin-bottom: 16px;">Your network. Your rules.</h2>
+    <p class="lead" style="margin: 0 auto 32px;">Free. Open-source. Works fully offline.</p>
+    <div class="row" style="justify-content: center; gap: 12px;">
+      <a href="download.html" class="btn btn-primary btn-lg">Download Operon</a>
+      <a href="guide.html" class="btn btn-ghost btn-lg">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="wrap-wide footer-grid">
+    <div class="footer-brand">
+      <div class="brand"><span class="brand-dot"></span> Operon</div>
+      <p>An AI-native IDE for computational biology, built by the <a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a> at UC Irvine.</p>
+      <a class="sl-logo" href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener" aria-label="Swarup Lab">
+        <img src="img/Logo-icon-01.png" alt="Swarup Lab">
+      </a>
+      <div class="row" style="gap:8px;">
+        <span class="pill"><span class="pill-dot"></span> <span data-version>v0.5.9</span></span>
+        <span class="pill">MIT</span>
+      </div>
+    </div>
+    <div class="footer-col"><h5>Product</h5>
+      <ul>
+        <li><a href="protocols.html">Protocols</a></li>
+        <li><a href="mcp.html">MCP catalog</a></li>
+        <li><a href="private-llm.html">Private LLM</a></li>
+        <li><a href="hpc.html">HPC mode</a></li>
+        <li><a href="download.html">Download</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Learn</h5>
+      <ul>
+        <li><a href="tutorials.html">Video tutorials</a></li>
+        <li><a href="guide.html">Documentation</a></li>
+        <li><a href="guide.html#faq">FAQ</a></li>
+        <li><a href="guide.html#keyboard-shortcuts">Shortcuts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col"><h5>Project</h5>
+      <ul>
+        <li><a href="https://github.com/swaruplab/operon" target="_blank" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/swaruplab/operon/releases" target="_blank" rel="noopener">Releases</a></li>
+        <li><a href="https://github.com/swaruplab/operon/issues" target="_blank" rel="noopener">Report an issue</a></li>
+        <li><a href="https://swaruplab.bio.uci.edu" target="_blank" rel="noopener">Swarup Lab</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap-wide footer-bottom">
+    <span>© Swarup Lab, UC Irvine · MIT licensed</span>
+    <span>Built with Tauri 2, React &amp; Rust</span>
+  </div>
+</footer>
+
+<div class="lightbox" aria-hidden="true"><img src="" alt=""></div>
+<button class="backtop" aria-label="Back to top">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
+
+<style>
+  /* Stack cards */
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+  }
+  .stack-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: border-color .2s, transform .2s;
+  }
+  .stack-card:hover { border-color: var(--line-2); transform: translateY(-2px); }
+  .stack-top { padding: 28px 28px 0; }
+  .stack-label {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent-2);
+    margin-bottom: 12px;
+  }
+  .stack-card h3 { color: var(--text); font-size: 1.3rem; margin-bottom: 10px; }
+  .stack-card p { color: var(--text-3); font-size: 0.92rem; margin-bottom: 22px; }
+  .stack-card pre { margin: 0 28px; font-size: 0.82rem; }
+  .stack-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 20px 28px 24px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-top: auto;
+  }
+
+  /* Recipe */
+  .recipe {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  .recipe-step {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 28px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .recipe-step .step-num {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+  }
+  .recipe-step h4 { color: var(--text); margin-bottom: 12px; grid-column: 2; }
+  .recipe-step pre { grid-column: 2; font-size: 0.85rem; }
+  .recipe-step p { grid-column: 2; color: var(--text-3); }
+  @media (max-width: 600px) {
+    .recipe-step { grid-template-columns: 1fr; }
+    .recipe-step h4, .recipe-step pre, .recipe-step p { grid-column: 1; }
+  }
+</style>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
