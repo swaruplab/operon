@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { GitBranch, Loader, AlertCircle, Activity, Server, Unplug } from "lucide-react";
+import { GitBranch, Loader, AlertCircle, Activity, Server } from "lucide-react";
 import { listen } from '@tauri-apps/api/event';
 import { Tooltip } from "../ui/Tooltip";
 import { getActiveClient } from '../../lib/lspClient';
-import { disconnectRemote } from '../../lib/disconnect';
 
 interface WatchdogTick {
   profileId: string;
@@ -129,17 +128,10 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
       {/* Right */}
       <div className="flex items-center gap-3">
         {remote && (
-          <Tooltip label="Disconnect remote — closes terminals + explorer, returns to local" position="top">
+          <Tooltip label={`Connected to ${remote.profileName} — disconnect from the stop button (bottom-left)`} position="top">
             <div className="flex items-center gap-1 px-1.5 rounded bg-green-500/10 text-green-400">
               <Server className="w-3 h-3" />
               <span>{remote.profileName}</span>
-              <button
-                onClick={() => disconnectRemote(remote.profileId)}
-                className="ml-1 p-0.5 rounded hover:bg-green-500/20 text-yellow-400"
-                aria-label="Disconnect remote"
-              >
-                <Unplug className="w-3 h-3" />
-              </button>
             </div>
           </Tooltip>
         )}

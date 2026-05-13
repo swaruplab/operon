@@ -4,7 +4,6 @@ import {
   MonitorSmartphone,
   Trash2,
   Plug,
-  Unplug,
   X,
   Server,
   KeyRound,
@@ -24,7 +23,6 @@ import { emit, listen } from '@tauri-apps/api/event';
 import type { SSHProfile, AuthType, KeySetupProgress } from '../../lib/ssh';
 import { SERVER_CONFIG_FIELDS } from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
-import { disconnectRemote } from '../../lib/disconnect';
 
 interface SSHViewProps {
   onConnectSSH?: (profileId: string, terminalId: string) => void;
@@ -835,13 +833,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   isConnected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                 }`}>
                   {isConnected ? (
-                    <button
-                      onClick={() => disconnectRemote(profile.id)}
-                      className="p-1 rounded hover:bg-zinc-700 text-yellow-500"
-                      title="Disconnect — closes terminals + explorer, returns to local"
+                    <span
+                      className="px-1 text-[9px] uppercase tracking-wide text-green-500/70"
+                      title="Connected — disconnect from the stop button at the bottom of the activity bar"
                     >
-                      <Unplug className="w-3.5 h-3.5" />
-                    </button>
+                      connected
+                    </span>
                   ) : (
                     <button
                       onClick={() => handleConnect(profile)}

@@ -2387,27 +2387,27 @@ pub async fn start_claude_session(
             //      accumulate silently, causing the "thinking but not responding" symptom.
             //   2. Use tail --pid or a polling loop so tail exits promptly when done.
             //   3. Read any remaining lines after tail exits (tail -f may miss the last write).
+            // Hardened so it can never become a long-lived orphan on the (login) host:
+            //   - `trap '' HUP PIPE` so a dropped SSH connection doesn't kill the script
+            //     before it can clean up its own `tail`/heartbeat children;
+            //   - every loop iteration re-checks our PPID — once it becomes 1 the SSH
+            //     parent is gone, so kill the children and exit immediately (<0.5s);
+            //   - a hard 12h wall-clock cap as a last-resort backstop.
             let tail_script = format!(
-                "i=0; while [ ! -f '{}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); done; \
-                 if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
-                 if command -v stdbuf >/dev/null 2>&1; then \
-                   TAIL_CMD=\"stdbuf -oL tail -f '{}'\"; \
-                 else \
-                   TAIL_CMD=\"tail -f '{}'\"; \
-                 fi; \
+                "trap '' HUP PIPE; \
+                 i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); done; \
+                 if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
+                 if command -v stdbuf >/dev/null 2>&1; then TAIL_CMD=\"stdbuf -oL tail -f '{out_esc}'\"; else TAIL_CMD=\"tail -f '{out_esc}'\"; fi; \
                  eval $TAIL_CMD & TAIL_PID=$!; \
-                 ( while [ ! -f '{}' ]; do sleep 30; printf '{{\"type\":\"heartbeat\"}}\\n'; done ) & HB_PID=$!; \
-                 while [ ! -f '{}' ]; do sleep 0.5; done; \
+                 ( while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ ! -f '{donef}' ]; then printf '{{\"type\":\"error\",\"error\":{{\"message\":\"Agent appears to have died — no output for over 5 minutes. The Claude process on the compute node may have been killed (tmux pane closed, SLURM preempt, OOM, or NFS stall).\"}}}}\\n'; touch '{donef}'; break; fi; fi; fi; done ) & HB_PID=$!; \
+                 _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
                  sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
-                 cat '{}'; \
-                 rm -f '{}' '{}'",
-                output_file, output_file,
-                output_file.replace('\'', "'\\''"),
-                output_file.replace('\'', "'\\''"),
-                done_file,
-                done_file,
-                output_file.replace('\'', "'\\''"),
-                output_file, done_file,
+                 [ \"$_capped\" = \"1\" ] && exit 0; \
+                 cat '{out_esc}'; \
+                 rm -f '{out}' '{donef}'",
+                out = output_file,
+                out_esc = output_file.replace('\'', "'\\''"),
+                donef = done_file,
             );
             // Base64-encode the script and have the REMOTE shell decode+execute it.
             // This avoids ALL quoting issues: local shell sees only safe base64 chars.
@@ -2880,7 +2880,10 @@ pub async fn stop_claude_session(
     state: tauri::State<'_, ClaudeManager>,
     session_id: String,
 ) -> Result<(), String> {
-    // Extract session from lock first, then await kill — never hold Mutex across .await
+    // Extract session from lock first, then await kill — never hold Mutex across .await.
+    // For remote (HPC) sessions this kills the local SSH process; the remote tail
+    // script is hardened to notice its parent went away (PPID==1) and reap its own
+    // `tail`/heartbeat children within ~0.5s, so nothing is left on the login node.
     let session = {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         sessions.remove(&session_id)
@@ -3300,17 +3303,16 @@ pub async fn reconnect_session(
         }
 
         // Tail script: first cat any existing content, then tail -f for new lines
-        // If done file already exists, just cat and exit (session already finished)
+        // If done file already exists, just cat and exit (session already finished).
+        // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
         let tail_script = format!(
-            "if [ -f '{}' ]; then cat '{}'; exit 0; fi; \
-             if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found\"}}}}'; exit 1; fi; \
-             cat '{}'; tail -f -n +$(wc -l < '{}' | tr -d ' ') '{}' & TAIL_PID=$!; \
-             while [ ! -f '{}' ]; do sleep 1; done; \
+            "trap '' HUP PIPE; \
+             if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
+             if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found\"}}}}'; exit 1; fi; \
+             cat '{out}'; tail -f -n +$(wc -l < '{out}' | tr -d ' ') '{out}' & TAIL_PID=$!; \
+             _n=0; while [ ! -f '{donef}' ]; do sleep 1; _n=$((_n+1)); [ \"$_n\" -ge 43200 ] && break; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID 2>/dev/null; exit 0; }}; done; \
              sleep 1; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null",
-            done_file, output_file,
-            output_file,
-            output_file, output_file, output_file,
-            done_file,
+            donef = done_file, out = output_file,
         );
         let b64_tail = base64::engine::general_purpose::STANDARD.encode(tail_script.as_bytes());
         ssh_tail_args.push_str(&format!(" \"echo {} | base64 -d | bash\"", b64_tail));
@@ -3429,25 +3431,18 @@ pub async fn reconnect_tail(
     // Tail script: cat existing content, then tail -f for new lines.
     // If the done file already exists the session finished while we were stalled — just cat.
     // Uses stdbuf -oL to force line-buffered output and prevent SSH pipe buffering.
+    // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
     let tail_script = format!(
-        "if [ -f '{}' ]; then cat '{}'; exit 0; fi; \
-         if [ ! -f '{}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found — the agent may have finished or the file was cleaned up.\"}}}}'; exit 1; fi; \
-         if command -v stdbuf >/dev/null 2>&1; then \
-           stdbuf -oL cat '{}'; stdbuf -oL tail -f -n +$(($(wc -l < '{}' | tr -d ' ') + 1)) '{}' & TAIL_PID=$!; \
-         else \
-           cat '{}'; tail -f -n +$(($(wc -l < '{}' | tr -d ' ') + 1)) '{}' & TAIL_PID=$!; \
-         fi; \
-         ( while [ ! -f '{}' ]; do sleep 30; printf '{{\"type\":\"heartbeat\"}}\\n'; done ) & HB_PID=$!; \
-         while [ ! -f '{}' ]; do sleep 0.5; done; \
+        "trap '' HUP PIPE; \
+         if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
+         if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found — the agent may have finished or the file was cleaned up.\"}}}}'; exit 1; fi; \
+         if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; else cat '{out}'; tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; fi; \
+         ( while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ ! -f '{donef}' ]; then printf '{{\"type\":\"error\",\"error\":{{\"message\":\"Agent appears to have died — no output for over 5 minutes. The Claude process on the compute node may have been killed (tmux pane closed, SLURM preempt, OOM, or NFS stall).\"}}}}\\n'; touch '{donef}'; break; fi; fi; fi; done ) & HB_PID=$!; \
+         _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
          sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
-         cat '{}'",
-        done_file, output_file,
-        output_file,
-        output_file, output_file, output_file,
-        output_file, output_file, output_file,
-        done_file,
-        done_file,
-        output_file,
+         [ \"$_capped\" = \"1\" ] && exit 0; \
+         cat '{out}'",
+        donef = done_file, out = output_file,
     );
     let b64_tail = base64::engine::general_purpose::STANDARD.encode(tail_script.as_bytes());
     ssh_tail_args.push_str(&format!(" \"echo {} | base64 -d | bash\"", b64_tail));
@@ -3547,4 +3542,199 @@ pub async fn delete_session(
     }
 
     Ok(())
+}
+
+// ── "Stop everything" — scan & tear down Operon's remote footprint ──────────
+//
+// Powers the red stop-sign button. Two actions sit behind it:
+//   • "Disconnect (keep remote session)"  → existing `stop_control_master` + UI reset.
+//   • "End session & clean up everything"  → `scan_remote_footprint` → confirm →
+//                                            `teardown_remote_footprint`.
+// This never runs `scancel`. It kills only what Operon spawned (local SSH children,
+// remote log-streamers, the `operon-*` tmux session, scratch files). If an
+// `srun`/`salloc` is running *inside* the operon tmux pane, killing that session
+// releases the allocation as a side effect — `slurm_in_pane` flags that so the UI
+// can warn first and let the user opt out of the tmux kill.
+
+/// What Operon has left running / lying around on a remote host.
+#[derive(Debug, Serialize)]
+pub struct RemoteFootprint {
+    /// `ps`-style lines for leftover Operon helper processes (log-streamers, tails).
+    pub helpers: Vec<String>,
+    /// tmux sessions whose name starts with `operon` (e.g. `operon-main`).
+    pub tmux_sessions: Vec<String>,
+    /// true if an `srun`/`salloc`/`sbatch` is running inside one of those tmux panes —
+    /// i.e. killing the tmux session would release a SLURM allocation.
+    pub slurm_in_pane: bool,
+    /// `squeue` lines for the user's currently-running jobs (context for the warning).
+    pub running_jobs: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn scan_remote_footprint(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<RemoteFootprint, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // `H` is built via `printf` so this script's own command line does not contain
+    // the literal token "operon-<hex>" — otherwise `pgrep` would list the shell
+    // running this very script.
+    let script = r#"
+H=$(printf 'operon')
+echo '__HELPERS__'
+pgrep -af "${H}-[0-9a-f]" 2>/dev/null | grep -v -e 'pgrep ' || true
+echo '__TMUX__'
+tmux ls -F '#{session_name}' 2>/dev/null | grep -E "^${H}" || true
+echo '__PANEPROCS__'
+for _p in $(tmux list-panes -aF '#{session_name} #{pane_pid}' 2>/dev/null | awk -v h="$H" '$1 ~ ("^" h) {print $2}'); do
+  ps -p "$_p" -o args= 2>/dev/null
+  for _c in $(pgrep -P "$_p" 2>/dev/null); do
+    ps -p "$_c" -o args= 2>/dev/null
+    for _g in $(pgrep -P "$_c" 2>/dev/null); do ps -p "$_g" -o args= 2>/dev/null; done
+  done
+done
+echo '__SLURM__'
+squeue -u "$(id -un 2>/dev/null || echo "$USER")" -h -o '%i %j %T %D %m %R' 2>/dev/null || true
+echo '__END__'
+"#;
+    let out = super::ssh::ssh_exec(&profile, script).unwrap_or_default();
+
+    let mut section = "";
+    let mut helpers = Vec::new();
+    let mut tmux_sessions = Vec::new();
+    let mut pane_procs: Vec<String> = Vec::new();
+    let mut running_jobs = Vec::new();
+    for line in out.lines() {
+        let t = line.trim();
+        match t {
+            "__HELPERS__" => { section = "h"; continue; }
+            "__TMUX__" => { section = "t"; continue; }
+            "__PANEPROCS__" => { section = "p"; continue; }
+            "__SLURM__" => { section = "s"; continue; }
+            "__END__" => { section = ""; continue; }
+            _ => {}
+        }
+        if t.is_empty() {
+            continue;
+        }
+        match section {
+            "h" => helpers.push(t.to_string()),
+            "t" => tmux_sessions.push(t.to_string()),
+            "p" => pane_procs.push(t.to_string()),
+            "s" => running_jobs.push(t.to_string()),
+            _ => {}
+        }
+    }
+    let slurm_in_pane = pane_procs.iter().any(|p| {
+        let p = p.trim_start();
+        p.starts_with("srun") || p.starts_with("salloc") || p.starts_with("sbatch")
+            || p.contains(" srun ") || p.contains(" salloc ") || p.contains(" sbatch ")
+    });
+
+    Ok(RemoteFootprint {
+        helpers,
+        tmux_sessions,
+        slurm_in_pane,
+        running_jobs,
+    })
+}
+
+#[tauri::command]
+pub async fn teardown_remote_footprint(
+    claude_state: tauri::State<'_, ClaudeManager>,
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+    kill_tmux: bool,
+) -> Result<String, String> {
+    // 1. Kill the local SSH child processes Operon spawned for sessions on this
+    //    profile (log-streamers, reconnect tails, headless claude). With the
+    //    hardened remote tail script, killing the local ssh makes the remote side
+    //    self-destruct within ~0.5s.
+    let to_kill: Vec<tokio::process::Child> = {
+        let mut sessions = claude_state.sessions.lock().map_err(|e| e.to_string())?;
+        let ids: Vec<String> = sessions
+            .keys()
+            .filter(|id| {
+                matches!(
+                    load_session_from_disk(id),
+                    Ok(Some(ref m)) if m.profile_id.as_deref() == Some(profile_id.as_str())
+                )
+            })
+            .cloned()
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| sessions.remove(&id).map(|s| s.child))
+            .collect()
+    };
+    let n_local = to_kill.len();
+    for mut c in to_kill {
+        let _ = c.kill().await;
+    }
+
+    // 2. Build the remote cleanup script.
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // `$_self` excludes the shell running this script, which `pgrep` would otherwise
+    // match (its command line contains the pattern strings).
+    let mut script = String::from(
+        "_self=$$\n\
+         for _p in $(pgrep -f 'tail.*-f.*\\.operon-' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || kill \"$_p\" 2>/dev/null; done\n\
+         for _p in $(pgrep -f 'base64 -d.*bash' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || { pkill -P \"$_p\" 2>/dev/null; kill \"$_p\" 2>/dev/null; }; done\n",
+    );
+
+    // Remove leftover .operon-* scratch files for this profile's sessions.
+    let mut rm_targets: Vec<String> = Vec::new();
+    for meta in load_all_sessions_from_disk() {
+        if meta.profile_id.as_deref() != Some(profile_id.as_str()) {
+            continue;
+        }
+        let base = meta
+            .remote_path
+            .as_deref()
+            .unwrap_or(meta.project_path.as_str())
+            .replace('\'', "'\\''");
+        let sid = &meta.session_id;
+        for ext in ["jsonl", "done", "host"] {
+            rm_targets.push(format!("'{}/.operon-{}.{}'", base, sid, ext));
+        }
+        rm_targets.push(format!("'{}/.operon-run-{}.sh'", base, sid));
+        rm_targets.push(format!("'{}/.operon-report-prompt-{}.txt'", base, sid));
+    }
+    for chunk in rm_targets.chunks(40) {
+        script.push_str(&format!("rm -f {} 2>/dev/null\n", chunk.join(" ")));
+    }
+
+    if kill_tmux {
+        script.push_str(
+            "for _s in $(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^operon'); do tmux kill-session -t \"$_s\" 2>/dev/null; done\n",
+        );
+    }
+    script.push_str("true\n");
+
+    let _ = super::ssh::ssh_exec(&profile, &script);
+
+    let mut msg = format!(
+        "Stopped {} Operon SSH process(es); cleaned up remote log-streamers and scratch files",
+        n_local
+    );
+    if kill_tmux {
+        msg.push_str("; killed Operon tmux session(s)");
+    }
+    msg.push('.');
+    Ok(msg)
 }

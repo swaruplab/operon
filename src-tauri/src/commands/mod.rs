@@ -19,8 +19,8 @@ pub use claude::{
     install_remote_claude, install_xcode_cli, launch_claude_login, list_plan_history,
     list_sessions, read_plan_history_entry, read_session_output, reconnect_session, reconnect_tail,
     refresh_environment, remote_claude_login, rename_session, save_session_metadata,
-    start_claude_session, stop_claude_session, store_api_key, update_session_claude_id,
-    update_session_status,
+    scan_remote_footprint, start_claude_session, stop_claude_session, store_api_key,
+    teardown_remote_footprint, update_session_claude_id, update_session_status,
 };
 pub use extensions::{
     browse_extensions_by_category, check_extension_compatibility, check_extension_updates,

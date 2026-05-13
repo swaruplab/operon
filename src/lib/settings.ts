@@ -34,6 +34,9 @@ export interface AppSettings {
   ssh_auto_tmux: boolean;
   /** Name of the shared tmux session Operon attaches to. */
   ssh_tmux_session: string;
+  /** Soft wall-clock cap on a single agent session, in minutes. Frontend
+   *  shows warn-only banners at 75% and 100%. 0 disables the budget. */
+  session_time_budget_minutes: number;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -60,6 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   terminal_use_webgl: true,
   ssh_auto_tmux: true,
   ssh_tmux_session: 'operon-main',
+  session_time_budget_minutes: 90,
 };
 
 export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {

@@ -38,6 +38,14 @@ fn default_ssh_tmux_session() -> String {
     "operon-main".to_string()
 }
 
+fn default_session_time_budget_minutes() -> u32 {
+    // Soft wall-clock cap (in minutes) on a single agent session. The frontend
+    // uses this to surface warn-only banners at 75% and 100% of the budget so
+    // long-running poll loops (e.g. SLURM monitoring) don't silently rack up
+    // tokens for hours. Warning only — never auto-stops.
+    90
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub theme: String,
@@ -100,6 +108,10 @@ pub struct AppSettings {
     /// Name of the shared tmux session Operon attaches to on the remote.
     #[serde(default = "default_ssh_tmux_session")]
     pub ssh_tmux_session: String,
+    /// Soft wall-clock cap on a single agent session, in minutes. Frontend
+    /// surfaces warn-only banners at 75% and 100% of this budget. 0 disables.
+    #[serde(default = "default_session_time_budget_minutes")]
+    pub session_time_budget_minutes: u32,
 }
 
 impl Default for AppSettings {
@@ -129,6 +141,7 @@ impl Default for AppSettings {
             terminal_use_webgl: true,
             ssh_auto_tmux: true,
             ssh_tmux_session: default_ssh_tmux_session(),
+            session_time_budget_minutes: default_session_time_budget_minutes(),
         }
     }
 }

@@ -592,6 +592,28 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 />
               </label>
 
+              <label className="flex items-start justify-between gap-4">
+                <span className="text-sm text-zinc-400 flex-1">
+                  Session Time Budget (min)
+                  <span className="block text-[11px] text-zinc-500 mt-0.5">
+                    Warn-only banner at 75% and 100%. Override per-session next to Send. 0 = off.
+                  </span>
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step={5}
+                  value={settings.session_time_budget_minutes}
+                  onChange={(e) =>
+                    saveSettings({
+                      ...settings,
+                      session_time_budget_minutes: Math.max(0, parseInt(e.target.value) || 0),
+                    })
+                  }
+                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                />
+              </label>
+
               {/* Permission Level */}
               <div className="pt-3 border-t border-zinc-800">
                 <div className="flex items-center gap-2 mb-3">

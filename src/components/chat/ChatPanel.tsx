@@ -61,7 +61,6 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
-import { disconnectRemote } from '../../lib/disconnect';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -1174,7 +1173,21 @@ export function ChatPanel() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamStalled, setStreamStalled] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  // Agent-side liveness: tracks whether we've seen real (non-heartbeat) content
+  // recently. Heartbeats prove the SSH stream is alive but say nothing about
+  // whether the Claude agent on the compute node is still running. If real
+  // content goes silent for too long (and the user is still in `isStreaming`),
+  // the agent has likely died (tmux pane killed, SLURM preempt, OOM, etc.) and
+  // we surface a separate "agent unresponsive" banner.
+  const [agentUnresponsive, setAgentUnresponsive] = useState(false);
   const lastEventTime = useRef<number>(0);
+  const lastContentTime = useRef<number>(0);
+  // Session time budget — soft wall-clock cap. Banners fire at 75% and 100%
+  // but never auto-stop. Default loaded from settings; user can override
+  // per-session via the input next to Send.
+  const [sessionBudgetMinutes, setSessionBudgetMinutes] = useState<number>(90);
+  const sessionStartTime = useRef<number>(0);
+  const [elapsedMinutes, setElapsedMinutes] = useState<number>(0);
   const reconnectAttempts = useRef<number>(0);
   const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
@@ -1183,11 +1196,14 @@ export function ChatPanel() {
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom'>('anthropic');
   const [customModel, setCustomModel] = useState<string>('');
 
-  // Load default model from user settings
+  // Load default model + session time budget from user settings
   useEffect(() => {
-    invoke<{ model?: string }>('get_settings')
+    invoke<{ model?: string; session_time_budget_minutes?: number }>('get_settings')
       .then((settings) => {
         if (settings.model) setModel(settings.model);
+        if (typeof settings.session_time_budget_minutes === 'number') {
+          setSessionBudgetMinutes(settings.session_time_budget_minutes);
+        }
       })
       .catch(() => {});
   }, []);
@@ -1381,6 +1397,8 @@ export function ChatPanel() {
     setIsStreaming(false);
     setSessionId(crypto.randomUUID());
     setClaudeSessionId(null);
+    sessionStartTime.current = 0;
+    setElapsedMinutes(0);
     setMentions([]);
     setMentionActive(false);
     setMentionItems([]);
@@ -1766,10 +1784,11 @@ export function ChatPanel() {
       const { profileId } = event.payload;
       const ri = remoteInfoRef.current;
       if (!ri || ri.profileId !== profileId) return;
-      if (isStreaming) {
-        invoke('stop_claude_session', { sessionId }).catch(() => {});
-        setIsStreaming(false);
-      }
+      // Disconnect implies the chat's remote context is gone — fully reset so
+      // the user starts fresh against whichever server they connect to next.
+      // Without this, messages, plan state, session id, etc. linger from the
+      // previous server, which is misleading.
+      resetChat();
       setRemoteInfo(null);
       setSshTerminalId(null);
       setStreamStalled(false);
@@ -1777,7 +1796,7 @@ export function ChatPanel() {
       reconnectAttempts.current = 0;
     });
     return () => { unlisten.then((u) => u()); };
-  }, [sessionId, isStreaming]);
+  }, [resetChat]);
 
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
@@ -1901,17 +1920,36 @@ export function ChatPanel() {
   // Reconnect only applies to terminal-mode (agent/plan) sessions where the
   // tail is a separate SSH channel; ask/report modes use a single SSH stream.
   const MAX_RECONNECTS = 3;
-  const STALL_THRESHOLD_MS = 60_000; // > 2x heartbeat interval
+  const STALL_THRESHOLD_MS = 60_000; // > 2x heartbeat interval — SSH-side stall
+  // Agent-content stall: heartbeats keep the SSH-side counter green forever, so
+  // we need a longer, separate threshold for "no real content from the agent
+  // itself." Three minutes is generous enough to cover legitimate long thinks
+  // and tool runs but short enough to surface a dead agent before the user
+  // gives up and asks "are you working?".
+  const CONTENT_STALL_THRESHOLD_MS = 180_000;
   useEffect(() => {
     if (!isStreaming || !remoteInfo) {
       setStreamStalled(false);
       setReconnecting(false);
+      setAgentUnresponsive(false);
       reconnectAttempts.current = 0;
       reconnectInFlight.current = false;
       return;
     }
     const canAutoReconnect = mode === 'agent' || mode === 'plan';
     const interval = setInterval(() => {
+      // Agent-content liveness check — independent of SSH-stream check.
+      // Fires when real events have been silent past the threshold even though
+      // heartbeats may still be flowing.
+      if (lastContentTime.current > 0) {
+        const contentElapsed = Date.now() - lastContentTime.current;
+        if (contentElapsed > CONTENT_STALL_THRESHOLD_MS) {
+          setAgentUnresponsive(true);
+        } else if (contentElapsed < CONTENT_STALL_THRESHOLD_MS / 2) {
+          setAgentUnresponsive(false);
+        }
+      }
+
       if (lastEventTime.current === 0) return;
       const elapsed = Date.now() - lastEventTime.current;
       if (elapsed <= STALL_THRESHOLD_MS) return;
@@ -1952,6 +1990,19 @@ export function ChatPanel() {
     return () => clearInterval(interval);
   }, [isStreaming, remoteInfo, mode, sessionId]);
 
+  // Session time-budget elapsed-minutes ticker. Drives the budget banners
+  // (75% / 100%) and the "Xm / Ym" indicator next to Send. Independent of
+  // remoteInfo — applies to both local and remote sessions.
+  useEffect(() => {
+    if (!isStreaming || sessionStartTime.current === 0) return;
+    const tick = () => {
+      setElapsedMinutes(Math.floor((Date.now() - sessionStartTime.current) / 60_000));
+    };
+    tick();
+    const interval = setInterval(tick, 30_000);
+    return () => clearInterval(interval);
+  }, [isStreaming]);
+
   // Listen for Claude events
   useEffect(() => {
     const unlisteners: UnlistenFn[] = [];
@@ -1966,6 +2017,10 @@ export function ChatPanel() {
       reconnectAttempts.current = 0;
       setReconnecting(false);
       if (line.includes('"type":"heartbeat"')) return;
+      // Real content arrived — agent is alive. Update the content-liveness
+      // clock so the "agent unresponsive" watchdog stays quiet.
+      lastContentTime.current = Date.now();
+      setAgentUnresponsive(false);
       try {
         const data = JSON.parse(line) as ClaudeEvent;
 
@@ -2036,7 +2091,17 @@ export function ChatPanel() {
               ];
             });
           } else {
-            // Same message ID seen again — replace THIS turn's blocks (content update)
+            // Same message ID seen again — MERGE this turn's blocks (content update).
+            //
+            // We can't just replace: Claude Code's stream-json sometimes sends a
+            // follow-up `assistant` event for the same message id that carries only
+            // the tool_use block and omits the text the model printed first. A blind
+            // replace would then wipe that narration — so intermediate "Let me check
+            // X first…" lines vanished and only the turn's final text survived.
+            // Instead we keep every text/thinking block we've ever seen for this turn
+            // and union the tool_use blocks by id.
+            const turnIdOf = (b: ContentBlock) =>
+              (b as ContentBlock & { _turnId?: string })._turnId;
             setMessages((prev) => {
               const existingIdx = prev.findIndex(
                 (m) => m.role === 'assistant' && m.isStreaming
@@ -2045,31 +2110,54 @@ export function ChatPanel() {
 
               const existing = prev[existingIdx];
 
-              // Keep blocks from PREVIOUS turns (those with a different _turnId).
-              // This preserves text, thinking, and tool_use blocks from earlier turns
-              // while replacing only the current turn's content.
-              const prevTurnBlocks = existing.content.filter((b) => {
-                const blockTurnId = (b as ContentBlock & { _turnId?: string })._turnId;
-                return blockTurnId !== undefined && blockTurnId !== msgId;
+              // Blocks from OTHER turns — kept verbatim.
+              const otherTurnBlocks = existing.content.filter((b) => {
+                const tid = turnIdOf(b);
+                return tid !== undefined && tid !== msgId;
+              });
+              // Blocks of THIS turn we already have (undefined turnId == legacy/untagged,
+              // treat as this turn so we never drop it).
+              const thisTurnOld = existing.content.filter((b) => {
+                const tid = turnIdOf(b);
+                return tid === msgId || tid === undefined;
               });
 
-              // Preserve tool results for blocks that already have results
-              const mergedNewBlocks = taggedNewBlocks.map((block) => {
-                if (block.type === 'tool_use') {
-                  const prevBlock = existing.content.find(
-                    (b) => b.type === 'tool_use' && b.id === (block as ToolUseBlock).id
-                  );
-                  if (prevBlock && prevBlock.type === 'tool_use' && prevBlock.result) {
-                    return { ...block, result: prevBlock.result, status: prevBlock.status };
-                  }
-                }
-                return block;
-              });
+              const isTextOrThinking = (b: ContentBlock) =>
+                b.type === 'text' || b.type === 'thinking';
+
+              // Text/thinking: if the new event includes any, it's the up-to-date
+              // version of the narration for this turn; otherwise keep what we had.
+              const newTextThinking = taggedNewBlocks.filter(isTextOrThinking);
+              const textThinking =
+                newTextThinking.length > 0
+                  ? newTextThinking
+                  : thisTurnOld.filter(isTextOrThinking);
+
+              // Tool uses: union by id, preserving any result/status already attached.
+              const toolById = new Map<string, ToolUseBlock>();
+              for (const b of thisTurnOld) {
+                if (b.type === 'tool_use') toolById.set(b.id, b as ToolUseBlock);
+              }
+              for (const b of taggedNewBlocks) {
+                if (b.type !== 'tool_use') continue;
+                const tb = b as ToolUseBlock;
+                const old = toolById.get(tb.id);
+                toolById.set(
+                  tb.id,
+                  old?.result ? { ...tb, result: old.result, status: old.status } : tb,
+                );
+              }
+
+              // Narration first, then tool cards (the order Claude emits them in).
+              const thisTurnMerged: ContentBlock[] = [
+                ...textThinking,
+                ...Array.from(toolById.values()),
+              ];
 
               const updated = [...prev];
               updated[existingIdx] = {
                 ...existing,
-                content: [...prevTurnBlocks, ...mergedNewBlocks],
+                content: [...otherTurnBlocks, ...thisTurnMerged],
               };
               return updated;
             });
@@ -3137,7 +3225,16 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
     setMentionActive(false);
     setIsStreaming(true);
     setStreamStalled(false);
+    setAgentUnresponsive(false);
     lastEventTime.current = Date.now();
+    lastContentTime.current = Date.now();
+    // Only (re)start the budget clock if no session is currently in flight —
+    // a follow-up message inside the same logical session keeps counting from
+    // the original start so the budget represents real wall-clock spend.
+    if (sessionStartTime.current === 0) {
+      sessionStartTime.current = Date.now();
+      setElapsedMinutes(0);
+    }
     seenMsgIds.current.clear(); // Reset for new conversation turn
 
     // Pin the working directory on the first message of this session so that
@@ -3383,18 +3480,6 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           >
             <TerminalSquare className="w-3 h-3" />
             {useTerminal && sshTerminalId ? 'Terminal' : 'Direct'}
-          </button>
-
-          <button
-            onClick={() => {
-              const pid = remoteInfo?.profileId;
-              if (pid) disconnectRemote(pid);
-              else setRemoteInfo(null);
-            }}
-            className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors shrink-0 ml-1"
-            title="Disconnect server — closes terminals + explorer, returns to local"
-          >
-            {'\u2715'}
           </button>
         </div>
       )}
@@ -4128,6 +4213,109 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             </div>
           </div>
         )}
+        {/* Agent-content stall — heartbeats are flowing (SSH alive) but the
+            agent itself hasn't produced output for a long time. Strongly
+            suggests the compute-node process died (tmux killed, SLURM preempt,
+            OOM, NFS hiccup) without writing the .done file. */}
+        {isStreaming && agentUnresponsive && !streamStalled && (
+          <div className="my-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/40 text-[12px]">
+            <p className="text-rose-300 font-medium mb-1">
+              Agent has been silent for over 3 minutes
+            </p>
+            <p className="text-rose-200/60 mb-2">
+              The SSH stream is alive (heartbeats are arriving) but no real
+              output has come through. The Claude process on the compute node
+              may have been killed (tmux pane closed, SLURM preempt, OOM, or
+              NFS stall). It's safest to stop and retry.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  invoke('stop_claude_session', { sessionId }).catch(() => {});
+                  setIsStreaming(false);
+                  setAgentUnresponsive(false);
+                  setMessages((prev) => [
+                    ...prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+                    {
+                      id: crypto.randomUUID(),
+                      role: 'system' as const,
+                      content: [{ type: 'text' as const, text: 'Session stopped — agent appeared unresponsive. Send a new message to retry. If this keeps happening, check the compute node (tmux ls, sacct, dmesg).' }],
+                      timestamp: Date.now(),
+                    },
+                  ]);
+                }}
+                className="px-2.5 py-1 rounded bg-rose-800/40 hover:bg-rose-800/60 text-rose-200 text-[11px] font-medium transition-colors"
+              >
+                Stop session
+              </button>
+              <button
+                onClick={() => setAgentUnresponsive(false)}
+                className="px-2.5 py-1 rounded text-rose-300/60 hover:text-rose-200 text-[11px] transition-colors"
+              >
+                Keep waiting
+              </button>
+            </div>
+          </div>
+        )}
+        {/* Session time-budget warnings — warn-only, never auto-stop. */}
+        {isStreaming && sessionBudgetMinutes > 0 && elapsedMinutes >= sessionBudgetMinutes && (
+          <div className="my-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/40 text-[12px]">
+            <p className="text-rose-300 font-medium mb-1">
+              Session has reached its time budget ({elapsedMinutes} / {sessionBudgetMinutes} min)
+            </p>
+            <p className="text-rose-200/60 mb-2">
+              The agent is still running. Tokens keep accruing until it stops.
+              If you're polling long-running jobs (SLURM, etc.), consider asking
+              the agent to wrap up — or extend the budget if it's making progress.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setInput('Wrap up: summarize current status, save progress to the plan, and stop.');
+                }}
+                className="px-2.5 py-1 rounded bg-rose-800/40 hover:bg-rose-800/60 text-rose-200 text-[11px] font-medium transition-colors"
+              >
+                Wrap up now
+              </button>
+              <button
+                onClick={() => setSessionBudgetMinutes((m) => m + 30)}
+                className="px-2.5 py-1 rounded text-rose-300/70 hover:text-rose-200 text-[11px] transition-colors"
+              >
+                +30 min
+              </button>
+            </div>
+          </div>
+        )}
+        {isStreaming &&
+          sessionBudgetMinutes > 0 &&
+          elapsedMinutes >= Math.floor(sessionBudgetMinutes * 0.75) &&
+          elapsedMinutes < sessionBudgetMinutes && (
+            <div className="my-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[12px]">
+              <p className="text-amber-300 font-medium mb-1">
+                Session is at {elapsedMinutes} / {sessionBudgetMinutes} min (75%+)
+              </p>
+              <p className="text-amber-200/60 mb-2">
+                Long monitoring loops can rack up tokens. Consider wrapping up
+                soon, or extending the budget if you need more time.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setInput('Wrap up: summarize current status, save progress to the plan, and stop.');
+                  }}
+                  className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
+                >
+                  Wrap up now
+                </button>
+                <button
+                  onClick={() => setSessionBudgetMinutes((m) => m + 30)}
+                  className="px-2.5 py-1 rounded text-amber-300/70 hover:text-amber-200 text-[11px] transition-colors"
+                >
+                  +30 min
+                </button>
+              </div>
+            </div>
+          )}
         {/* Plan conflict resolution UI */}
         {planConflict && (
           <div className="my-3 p-3 rounded-lg bg-amber-950/30 border border-amber-800/40">
@@ -4391,9 +4579,44 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </span>
               )}
             </div>
-            <span className="text-[10px] text-zinc-600">
-              {claudeSessionId ? `Session: ${claudeSessionId.slice(0, 8)}` : 'New session'}
-            </span>
+            <div className="flex items-center gap-2 text-[10px] text-zinc-600">
+              {/* Session time budget — per-session override.
+                  Shows "Xm / Ym" when streaming so the user can see spend
+                  at a glance. Tints amber/rose at 75% / 100%. */}
+              <span
+                className="flex items-center gap-1"
+                title="Session time budget (minutes). Warns at 75% and 100%. 0 = off."
+              >
+                <span>budget</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={5}
+                  value={sessionBudgetMinutes}
+                  onChange={(e) =>
+                    setSessionBudgetMinutes(Math.max(0, parseInt(e.target.value) || 0))
+                  }
+                  className="w-10 px-1 py-0 bg-zinc-900 border border-zinc-800 rounded text-[10px] text-zinc-400 outline-none focus:border-zinc-700"
+                />
+                <span>min</span>
+                {isStreaming && sessionBudgetMinutes > 0 && (
+                  <span
+                    className={
+                      elapsedMinutes >= sessionBudgetMinutes
+                        ? 'text-rose-400'
+                        : elapsedMinutes >= Math.floor(sessionBudgetMinutes * 0.75)
+                        ? 'text-amber-400'
+                        : 'text-zinc-500'
+                    }
+                  >
+                    ({elapsedMinutes}/{sessionBudgetMinutes})
+                  </span>
+                )}
+              </span>
+              <span>
+                {claudeSessionId ? `Session: ${claudeSessionId.slice(0, 8)}` : 'New session'}
+              </span>
+            </div>
           </div>
 
           {/* PubMed results indicator */}

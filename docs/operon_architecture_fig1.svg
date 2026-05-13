@@ -1,0 +1,153 @@
+<svg viewBox="0 0 780 620" xmlns="http://www.w3.org/2000/svg" role="img" style="font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;">
+  <title>Operon Architecture</title>
+  <desc>Architecture diagram of Operon, a desktop IDE for computational biology on HPC clusters. Shows four layers: user interface, application core, backend services, and external infrastructure.</desc>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#71717a" stroke-width="1.2"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="none" stroke="#3b82f6" stroke-width="1.2"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="780" height="620" rx="8" fill="#09090b"/>
+
+  <!-- Title -->
+  <text x="390" y="30" text-anchor="middle" fill="#fafafa" font-size="15" font-weight="600" letter-spacing="0.5">Operon: Desktop IDE for Computational Biology on HPC</text>
+
+  <!-- LAYER A: User Interface -->
+  <rect x="30" y="50" width="720" height="100" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+  <text x="48" y="70" fill="#3b82f6" font-size="11" font-weight="600" letter-spacing="1">USER INTERFACE</text>
+  <text x="720" y="70" text-anchor="end" fill="#71717a" font-size="9">React 18 · TypeScript · Vite 6</text>
+
+  <rect x="48" y="82" width="120" height="52" rx="4" fill="#1e3a5f" stroke="#2563eb" stroke-width="0.8" opacity="0.85"/>
+  <text x="108" y="103" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="500">File Explorer</text>
+  <text x="108" y="117" text-anchor="middle" fill="#64748b" font-size="8">Local + Remote</text>
+
+  <rect x="186" y="82" width="120" height="52" rx="4" fill="#1e3a5f" stroke="#2563eb" stroke-width="0.8" opacity="0.85"/>
+  <text x="246" y="103" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="500">Monaco Editor</text>
+  <text x="246" y="117" text-anchor="middle" fill="#64748b" font-size="8">30+ languages</text>
+
+  <rect x="324" y="82" width="120" height="52" rx="4" fill="#1e3a5f" stroke="#2563eb" stroke-width="0.8" opacity="0.85"/>
+  <text x="384" y="103" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="500">Terminal</text>
+  <text x="384" y="117" text-anchor="middle" fill="#64748b" font-size="8">xterm.js + PTY</text>
+
+  <rect x="462" y="82" width="120" height="52" rx="4" fill="#1e3a5f" stroke="#2563eb" stroke-width="0.8" opacity="0.85"/>
+  <text x="522" y="103" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="500">AI Chat Panel</text>
+  <text x="522" y="117" text-anchor="middle" fill="#64748b" font-size="8">Streaming NDJSON</text>
+
+  <rect x="600" y="82" width="132" height="52" rx="4" fill="#1e3a5f" stroke="#2563eb" stroke-width="0.8" opacity="0.85"/>
+  <text x="666" y="103" text-anchor="middle" fill="#93c5fd" font-size="10" font-weight="500">Report Generator</text>
+  <text x="666" y="117" text-anchor="middle" fill="#64748b" font-size="8">PDF / Protocols</text>
+
+  <!-- IPC Bridge -->
+  <line x1="390" y1="150" x2="390" y2="175" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-accent)"/>
+  <rect x="315" y="157" width="150" height="18" rx="9" fill="#09090b" stroke="#3b82f6" stroke-width="0.8"/>
+  <text x="390" y="170" text-anchor="middle" fill="#3b82f6" font-size="9" font-weight="500">Tauri IPC Bridge</text>
+
+  <!-- LAYER B: Application Core -->
+  <rect x="30" y="180" width="720" height="120" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+  <text x="48" y="200" fill="#f97316" font-size="11" font-weight="600" letter-spacing="1">APPLICATION CORE</text>
+  <text x="720" y="200" text-anchor="end" fill="#71717a" font-size="9">Rust · Tokio · Tauri 2</text>
+
+  <rect x="48" y="212" width="100" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="98" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Terminal</text>
+  <text x="98" y="249" text-anchor="middle" fill="#64748b" font-size="8">Manager</text>
+  <text x="98" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">portable-pty</text>
+
+  <rect x="164" y="212" width="100" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="214" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Claude</text>
+  <text x="214" y="249" text-anchor="middle" fill="#64748b" font-size="8">Manager</text>
+  <text x="214" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">sessions · plans</text>
+
+  <rect x="280" y="212" width="100" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="330" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">SSH</text>
+  <text x="330" y="249" text-anchor="middle" fill="#64748b" font-size="8">Manager</text>
+  <text x="330" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">profiles · tunnels</text>
+
+  <rect x="396" y="212" width="100" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="446" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Filesystem</text>
+  <text x="446" y="249" text-anchor="middle" fill="#64748b" font-size="8">Local + Remote</text>
+  <text x="446" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">symlink-aware</text>
+
+  <rect x="512" y="212" width="100" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="562" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Translation</text>
+  <text x="562" y="249" text-anchor="middle" fill="#64748b" font-size="8">Proxy</text>
+  <text x="562" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">Anthropic ↔ OpenAI</text>
+
+  <rect x="628" y="212" width="104" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
+  <text x="680" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Watchdog</text>
+  <text x="680" y="249" text-anchor="middle" fill="#64748b" font-size="8">HPC Jobs</text>
+  <text x="680" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">SLURM · PBS</text>
+
+  <!-- Arrows Core to Services -->
+  <line x1="330" y1="300" x2="330" y2="355" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="214" y1="300" x2="155" y2="355" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="562" y1="300" x2="510" y2="355" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="680" y1="300" x2="680" y2="355" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- LAYER C: External Services -->
+  <rect x="30" y="320" width="720" height="100" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+  <text x="48" y="340" fill="#22c55e" font-size="11" font-weight="600" letter-spacing="1">AI PROVIDERS &amp; SERVICES</text>
+
+  <rect x="48" y="356" width="142" height="48" rx="4" fill="#0b2b1a" stroke="#22c55e" stroke-width="0.8" opacity="0.85"/>
+  <text x="119" y="376" text-anchor="middle" fill="#86efac" font-size="10" font-weight="500">Claude Code CLI</text>
+  <text x="119" y="390" text-anchor="middle" fill="#64748b" font-size="8">stream-json · headless</text>
+
+  <rect x="206" y="356" width="142" height="48" rx="4" fill="#0b2b1a" stroke="#22c55e" stroke-width="0.8" opacity="0.85"/>
+  <text x="277" y="376" text-anchor="middle" fill="#86efac" font-size="10" font-weight="500">Anthropic API</text>
+  <text x="277" y="390" text-anchor="middle" fill="#64748b" font-size="8">Claude Sonnet · Opus</text>
+
+  <rect x="364" y="356" width="142" height="48" rx="4" fill="#0b2b1a" stroke="#22c55e" stroke-width="0.8" opacity="0.85"/>
+  <text x="435" y="376" text-anchor="middle" fill="#86efac" font-size="10" font-weight="500">OpenAI-Compatible</text>
+  <text x="435" y="390" text-anchor="middle" fill="#64748b" font-size="8">Ollama · vLLM · LM Studio</text>
+
+  <rect x="522" y="356" width="142" height="48" rx="4" fill="#0b2b1a" stroke="#22c55e" stroke-width="0.8" opacity="0.85"/>
+  <text x="593" y="376" text-anchor="middle" fill="#86efac" font-size="10" font-weight="500">MCP Servers</text>
+  <text x="593" y="390" text-anchor="middle" fill="#64748b" font-size="8">PubMed · Extensions</text>
+
+  <!-- Arrows to HPC -->
+  <line x1="330" y1="420" x2="330" y2="455" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="680" y1="420" x2="680" y2="455" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="119" y1="404" x2="200" y2="455" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+
+  <!-- LAYER D: HPC Infrastructure -->
+  <rect x="30" y="440" width="720" height="148" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+  <text x="48" y="460" fill="#a78bfa" font-size="11" font-weight="600" letter-spacing="1">HPC CLUSTER INFRASTRUCTURE</text>
+  <text x="720" y="460" text-anchor="end" fill="#71717a" font-size="9">SSH · tmux · SLURM</text>
+
+  <rect x="48" y="474" width="200" height="96" rx="4" fill="#1e1338" stroke="#a78bfa" stroke-width="0.8" opacity="0.85"/>
+  <text x="148" y="494" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">Login Node</text>
+  <rect x="62" y="502" width="78" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="101" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">SSH Gateway</text>
+  <rect x="156" y="502" width="78" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="195" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">Tail Process</text>
+  <text x="148" y="556" text-anchor="middle" fill="#64748b" font-size="7.5">Streams .jsonl output back to Operon</text>
+
+  <rect x="274" y="474" width="180" height="96" rx="4" fill="#1e1338" stroke="#a78bfa" stroke-width="0.8" opacity="0.85"/>
+  <text x="364" y="494" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">Shared Filesystem</text>
+  <rect x="288" y="502" width="72" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="324" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">.jsonl</text>
+  <rect x="370" y="502" width="72" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="406" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">.done</text>
+  <text x="364" y="556" text-anchor="middle" fill="#64748b" font-size="7.5">NFS / GPFS — visible from all nodes</text>
+
+  <rect x="480" y="474" width="252" height="96" rx="4" fill="#1e1338" stroke="#a78bfa" stroke-width="0.8" opacity="0.85"/>
+  <text x="606" y="494" text-anchor="middle" fill="#c4b5fd" font-size="10" font-weight="600">Compute Node(s)</text>
+  <rect x="494" y="502" width="70" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="529" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">tmux</text>
+  <rect x="574" y="502" width="70" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="609" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">Claude CLI</text>
+  <rect x="654" y="502" width="70" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
+  <text x="689" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">Watchdog</text>
+  <text x="606" y="556" text-anchor="middle" fill="#64748b" font-size="7.5">GPU/CPU jobs · conda · user aliases</text>
+
+  <!-- HPC internal arrows -->
+  <line x1="248" y1="520" x2="274" y2="520" stroke="#7c3aed" stroke-width="0.8" marker-end="url(#arrow)"/>
+  <line x1="454" y1="520" x2="480" y2="520" stroke="#7c3aed" stroke-width="0.8" marker-end="url(#arrow)"/>
+
+  <!-- Footer -->
+  <text x="390" y="606" text-anchor="middle" fill="#71717a" font-size="8.5">Figure 1. Operon system architecture. Arrows indicate data flow. Dashed lines represent IPC or network boundaries.</text>
+</svg>
