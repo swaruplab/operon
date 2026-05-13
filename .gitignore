@@ -9,9 +9,8 @@ src-tauri/target/
 .DS_Store
 *.dmg
 
-# Signing credentials — NEVER commit these
-build-signed.sh
-build-intel.sh
+# Signing credentials file (consumed by build-*.sh) — NEVER commit
+# .env.signing is already covered by `.env.*` below
 build-universal.sh
 
 # IDE / Editor
