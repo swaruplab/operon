@@ -3615,11 +3615,26 @@ echo '__END__'
     for line in out.lines() {
         let t = line.trim();
         match t {
-            "__HELPERS__" => { section = "h"; continue; }
-            "__TMUX__" => { section = "t"; continue; }
-            "__PANEPROCS__" => { section = "p"; continue; }
-            "__SLURM__" => { section = "s"; continue; }
-            "__END__" => { section = ""; continue; }
+            "__HELPERS__" => {
+                section = "h";
+                continue;
+            }
+            "__TMUX__" => {
+                section = "t";
+                continue;
+            }
+            "__PANEPROCS__" => {
+                section = "p";
+                continue;
+            }
+            "__SLURM__" => {
+                section = "s";
+                continue;
+            }
+            "__END__" => {
+                section = "";
+                continue;
+            }
             _ => {}
         }
         if t.is_empty() {
@@ -3635,8 +3650,12 @@ echo '__END__'
     }
     let slurm_in_pane = pane_procs.iter().any(|p| {
         let p = p.trim_start();
-        p.starts_with("srun") || p.starts_with("salloc") || p.starts_with("sbatch")
-            || p.contains(" srun ") || p.contains(" salloc ") || p.contains(" sbatch ")
+        p.starts_with("srun")
+            || p.starts_with("salloc")
+            || p.starts_with("sbatch")
+            || p.contains(" srun ")
+            || p.contains(" salloc ")
+            || p.contains(" sbatch ")
     });
 
     Ok(RemoteFootprint {
