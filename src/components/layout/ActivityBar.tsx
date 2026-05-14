@@ -178,6 +178,12 @@ function EndSessionDialog({
   };
 
   const tmuxNames = footprint?.tmux_sessions ?? [];
+  // squeue output is "%i %j %T %D %m %R" — STATE is the 3rd field.
+  // Only RUNNING jobs can be the in-pane allocation; PENDING/queued jobs live
+  // entirely in the SLURM controller and are unaffected by killing the tmux pane.
+  const allJobs = footprint?.running_jobs ?? [];
+  const runningJobs = allJobs.filter((j) => j.trim().split(/\s+/)[2] === "RUNNING");
+  const queuedCount = allJobs.length - runningJobs.length;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onMouseDown={onClose}>
@@ -228,16 +234,28 @@ function EndSessionDialog({
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-yellow-400" />
                       <div>
-                        A SLURM allocation appears to be running <em>inside</em> the Operon tmux pane.
-                        Killing the tmux session will end that allocation.
-                        {footprint.running_jobs.length > 0 && (
-                          <div className="mt-1 font-mono text-[11px] text-yellow-300/90">
-                            {footprint.running_jobs.slice(0, 4).map((j, i) => <div key={i}>{j}</div>)}
+                        <div className="text-yellow-100">
+                          One running SLURM allocation is open in this tmux pane. Killing the tmux session will end <em>only that allocation</em>.
+                        </div>
+                        <div className="mt-1 text-yellow-200/90">
+                          <code>sbatch</code> jobs in your queue keep running on their own nodes — Operon never calls <code>scancel</code>.
+                        </div>
+                        {runningJobs.length > 0 && (
+                          <div className="mt-2">
+                            <div className="text-[11px] text-yellow-300/70 mb-0.5">Currently running on this account:</div>
+                            <div className="font-mono text-[11px] text-yellow-300/90">
+                              {runningJobs.slice(0, 4).map((j, i) => <div key={i}>{j}</div>)}
+                            </div>
+                          </div>
+                        )}
+                        {queuedCount > 0 && (
+                          <div className="mt-1.5 text-[11px] text-yellow-300/70">
+                            {queuedCount} queued/pending job{queuedCount === 1 ? "" : "s"} not shown — these are independent and will keep waiting in the SLURM queue.
                           </div>
                         )}
                         <label className="mt-2 flex items-center gap-2 text-yellow-100">
                           <input type="checkbox" checked={killTmux} onChange={(e) => setKillTmux(e.target.checked)} />
-                          Also kill the tmux session (ends the allocation)
+                          Also kill the tmux session (ends the running allocation)
                         </label>
                       </div>
                     </div>

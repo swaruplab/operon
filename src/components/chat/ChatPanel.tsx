@@ -1510,10 +1510,16 @@ export function ChatPanel() {
           projectPath: remoteInfo?.remotePath || projectPath || null,
           profileId: remoteInfo?.profileId || null,
         });
-        // Only show sessions that are running or recently completed (last 24h)
+        // Only show sessions that are recently running (<48h) or recently completed (<24h).
+        // A "running" session older than ~48h is almost certainly orphaned: the agent
+        // died without writing the .done marker, and HPC scratch retention has likely
+        // wiped the .operon-*.jsonl file — reconnecting just surfaces a confusing
+        // "Output file not found" error.
         const recent = sessions.filter((s) => {
           const age = Date.now() - s.last_activity;
-          return s.status === 'running' || (s.status === 'completed' && age < 24 * 60 * 60 * 1000);
+          if (s.status === 'running') return age < 48 * 60 * 60 * 1000;
+          if (s.status === 'completed') return age < 24 * 60 * 60 * 1000;
+          return false;
         });
         if (recent.length > 0) {
           setPreviousSessions(recent);
@@ -2268,32 +2274,75 @@ export function ChatPanel() {
         if (data.type === 'error') {
           setIsStreaming(false);
           const errMsg = data.error.message;
-          setMessages((prev) => [
-            ...prev.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
-            {
-              id: crypto.randomUUID(),
-              role: 'system' as const,
-              content: [{ type: 'text' as const, text: `Remote error: ${errMsg}` }],
-              timestamp: Date.now(),
-            },
-          ]);
+          // The tail script emits "Output file did not appear" if the .operon-*.jsonl
+          // file never showed up on the remote within 5 min. Causes: the remote shell
+          // command failed before creating the file, HPC scratch retention wiped it,
+          // or the agent process died early. Surface a clear, actionable message.
+          const isFileMissing =
+            errMsg.toLowerCase().includes('output file did not appear') ||
+            errMsg.toLowerCase().includes('output file not found');
+          const text = isFileMissing
+            ? "Couldn't find the session output file on the remote after 5 minutes. The remote command may have failed to start, or its scratch file was cleaned up. Check the terminal pane for shell errors, then start a new chat."
+            : `Remote error: ${errMsg}`;
+          setMessages((prev) => {
+            // If claude-done fired first and already pushed the generic silent-failure
+            // message, drop it now that we have a specific error.
+            const cleaned = prev.filter(
+              (m) =>
+                !(
+                  m.role === 'system' &&
+                  m.content.some(
+                    (c) =>
+                      c.type === 'text' &&
+                      c.text.startsWith('No response was received'),
+                  )
+                ),
+            );
+            return [
+              ...cleaned.map((msg) => (msg.isStreaming ? { ...msg, isStreaming: false } : msg)),
+              {
+                id: crypto.randomUUID(),
+                role: 'system' as const,
+                content: [{ type: 'text' as const, text }],
+                timestamp: Date.now(),
+              },
+            ];
+          });
         }
       } catch {
         // Unparseable line, ignore
       }
     }).then((u) => unlisteners.push(u));
 
-    listen(`claude-done-${sessionId}`, () => {
+    listen(`claude-done-${sessionId}`, async () => {
       setIsStreaming(false);
+
+      // Capture whether silent-failure fired so we can follow up with a remote
+      // file read for diagnostic output. setMessages is synchronous, so we set
+      // this flag inside the updater and act on it afterwards.
+      let diagnosticMessageId: string | null = null;
+
       // Mark all remaining running/pending tool blocks as complete
       setMessages((prev) => {
         // Detect silent failure: Claude exited without producing any assistant response.
-        // This typically happens when --resume fails on a stale/large session, or when
-        // the prompt is too large for the shell command.  Show an actionable error so
-        // the user isn't left staring at a dead chat.
+        // Causes vary (failed claude command, shell-quoting bug in the prompt, agent
+        // died, scratch file cleaned up). We fetch the remote .jsonl below to find out.
         const lastMsg = prev[prev.length - 1];
         const claudeProducedNothing =
           lastMsg?.role === 'user' && seenMsgIds.current.size === 0;
+
+        // Skip the generic message if a specific system error was already surfaced
+        // (e.g. a remote tail script error or the file-missing message).
+        const alreadyHasSystemError = prev.some(
+          (m) =>
+            m.role === 'system' &&
+            m.content.some(
+              (c) =>
+                c.type === 'text' &&
+                (c.text.startsWith('Remote error:') ||
+                  c.text.startsWith("Couldn't find the session output file")),
+            ),
+        );
 
         const updated = prev.map((msg) => ({
           ...msg,
@@ -2305,14 +2354,16 @@ export function ChatPanel() {
           ),
         }));
 
-        if (claudeProducedNothing) {
+        if (claudeProducedNothing && !alreadyHasSystemError) {
+          const placeholderId = crypto.randomUUID();
+          diagnosticMessageId = placeholderId;
           updated.push({
-            id: crypto.randomUUID(),
+            id: placeholderId,
             role: 'system' as const,
             isStreaming: false,
             content: [{
               type: 'text' as const,
-              text: 'Claude exited without responding. This can happen when the conversation history is too long. Try starting a new chat.',
+              text: 'No response was received. Fetching the remote output file for diagnosis…',
             }],
             timestamp: Date.now(),
           });
@@ -2324,6 +2375,62 @@ export function ChatPanel() {
         sessionId,
         status: 'completed',
       }).catch(() => {});
+
+      // Diagnostic follow-up: read the .operon-*.jsonl on the remote and show what
+      // claude actually wrote. This is the single most useful signal when the chat
+      // stops working — usually the file contains a shell error, a missing-binary
+      // message, or empty output (auth failure / silent claude crash).
+      // Time-bounded so a stuck SSH doesn't leave the placeholder up forever.
+      if (diagnosticMessageId !== null) {
+        const placeholderId = diagnosticMessageId;
+        const remoteForRead = remoteInfoRef.current
+          ? { profileId: remoteInfoRef.current.profileId, remotePath: remoteInfoRef.current.remotePath }
+          : null;
+        const remotePath = remoteInfoRef.current?.remotePath ?? projectPathRef.current ?? '.';
+        const filePath = `${remotePath}/.operon-${sessionId}.jsonl`;
+        const manualHint =
+          `Inspect manually with:\n` +
+          `  cat '${filePath}'\n` +
+          `from the remote shell. If it's empty, the claude command never produced output. ` +
+          `If it has text, that text is what claude wrote — usually a shell or auth error.`;
+        try {
+          const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Timed out reading remote output after 15s')), 15_000),
+          );
+          const content = await Promise.race([
+            invoke<string>('read_session_output', { sessionId, remote: remoteForRead }),
+            timeout,
+          ]);
+          const trimmed = content.trim();
+          const truncated = trimmed.length > 1500
+            ? trimmed.slice(0, 1500) + '\n…[truncated, full file on remote]'
+            : trimmed;
+          const diagText = trimmed
+            ? `No JSON output was produced. The remote scratch file contains:\n\n${truncated}\n\nThis is what the claude command actually wrote — usually a shell error, missing binary, auth failure, or quoting issue. Start a new chat once the underlying problem is fixed.`
+            : `The remote scratch file is empty — the claude command produced no output at all. Likely causes: the claude binary isn't on PATH in the non-interactive shell that sources the script, auth env vars are missing, the conda env stripping broke something, or the prompt failed shell quoting before claude could start.\n\n${manualHint}`;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === placeholderId
+                ? { ...m, content: [{ type: 'text' as const, text: diagText }] }
+                : m,
+            ),
+          );
+        } catch (e) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === placeholderId
+                ? {
+                    ...m,
+                    content: [{
+                      type: 'text' as const,
+                      text: `No response was received and the diagnostic read couldn't complete: ${e}.\n\n${manualHint}`,
+                    }],
+                  }
+                : m,
+            ),
+          );
+        }
+      }
 
       // If in plan mode, check for implementation_plan.md and show approval UI
       // Use the pinned session path — the plan file was written there.

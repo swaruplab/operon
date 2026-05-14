@@ -1069,10 +1069,16 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
     // Escape single quotes in the prompt for shell safety
     let escaped_prompt = meta_prompt.replace('\'', "'\\''");
 
-    // Run through user's login shell (zsh on macOS) so PATH includes Homebrew/Node
+    // Resolve `claude` to an absolute path so we don't depend on the spawned
+    // shell's PATH. macOS Operon spawns `zsh -l -c ...` (login, non-interactive)
+    // which sources .zprofile/.zlogin but NOT .zshrc — so users whose PATH
+    // additions live in .zshrc see "command not found: claude" here even though
+    // claude works in their Terminal. Absolute-path resolution sidesteps this.
+    let claude_path = resolve_claude_path()
+        .ok_or_else(|| "Claude Code not found. Run `which claude` in your terminal — if it returns a path, paste it into Operon's settings, or add it to your shell's .zprofile.".to_string())?;
     let shell_cmd = format!(
-        "claude -p '{}' --max-turns 1 --output-format text",
-        escaped_prompt
+        "{} -p '{}' --max-turns 1 --output-format text",
+        claude_path, escaped_prompt
     );
 
     let output = crate::platform::shell_exec_async(&shell_cmd)
@@ -1091,6 +1097,70 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
     }
 
     Ok(result)
+}
+
+/// Find an absolute path to the local `claude` binary. Tries (1) the user's
+/// shell (interactive login on Unix, default on Windows) so any PATH setup in
+/// .zshrc/.bashrc is honored; (2) a list of well-known install locations.
+/// Returns None if nothing resolves. Cheap enough to call per-invocation —
+/// `command -v` is sub-100ms on Unix.
+fn resolve_claude_path() -> Option<String> {
+    // (1) Ask the user's shell. On macOS/Linux use `-i -l -c` so both interactive
+    // (.zshrc/.bashrc) and login (.zprofile) rc files get sourced. We pipe the
+    // command to be safe across shells that interpret `command -v` differently.
+    #[cfg(unix)]
+    {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let out = std::process::Command::new(&shell)
+            .arg("-i")
+            .arg("-l")
+            .arg("-c")
+            .arg("command -v claude 2>/dev/null")
+            .output()
+            .ok();
+        if let Some(o) = out {
+            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !path.is_empty() && std::path::Path::new(&path).exists() {
+                return Some(path);
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("where")
+            .arg("claude")
+            .output()
+            .ok();
+        if let Some(o) = out {
+            let first = String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .next()
+                .map(|s| s.trim().to_string());
+            if let Some(p) = first {
+                if !p.is_empty() && std::path::Path::new(&p).exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+
+    // (2) Fall back to common install locations.
+    let home = dirs::home_dir()?;
+    let candidates: Vec<std::path::PathBuf> = vec![
+        home.join(".claude/local/claude"),
+        home.join(".local/bin/claude"),
+        home.join(".npm-global/bin/claude"),
+        home.join(".volta/bin/claude"),
+        std::path::PathBuf::from("/opt/homebrew/bin/claude"),
+        std::path::PathBuf::from("/usr/local/bin/claude"),
+        std::path::PathBuf::from("/usr/bin/claude"),
+    ];
+    for c in candidates {
+        if c.exists() {
+            return Some(c.to_string_lossy().into_owned());
+        }
+    }
+    None
 }
 
 /// Generate a protocol from selected pipeline files.
@@ -1153,14 +1223,17 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
         files = files_section,
     );
 
+    // Resolve `claude` to an absolute path (see resolve_claude_path notes).
+    let claude_path = resolve_claude_path()
+        .ok_or_else(|| "Claude Code not found. Run `which claude` in your terminal — if it returns a path, paste it into Operon's settings, or add it to your shell's .zprofile.".to_string())?;
     // Use base64 encoding to safely pass the potentially large prompt through the shell
     let encoded = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         meta_prompt.as_bytes(),
     );
     let shell_cmd = format!(
-        "echo '{}' | base64 -d | claude -p - --max-turns 1 --output-format text",
-        encoded
+        "echo '{}' | base64 -d | {} -p - --max-turns 1 --output-format text",
+        encoded, claude_path
     );
 
     let output = crate::platform::shell_exec_async(&shell_cmd)

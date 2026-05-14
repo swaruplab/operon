@@ -1798,9 +1798,17 @@ pub async fn start_claude_session(
         String::new()
     };
 
-    // If there's an existing plan, prepend it as context for agent/ask modes
+    // If there's an existing plan, prepend it as context for agent/ask modes.
+    // Cap the inline size: anything over ~20KB gets replaced with a pointer that
+    // tells the agent to Read the file as needed. Inlining a huge plan blows up
+    // the remote run-script (the prompt becomes a 100KB+ `-p '...'` arg), which
+    // forces Operon's chunked SSH upload path and is fragile on HPC clusters with
+    // ControlMaster / Duo MFA / slow auth — silent upload failures result.
+    const PLAN_INLINE_LIMIT: usize = 75_000;
     let context_prefix = {
-        let plan_ctx = if !existing_plan.is_empty() && mode != "plan" {
+        let plan_ctx = if existing_plan.is_empty() || mode == "plan" {
+            String::new()
+        } else if existing_plan.len() <= PLAN_INLINE_LIMIT {
             format!(
                 "CONTEXT: There is an existing implementation_plan.md in this directory from a previous planning session. \
                  Here is its content:\n\n---\n{}\n---\n\n\
@@ -1809,7 +1817,17 @@ pub async fn start_claude_session(
                 existing_plan
             )
         } else {
-            String::new()
+            eprintln!(
+                "[operon] plan too large to inline ({} bytes > {} cap) — passing as a Read-it-yourself pointer",
+                existing_plan.len(),
+                PLAN_INLINE_LIMIT
+            );
+            format!(
+                "CONTEXT: There is an existing implementation_plan.md in this directory from a previous planning session ({} KB — too large to inline). \
+                 Use the Read tool to load it if the user's request relates to the plan, then follow it. \
+                 If the request is unrelated, you can ignore the plan.\n\n",
+                existing_plan.len() / 1024
+            )
         };
         format!("{}{}", safety_prefix, plan_ctx)
     };
@@ -2282,8 +2300,17 @@ pub async fn start_claude_session(
             // ANTHROPIC_AUTH_TOKEN instead of ANTHROPIC_API_KEY.
             let provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
             let api_key_line = ai_provider_env_exports(&provider_env);
+            // Pre-flight warmup: the Anthropic launcher (~/.local/bin/claude etc.) checks
+            // its npm-cached package on every invocation and shows an interactive
+            //   "Need to install @anthropic-ai/claude-code@X.Y.Z — Ok to proceed? (y)"
+            // prompt the first time after install/update. Because Operon redirects the
+            // real run's stdout/stderr to a file, that prompt deadlocks waiting for
+            // input. Running the launcher once with `yes y` piped in auto-confirms the
+            // install and primes the cache; subsequent runs return instantly. The
+            // warmup is best-effort (`|| true`) — if claude isn't installed at all, the
+            // real command will fail in the same way it would have without the warmup.
             let script_content = format!(
-                "{}{}cd '{}' && {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}cd '{}' && (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
                 REMOTE_PATH_PREFIX,
                 api_key_line,
                 ctx.remote_path.replace('\'', "'\\''"),
@@ -2302,7 +2329,14 @@ pub async fn start_claude_session(
                     base64::engine::general_purpose::STANDARD.encode(script_content.as_bytes());
                 let escaped_script = script_file.replace('"', "\\\"");
                 let tmp_b64 = format!("{}.__b64__", escaped_script);
-                const CHUNK_SIZE: usize = 100_000;
+                const CHUNK_SIZE: usize = 140_000;
+                eprintln!(
+                    "[operon] script upload starting: target={} script_bytes={} b64_bytes={} chunked={}",
+                    script_file,
+                    script_content.len(),
+                    b64_script.len(),
+                    b64_script.len() > CHUNK_SIZE
+                );
 
                 if b64_script.len() <= CHUNK_SIZE {
                     // Small script — single command
@@ -2310,32 +2344,57 @@ pub async fn start_claude_session(
                         "printf %s {} | base64 -d > \"{}\"",
                         b64_script, escaped_script,
                     );
+                    let t0 = std::time::Instant::now();
                     crate::commands::ssh::ssh_exec(&profile, &write_cmd)
-                        .map_err(|e| format!("Failed to create run script on remote: {}", e))?;
+                        .map_err(|e| {
+                            eprintln!("[operon] script upload FAILED (single-shot): {}", e);
+                            format!("Failed to create run script on remote: {}", e)
+                        })?;
+                    eprintln!("[operon] script upload OK (single-shot) in {:?}", t0.elapsed());
                 } else {
                     // Large script — write base64 in chunks, then decode
                     let mut offset = 0;
                     let mut first = true;
+                    let t0 = std::time::Instant::now();
+                    let mut chunk_idx = 0;
                     while offset < b64_script.len() {
                         let end = std::cmp::min(offset + CHUNK_SIZE, b64_script.len());
                         let chunk = &b64_script[offset..end];
                         let redirect = if first { ">" } else { ">>" };
                         let cmd = format!("printf %s {} {} \"{}\"", chunk, redirect, tmp_b64,);
                         crate::commands::ssh::ssh_exec(&profile, &cmd).map_err(|e| {
+                            eprintln!(
+                                "[operon] script upload chunk {} FAILED: {}",
+                                chunk_idx, e
+                            );
                             format!("Failed to upload script chunk to remote: {}", e)
                         })?;
                         first = false;
                         offset = end;
+                        chunk_idx += 1;
                     }
+                    eprintln!(
+                        "[operon] script upload chunks OK ({} chunks in {:?})",
+                        chunk_idx,
+                        t0.elapsed()
+                    );
                     // Decode the assembled base64 and clean up
                     let decode_cmd = format!(
                         "base64 -d \"{}\" > \"{}\" && rm -f \"{}\"",
                         tmp_b64, escaped_script, tmp_b64,
                     );
                     crate::commands::ssh::ssh_exec(&profile, &decode_cmd)
-                        .map_err(|e| format!("Failed to decode run script on remote: {}", e))?;
+                        .map_err(|e| {
+                            eprintln!("[operon] script decode FAILED: {}", e);
+                            format!("Failed to decode run script on remote: {}", e)
+                        })?;
+                    eprintln!("[operon] script decode OK");
                 }
             }
+            eprintln!(
+                "[operon] writing source command to terminal id={:?}",
+                terminal_id
+            );
 
             // Send a short source command to the terminal (the script is already on the remote)
             // The leading space prevents it from appearing in shell history.
@@ -2351,12 +2410,30 @@ pub async fn start_claude_session(
                 let terminals = terminal_state.terminals.lock().map_err(|e| e.to_string())?;
                 let handle = terminals
                     .get(tid)
-                    .ok_or_else(|| format!("Terminal {} not found", tid))?;
+                    .ok_or_else(|| {
+                        eprintln!(
+                            "[operon] terminal write FAILED: terminal id '{}' not found in TerminalManager (open terminals: {:?})",
+                            tid,
+                            terminals.keys().collect::<Vec<_>>()
+                        );
+                        format!("Terminal {} not found", tid)
+                    })?;
                 let mut writer = handle.writer.lock().map_err(|e| e.to_string())?;
                 use std::io::Write;
-                writer.write_all(&encoded).map_err(|e| e.to_string())?;
-                writer.flush().map_err(|e| e.to_string())?;
+                writer.write_all(&encoded).map_err(|e| {
+                    eprintln!("[operon] terminal write FAILED on write_all: {}", e);
+                    e.to_string()
+                })?;
+                writer.flush().map_err(|e| {
+                    eprintln!("[operon] terminal write FAILED on flush: {}", e);
+                    e.to_string()
+                })?;
             }
+            eprintln!(
+                "[operon] terminal write OK ({} bytes to terminal id={})",
+                encoded.len(),
+                tid
+            );
 
             // Now tail the output file via a separate SSH connection to stream results back.
             // Reuse ControlMaster socket if available — avoids re-authentication (critical
@@ -2393,9 +2470,17 @@ pub async fn start_claude_session(
             //   - every loop iteration re-checks our PPID — once it becomes 1 the SSH
             //     parent is gone, so kill the children and exit immediately (<0.5s);
             //   - a hard 12h wall-clock cap as a last-resort backstop.
+            // Early heartbeat + heartbeats during the file-wait loop so the
+            // frontend's auto-reconnect watchdog doesn't fire while we're
+            // legitimately waiting for the remote shell to create the output file
+            // (slow Claude startup, NFS attribute cache, etc.). Without these, a
+            // file that takes >60s to appear causes auto-reconnect to kill this
+            // tail and spawn a new one — which finds the file briefly missing and
+            // emits a spurious "Output file not found" error.
             let tail_script = format!(
                 "trap '' HUP PIPE; \
-                 i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); done; \
+                 printf '{{\"type\":\"heartbeat\"}}\\n'; \
+                 i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
                  if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
                  if command -v stdbuf >/dev/null 2>&1; then TAIL_CMD=\"stdbuf -oL tail -f '{out_esc}'\"; else TAIL_CMD=\"tail -f '{out_esc}'\"; fi; \
                  eval $TAIL_CMD & TAIL_PID=$!; \
@@ -3305,10 +3390,16 @@ pub async fn reconnect_session(
         // Tail script: first cat any existing content, then tail -f for new lines
         // If done file already exists, just cat and exit (session already finished).
         // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
+        // Wait up to 5 min for the file (same as the main start path) before
+        // declaring it missing — covers NFS attribute-cache lag and slow startup.
+        // Heartbeats during the wait prevent the frontend's auto-reconnect from
+        // firing AGAIN while we're waiting (which would kill this tail and loop).
         let tail_script = format!(
             "trap '' HUP PIPE; \
+             printf '{{\"type\":\"heartbeat\"}}\\n'; \
              if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
-             if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found\"}}}}'; exit 1; fi; \
+             i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
+             if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start. Check the terminal for errors.\"}}}}'; exit 1; fi; \
              cat '{out}'; tail -f -n +$(wc -l < '{out}' | tr -d ' ') '{out}' & TAIL_PID=$!; \
              _n=0; while [ ! -f '{donef}' ]; do sleep 1; _n=$((_n+1)); [ \"$_n\" -ge 43200 ] && break; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID 2>/dev/null; exit 0; }}; done; \
              sleep 1; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null",
@@ -3432,10 +3523,16 @@ pub async fn reconnect_tail(
     // If the done file already exists the session finished while we were stalled — just cat.
     // Uses stdbuf -oL to force line-buffered output and prevent SSH pipe buffering.
     // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
+    // Wait up to 5 min for the file before declaring it missing — covers NFS
+    // attribute-cache lag and slow startup. Heartbeats during the wait keep the
+    // frontend's auto-reconnect watchdog quiet so it doesn't kill THIS tail and
+    // recurse, producing duplicate "file not found" errors.
     let tail_script = format!(
         "trap '' HUP PIPE; \
+         printf '{{\"type\":\"heartbeat\"}}\\n'; \
          if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
-         if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file not found — the agent may have finished or the file was cleaned up.\"}}}}'; exit 1; fi; \
+         i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
+         if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start, or the file was cleaned up. Check the terminal for errors.\"}}}}'; exit 1; fi; \
          if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; else cat '{out}'; tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; fi; \
          ( while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ ! -f '{donef}' ]; then printf '{{\"type\":\"error\",\"error\":{{\"message\":\"Agent appears to have died — no output for over 5 minutes. The Claude process on the compute node may have been killed (tmux pane closed, SLURM preempt, OOM, or NFS stall).\"}}}}\\n'; touch '{donef}'; break; fi; fi; fi; done ) & HB_PID=$!; \
          _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
