@@ -2345,12 +2345,14 @@ pub async fn start_claude_session(
                         b64_script, escaped_script,
                     );
                     let t0 = std::time::Instant::now();
-                    crate::commands::ssh::ssh_exec(&profile, &write_cmd)
-                        .map_err(|e| {
-                            eprintln!("[operon] script upload FAILED (single-shot): {}", e);
-                            format!("Failed to create run script on remote: {}", e)
-                        })?;
-                    eprintln!("[operon] script upload OK (single-shot) in {:?}", t0.elapsed());
+                    crate::commands::ssh::ssh_exec(&profile, &write_cmd).map_err(|e| {
+                        eprintln!("[operon] script upload FAILED (single-shot): {}", e);
+                        format!("Failed to create run script on remote: {}", e)
+                    })?;
+                    eprintln!(
+                        "[operon] script upload OK (single-shot) in {:?}",
+                        t0.elapsed()
+                    );
                 } else {
                     // Large script — write base64 in chunks, then decode
                     let mut offset = 0;
@@ -2363,10 +2365,7 @@ pub async fn start_claude_session(
                         let redirect = if first { ">" } else { ">>" };
                         let cmd = format!("printf %s {} {} \"{}\"", chunk, redirect, tmp_b64,);
                         crate::commands::ssh::ssh_exec(&profile, &cmd).map_err(|e| {
-                            eprintln!(
-                                "[operon] script upload chunk {} FAILED: {}",
-                                chunk_idx, e
-                            );
+                            eprintln!("[operon] script upload chunk {} FAILED: {}", chunk_idx, e);
                             format!("Failed to upload script chunk to remote: {}", e)
                         })?;
                         first = false;
@@ -2383,11 +2382,10 @@ pub async fn start_claude_session(
                         "base64 -d \"{}\" > \"{}\" && rm -f \"{}\"",
                         tmp_b64, escaped_script, tmp_b64,
                     );
-                    crate::commands::ssh::ssh_exec(&profile, &decode_cmd)
-                        .map_err(|e| {
-                            eprintln!("[operon] script decode FAILED: {}", e);
-                            format!("Failed to decode run script on remote: {}", e)
-                        })?;
+                    crate::commands::ssh::ssh_exec(&profile, &decode_cmd).map_err(|e| {
+                        eprintln!("[operon] script decode FAILED: {}", e);
+                        format!("Failed to decode run script on remote: {}", e)
+                    })?;
                     eprintln!("[operon] script decode OK");
                 }
             }
