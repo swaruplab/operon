@@ -185,7 +185,6 @@ use commands::{
     singularity_action,
     singularity_list_images,
     singularity_list_instances,
-    spawn_ssh_terminal,
     // Terminal
     spawn_terminal,
     start_claude_session,
@@ -346,7 +345,6 @@ pub fn run() {
             detect_server_config,
             delete_ssh_profile,
             reorder_ssh_profiles,
-            spawn_ssh_terminal,
             list_remote_directory,
             get_remote_home,
             read_remote_file,

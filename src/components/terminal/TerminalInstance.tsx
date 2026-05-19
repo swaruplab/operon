@@ -60,8 +60,11 @@ function cleanOAuthUrl(url: string): string {
 interface TerminalInstanceProps {
   terminalId: string;
   isVisible: boolean;
-  /** Command to send to the shell once it's ready (e.g. an SSH command) */
+  /** Command to send to the shell once it's ready (non-SSH only, e.g. `claude login`). */
   initialCommand?: string;
+  /** Structured SSH argument vector. When present this is an SSH terminal and the
+   *  args are passed to spawn_terminal verbatim — never parsed from a string. */
+  sshArgs?: string[];
   /** SSH profile id — if set, Operon auto-registers any `Submitted batch job NNNN`
    *  line with the HPC watchdog for this profile. */
   sshProfileId?: string;
@@ -70,7 +73,7 @@ interface TerminalInstanceProps {
   onCwdChange?: (cwd: string) => void;
 }
 
-export function TerminalInstance({ terminalId, isVisible, initialCommand, sshProfileId, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
+export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArgs, sshProfileId, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -344,23 +347,16 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshPro
       onTitleChangeRef.current?.(title);
     });
 
-    // Spawn terminal. For SSH, pass structured args so SSH is the PTY root process.
-    // No shell wrapper, no delayed stdin write — SSH runs directly.
-    let sshArgs: string[] | null = null;
-    if (initialCommand && initialCommand.startsWith('ssh ')) {
-      // Parse SSH command into individual args, respecting quoted strings
-      const raw = initialCommand.slice(4); // strip "ssh "
-      const matches = raw.match(/(?:[^\s"]+|"[^"]*")+/g);
-      if (matches) {
-        sshArgs = matches.map(a => a.replace(/^"|"$/g, '')); // strip surrounding quotes
-      }
-    }
+    // Spawn terminal. SSH terminals receive a structured argument vector (the
+    // `sshArgs` prop, built by SSHView) passed straight to spawn_terminal —
+    // never parsed from a string — so the remote command survives intact.
+    const isSshTerminal = !!(sshArgs && sshArgs.length > 0);
 
-    invoke('spawn_terminal', { terminalId, sshArgs })
+    invoke('spawn_terminal', { terminalId, sshArgs: isSshTerminal ? sshArgs : null })
       .then(() => {
         // For SSH terminals, inject OSC 7 hook so CWD changes are reported back.
         // This makes terminal→explorer sync work for remote sessions.
-        if (sshArgs) {
+        if (isSshTerminal) {
           setTimeout(() => {
             // Inject OSC 7 hook into the remote shell for CWD tracking.
             // The command echoes in the PTY, so we clear the xterm buffer
@@ -422,7 +418,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshPro
       term.dispose();
       oauthBuffer = '';
     };
-  }, [terminalId, initialCommand, handleResize]); // Only re-run when terminalId changes — callbacks use refs
+  }, [terminalId, initialCommand, sshArgs, handleResize]); // Only re-run when terminalId changes — callbacks use refs
 
   return (
     <div

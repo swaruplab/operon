@@ -71,7 +71,7 @@ pub use ssh::{
     list_remote_directory, list_ssh_config_hosts, list_ssh_profiles, read_remote_file,
     read_remote_file_base64, rename_remote_path, reorder_ssh_profiles, save_ssh_profile,
     scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key,
-    spawn_ssh_terminal, stop_control_master, test_ssh_connection, write_remote_file,
+    stop_control_master, test_ssh_connection, write_remote_file,
 };
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,

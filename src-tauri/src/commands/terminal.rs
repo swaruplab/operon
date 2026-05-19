@@ -24,6 +24,15 @@ impl TerminalManager {
     }
 }
 
+/// POSIX single-quote a string so it survives a `bash -c "<...>"` wrapper as
+/// exactly one argument. Used on Windows, where SSH is routed through Git Bash:
+/// every arg — including the remote tmux command — is quoted so the local bash
+/// hands it to `ssh` verbatim instead of re-interpreting `&&`, `>`, `$VAR`.
+#[cfg(target_os = "windows")]
+fn sh_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[tauri::command]
 pub async fn spawn_terminal(
     state: tauri::State<'_, TerminalManager>,
@@ -56,9 +65,12 @@ pub async fn spawn_terminal(
     let mut cmd = if let Some(args) = &ssh_args {
         #[cfg(target_os = "windows")]
         {
-            // On Windows, route SSH through Git Bash to avoid ConPTY stall/deadlock bug.
-            // Also strip ControlMaster/ControlPath/ControlPersist options which fail on Windows
-            // (no Unix domain socket support), and normalize backslashes to forward slashes.
+            // On Windows, route SSH through Git Bash to avoid the ConPTY
+            // stall/deadlock bug with interactive SSH. Strip ControlMaster
+            // options (no Unix-socket support on Windows), then single-quote
+            // every argument so `bash -c` passes each one to `ssh` verbatim —
+            // including the remote tmux command, whose `&&`/`||`/`>`/`$SHELL`
+            // must be interpreted by the REMOTE shell, not the local bash.
             if let Some(bash_path) = crate::platform::find_git_bash_path() {
                 let mut clean_args: Vec<String> = Vec::new();
                 let mut i = 0;
@@ -73,7 +85,7 @@ pub async fn spawn_terminal(
                             continue;
                         }
                     }
-                    clean_args.push(args[i].replace('\\', "/"));
+                    clean_args.push(sh_single_quote(&args[i]));
                     i += 1;
                 }
                 let ssh_cmd = format!("ssh -t {}", clean_args.join(" "));

@@ -9,8 +9,10 @@ interface TerminalTab {
   id: string;
   title: string;
   type: 'local' | 'ssh';
-  /** Command to run once the shell is ready (e.g. an SSH command) */
+  /** Command to run once the shell is ready (non-SSH only, e.g. `claude login`). */
   initialCommand?: string;
+  /** Structured SSH argument vector — passed to spawn_terminal verbatim. */
+  sshArgs?: string[];
   /** SSH profile id — present for SSH tabs, enables HPC watchdog auto-register. */
   sshProfileId?: string;
   exited: boolean;
@@ -25,13 +27,13 @@ export function TerminalArea() {
 
   // Listen for SSH terminal open events from the sidebar
   useEffect(() => {
-    const unlisten = listen<{ terminalId: string; title: string; sshCommand?: string; profileId?: string }>('open-ssh-terminal', (event) => {
-      const { terminalId, title, sshCommand, profileId } = event.payload;
+    const unlisten = listen<{ terminalId: string; title: string; sshArgs?: string[]; profileId?: string }>('open-ssh-terminal', (event) => {
+      const { terminalId, title, sshArgs, profileId } = event.payload;
       const newTab: TerminalTab = {
         id: terminalId,
         title,
         type: 'ssh',
-        initialCommand: sshCommand,
+        sshArgs,
         sshProfileId: profileId,
         exited: false,
       };
@@ -249,6 +251,7 @@ export function TerminalArea() {
               terminalId={tab.id}
               isVisible={activeTab === tab.id}
               initialCommand={tab.initialCommand}
+              sshArgs={tab.sshArgs}
               sshProfileId={tab.sshProfileId}
               onTitleChange={(title) => handleTitleChange(tab.id, title)}
               onExit={() => handleExit(tab.id)}

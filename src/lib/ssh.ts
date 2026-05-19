@@ -59,10 +59,6 @@ export async function reorderSSHProfiles(orderedIds: string[]): Promise<void> {
   return invoke('reorder_ssh_profiles', { orderedIds });
 }
 
-export async function spawnSSHTerminal(terminalId: string, profileId: string): Promise<void> {
-  return invoke('spawn_ssh_terminal', { terminalId, profileId });
-}
-
 export async function listRemoteDirectory(profileId: string, path: string): Promise<import('./files').FileEntry[]> {
   return invoke('list_remote_directory', { profileId, path });
 }

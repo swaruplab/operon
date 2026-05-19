@@ -253,7 +253,6 @@ impl SshCache {
 
 pub struct SSHManager {
     pub profiles: Mutex<Vec<SSHProfile>>,
-    pub active_connections: Mutex<HashMap<String, String>>, // profile_id -> terminal_id
     pub cache: SshCache,
 }
 
@@ -264,7 +263,6 @@ impl SSHManager {
         let _ = crate::platform::ssh_sockets_dir();
         Self {
             profiles: Mutex::new(profiles),
-            active_connections: Mutex::new(HashMap::new()),
             cache: SshCache::new(10), // 10-second TTL
         }
     }
@@ -548,189 +546,6 @@ pub async fn reorder_ssh_profiles(
             .unwrap_or(usize::MAX)
     });
     save_profiles_to_disk(&profiles)?;
-    Ok(())
-}
-
-// ── SSH Terminal Spawning ──
-
-#[tauri::command]
-pub async fn spawn_ssh_terminal(
-    terminal_state: tauri::State<'_, crate::commands::terminal::TerminalManager>,
-    ssh_state: tauri::State<'_, SSHManager>,
-    app: tauri::AppHandle,
-    terminal_id: String,
-    profile_id: String,
-) -> Result<(), String> {
-    use crate::commands::terminal::TerminalHandle;
-    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-    use std::io::Read;
-    use std::sync::Arc;
-
-    let profile = {
-        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
-        profiles
-            .iter()
-            .find(|p| p.id == profile_id)
-            .cloned()
-            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
-    };
-
-    let pty_system = native_pty_system();
-    let size = PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
-
-    let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
-
-    // Build the SSH command with ControlMaster support
-    let mut ssh_cmd = format!("ssh {}@{} -p {}", profile.user, profile.host, profile.port);
-    ssh_cmd.push_str(" -o ServerAliveInterval=30");
-    // Add ControlMaster args — the first terminal becomes the master,
-    // subsequent ones multiplex through it (no re-auth / no Duo)
-    ssh_cmd.push_str(&control_master_args(&profile, true));
-    if let Some(key) = &profile.key_file {
-        ssh_cmd.push_str(&format!(" -i {}", key));
-    }
-
-    // On Windows, route SSH through Git Bash to avoid the ConPTY stall/deadlock bug
-    // with interactive SSH sessions. Also disable ControlMaster options which fail on
-    // Windows (no Unix domain socket support). Falls back to direct ssh.exe if no Git Bash.
-    // On macOS/Linux, use a login shell so PATH, aliases, and SSH agent are available.
-    //#[cfg(target_os = "windows")]
-    //let mut cmd = {
-    //    let mut c = CommandBuilder::new("ssh.exe");
-    //    c.args([
-    //        &format!("{}@{}", profile.user, profile.host),
-    //        "-p",
-    //        &profile.port.to_string(),
-    //        "-o",
-    //        "ServerAliveInterval=30",
-    //        // Suppress "getsockname failed: Not a socket" ConPTY warning on Windows
-    //        "-o",
-    //        "LogLevel=ERROR",
-    //    ]);
-    //    // Add key file if set
-    //    if let Some(key) = &profile.key_file {
-    //        c.args(["-i", key]);
-    //    }
-    //    c
-    //};
-
-    #[cfg(target_os = "windows")]
-    let mut cmd = {
-        // Disable ControlMaster — Windows doesn't support Unix domain sockets for control paths.
-        // Also add StrictHostKeyChecking=accept-new and ConnectTimeout for better UX.
-        let win_ssh_cmd = format!(
-            "{} -o ControlMaster=no -o ControlPath=none -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15",
-            ssh_cmd
-        );
-        if let Some(bash_path) = crate::platform::find_git_bash_path() {
-            // Git Bash gives ssh a proper POSIX PTY environment —
-            // avoids the ConPTY stall bug with interactive SSH sessions
-            let mut c = CommandBuilder::new(&bash_path);
-            c.arg("-c");
-            c.arg(&win_ssh_cmd);
-            c
-        } else {
-            // Fallback: direct ssh.exe (ConPTY path, less stable for interactive sessions)
-            let mut c = CommandBuilder::new("ssh.exe");
-            c.args([
-                &format!("{}@{}", profile.user, profile.host),
-                "-p",
-                &profile.port.to_string(),
-                "-o",
-                "ServerAliveInterval=30",
-                "-o",
-                "LogLevel=ERROR",
-                "-o",
-                "ControlMaster=no",
-                "-o",
-                "ControlPath=none",
-                "-o",
-                "StrictHostKeyChecking=accept-new",
-                "-o",
-                "ConnectTimeout=15",
-            ]);
-            if let Some(key) = &profile.key_file {
-                c.args(["-i", key]);
-            }
-            c
-        }
-    };
-
-    #[cfg(not(target_os = "windows"))]
-    let mut cmd = {
-        let shell = crate::platform::default_shell();
-        let mut c = CommandBuilder::new(&shell);
-        c.arg("-l");
-        c.arg("-c");
-        c.arg(&ssh_cmd);
-        c
-    };
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-
-    if let Some(home) = crate::platform::home_dir() {
-        cmd.env("HOME", home.to_string_lossy().as_ref());
-        #[cfg(target_os = "windows")]
-        cmd.env("USERPROFILE", home.to_string_lossy().as_ref());
-        cmd.cwd(&home);
-    }
-
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-
-    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-
-    // Drop slave so the PTY reader gets EOF when child exits
-    drop(pair.slave);
-
-    let handle = TerminalHandle {
-        id: terminal_id.clone(),
-        master: Arc::new(std::sync::Mutex::new(pair.master)),
-        writer: Arc::new(std::sync::Mutex::new(writer)),
-        child: Arc::new(std::sync::Mutex::new(child)),
-    };
-
-    terminal_state
-        .terminals
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(terminal_id.clone(), handle);
-
-    // Track active connection
-    ssh_state
-        .active_connections
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(profile_id, terminal_id.clone());
-
-    // Spawn reader thread
-    let event_name = format!("pty-output-{}", terminal_id);
-    let app_handle = app.clone();
-    let tid = terminal_id.clone();
-
-    std::thread::spawn(move || {
-        let mut reader = reader;
-        let mut buf = vec![0u8; 8192];
-
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let output = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let _ = app_handle.emit(&event_name, serde_json::json!({ "output": output }));
-                }
-                Err(_) => break,
-            }
-        }
-
-        let _ = app_handle.emit(&format!("pty-exit-{}", tid), serde_json::json!({}));
-    });
-
     Ok(())
 }
 
@@ -1244,7 +1059,7 @@ pub async fn scp_to_remote(
     }
 
     // Use ControlMaster socket if available
-    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    // Use the same ControlMaster socket the interactive SSH terminal creates
     let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
@@ -1313,7 +1128,7 @@ pub async fn scp_from_remote(
         scp_args.push("PreferredAuthentications=publickey".to_string());
     }
 
-    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    // Use the same ControlMaster socket the interactive SSH terminal creates
     let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
@@ -1380,7 +1195,7 @@ pub async fn scp_dir_from_remote(
         scp_args.push("PreferredAuthentications=publickey".to_string());
     }
 
-    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    // Use the same ControlMaster socket the interactive SSH terminal creates
     let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         scp_args.push("-o".to_string());
@@ -1453,7 +1268,7 @@ pub async fn scp_batch_upload(
         base_args.push("-o".to_string());
         base_args.push("PreferredAuthentications=publickey".to_string());
     }
-    // Use the same ControlMaster socket that spawn_ssh_terminal creates
+    // Use the same ControlMaster socket the interactive SSH terminal creates
     let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
     if sock.exists() {
         base_args.push("-o".to_string());

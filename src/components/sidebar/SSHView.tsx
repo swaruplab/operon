@@ -282,32 +282,42 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
       }
     }
 
-    let sshCmd = `ssh ${profile.user}@${profile.host} -p ${profile.port} -o ServerAliveInterval=30`;
-    // Add ControlMaster args so the terminal becomes the master connection
+    // Build the SSH invocation as a structured argument vector — never a
+    // shell string. It is passed through to spawn_terminal verbatim, so the
+    // remote command survives intact on every platform: no regex splitting,
+    // no shell re-parsing. (See spawn_terminal in terminal.rs.)
+    const sshArgs: string[] = [
+      `${profile.user}@${profile.host}`,
+      '-p', String(profile.port),
+      '-o', 'ServerAliveInterval=30',
+    ];
+
+    // ControlMaster — the terminal becomes the master connection. macOS/Linux
+    // only; spawn_terminal strips these on Windows (no Unix-socket support).
     if (profile.use_control_master) {
       const homeDir = await invoke<string>('get_home_dir').catch(() => '/tmp');
       const sockPath = `${homeDir}/.operon/sockets/ctrl_${profile.host}_${profile.port}_${profile.user}`;
-      sshCmd += ` -o ControlMaster=auto -o ControlPath=${sockPath} -o ControlPersist=4h`;
+      sshArgs.push('-o', 'ControlMaster=auto', '-o', `ControlPath=${sockPath}`, '-o', 'ControlPersist=4h');
     }
     if (useKeyFile && profile.key_file) {
-      sshCmd += ` -i "${profile.key_file}"`;
+      sshArgs.push('-i', profile.key_file);
     }
 
     // --- Tmux auto-wrap ---
     // Survivability: wrap the remote shell in a shared tmux session so
     // long-running jobs keep going after Operon quits or the laptop sleeps.
-    // Falls through gracefully if tmux is missing — we guard with a shell
-    // `command -v tmux` check so the session still opens on tmux-less hosts.
+    // Falls through gracefully if tmux is missing — the `command -v tmux`
+    // guard lets the session still open on tmux-less hosts. The remote
+    // command goes in as ONE array element: raw, unquoted, never escaped.
     let usedTmux = false;
     let tmuxSession = '';
     try {
       const settings = await getSettings();
       if (settings.ssh_auto_tmux) {
         tmuxSession = (settings.ssh_tmux_session || 'operon-main').replace(/[^A-Za-z0-9_-]/g, '');
-        // `-t -t` forces a tty even when a command is given.
-        // Single-quoted remote command — we escape a couple of special chars.
-        const remote = `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec \"$SHELL\" -l`;
-        sshCmd += ` -t -t "${remote.replace(/"/g, '\\"')}"`;
+        // `-t -t` forces a tty even when a remote command is given.
+        const remote = `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec "$SHELL" -l`;
+        sshArgs.push('-t', '-t', remote);
         usedTmux = true;
       }
     } catch {
@@ -317,7 +327,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     await emit('open-ssh-terminal', {
       terminalId,
       title: usedTmux ? `SSH: ${profile.name} (tmux)` : `SSH: ${profile.name}`,
-      sshCommand: sshCmd,
+      sshArgs,
       profileId: profile.id,
       profileName: profile.name,
       tmuxSession: usedTmux ? tmuxSession : null,
