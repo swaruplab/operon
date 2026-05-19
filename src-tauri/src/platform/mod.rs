@@ -19,8 +19,11 @@ pub use common::*;
 /// Run a command string through the OS's login shell.
 ///
 /// macOS:   /bin/zsh -l -c "command"
-/// Windows: cmd.exe /C "command"
+/// Windows: Git Bash -l -c "command"  (cmd.exe /C as a fallback only)
 /// Linux:   /bin/bash -l -c "command"
+///
+/// On Windows the command runs in Git Bash, not cmd.exe — every command
+/// string in the codebase is POSIX/bash and cmd.exe cannot parse it.
 ///
 /// This is the ONLY way command files should execute shell commands.
 /// Never construct a Command::new("/bin/zsh") directly.
@@ -120,7 +123,7 @@ pub fn sessions_dir() -> Result<std::path::PathBuf, String> {
 /// We use ~/.operon/sockets/ instead of the standard data_dir().
 pub fn ssh_sockets_dir() -> std::path::PathBuf {
     let dir = dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .unwrap_or_else(std::env::temp_dir)
         .join(".operon")
         .join("sockets");
     let _ = std::fs::create_dir_all(&dir);
@@ -187,6 +190,24 @@ pub fn augmented_path() -> String {
     let current = std::env::var("PATH").unwrap_or_default();
     let sep = path_separator();
     format!("{}{}{}", extra.join(&sep.to_string()), sep, current)
+}
+
+/// Resolve a CLI command name to a directly-spawnable `(program, leading_args)`.
+///
+/// On Windows this finds `.cmd`/`.bat`/`.exe` PATHEXT shims — which
+/// `Command::new` cannot resolve, and batch shims it cannot execute at all —
+/// and wraps a batch shim in `cmd.exe /c`. On macOS/Linux it is an identity
+/// passthrough. Use this for any tool that may be installed as an npm shim
+/// (language servers, CLIs) before constructing a `Command`.
+pub fn spawn_resolve(name: &str) -> (String, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        windows::spawn_resolve(name)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (name.to_string(), Vec::new())
+    }
 }
 
 // ─── Installation ────────────────────────────────────────────────

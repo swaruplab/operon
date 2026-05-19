@@ -559,16 +559,24 @@ pub async fn start_job_tail(
         "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 {}@{} -p {}",
         profile.user, profile.host, profile.port
     );
-    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-    if sock.exists() {
-        ssh_args.push_str(&format!(" -o ControlPath={}", sock.to_string_lossy()));
+    if crate::platform::supports_ssh_mux() {
+        let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
+        if sock.exists() {
+            ssh_args.push_str(&format!(" -o ControlPath={}", sock.to_string_lossy()));
+        }
     }
     if let Some(key) = &profile.key_file {
-        ssh_args.push_str(&format!(" -i {}", key));
+        // Single-quote the key path: it runs through `bash -l -c`, and a
+        // Windows path (C:\Users\...) would otherwise have its backslashes
+        // eaten as shell escapes, breaking key auth.
+        ssh_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
     }
     ssh_args.push_str(&format!(" \"echo {} | base64 -d | bash\"", b64));
 
-    let shell = crate::platform::default_shell();
+    // The `-l -c` invocation below needs a POSIX shell. On Windows
+    // `default_shell()` is cmd.exe, which rejects `-l`/`-c` — use Git Bash.
+    let shell =
+        crate::platform::find_git_bash_path().unwrap_or_else(crate::platform::default_shell);
     let mut cmd = AsyncCommand::new(&shell);
     cmd.arg("-l").arg("-c").arg(&ssh_args);
     cmd.stdout(std::process::Stdio::piped());

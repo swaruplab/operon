@@ -688,7 +688,9 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         ssh_args.push_str(&control_master_args(profile, false));
         if let Some(key) = &profile.key_file {
             if std::path::Path::new(key).exists() {
-                ssh_args.push_str(&format!(" -i {}", key));
+                // Single-quote: this string is run through a shell, so an
+                // unquoted path with spaces or backslashes would break.
+                ssh_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
             }
         }
         ssh_args.push_str(&format!(" -- {}", shell_escape(remote_cmd)));
@@ -2029,12 +2031,16 @@ pub async fn stop_control_master(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let sock = control_socket_path(&profile);
-    let cmd = format!(
-        "ssh -o \"ControlPath={}\" -O exit {}@{} -p {} 2>/dev/null",
-        sock, profile.user, profile.host, profile.port
-    );
-    let _ = crate::platform::shell_exec(&cmd).output();
+    // ControlMaster is a Unix-domain-socket feature — unsupported on Windows,
+    // where no master socket is ever created. Skip the no-op `ssh -O exit`.
+    if crate::platform::supports_ssh_mux() {
+        let sock = control_socket_path(&profile);
+        let cmd = format!(
+            "ssh -o \"ControlPath={}\" -O exit {}@{} -p {} 2>/dev/null",
+            sock, profile.user, profile.host, profile.port
+        );
+        let _ = crate::platform::shell_exec(&cmd).output();
+    }
 
     Ok(())
 }

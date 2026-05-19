@@ -9,23 +9,61 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 // ─── Shell Execution ─────────────────────────────────────────────
 
 /// Translate common Unix shell idioms so the command works under cmd.exe.
+/// Only used by the cmd.exe fallback when Git Bash cannot be found.
 fn fixup_for_cmd(command: &str) -> String {
     // /dev/null → nul (Windows null device)
     command.replace("/dev/null", "nul")
 }
 
+/// Resolve Git Bash once and cache the result. `find_git_bash()` does
+/// filesystem probes and may spawn `where.exe`, so it should not run on every
+/// `shell_exec`. Only a *successful* lookup is cached — a probe that happens
+/// before Git is installed (first-launch setup) must not poison the cache.
+fn git_bash_cached() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<String> = OnceLock::new();
+    if let Some(p) = CACHE.get() {
+        return Some(p.clone());
+    }
+    let found = find_git_bash();
+    if let Some(ref p) = found {
+        let _ = CACHE.set(p.clone());
+    }
+    found
+}
+
+/// Build the `(program, args)` pair for running a POSIX command string.
+///
+/// Every command string in Operon is POSIX/bash — single quotes, pipes,
+/// `which`, coreutils (`base64`, `rm`, `cat`), `2>/dev/null`. cmd.exe cannot
+/// parse any of that, so commands run through Git Bash as a login shell
+/// (`-l` so `/etc/profile` sets up the full tool PATH). Git Bash is already a
+/// hard requirement on Windows; cmd.exe is only a degraded last resort.
+fn shell_invocation(command: &str) -> (String, Vec<String>) {
+    match git_bash_cached() {
+        Some(bash) => (
+            bash,
+            vec!["-l".to_string(), "-c".to_string(), command.to_string()],
+        ),
+        None => (
+            "cmd.exe".to_string(),
+            vec!["/C".to_string(), fixup_for_cmd(command)],
+        ),
+    }
+}
+
 pub fn shell_exec(command: &str) -> std::process::Command {
-    let fixed = fixup_for_cmd(command);
-    let mut cmd = std::process::Command::new("cmd.exe");
-    cmd.arg("/C").arg(fixed);
+    let (program, args) = shell_invocation(command);
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args);
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
 
 pub fn shell_exec_async(command: &str) -> tokio::process::Command {
-    let fixed = fixup_for_cmd(command);
-    let mut cmd = tokio::process::Command::new("cmd.exe");
-    cmd.arg("/C").arg(fixed);
+    let (program, args) = shell_invocation(command);
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args);
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
@@ -57,6 +95,50 @@ pub fn check_tool(name: &str) -> Option<(String, String)> {
         .ok()?;
     let version = String::from_utf8_lossy(&ver_out.stdout).trim().to_string();
     Some((path, version))
+}
+
+/// Resolve a CLI command name to a directly-spawnable `(program, leading_args)`.
+///
+/// `Command::new("foo")` on Windows only finds `foo.exe` and cannot execute a
+/// `.cmd`/`.bat` shim at all (CreateProcess rejects batch files — and npm-
+/// installed CLIs like language servers ship exactly such shims). This resolves
+/// the name via `where.exe`, which DOES see PATHEXT shims, and wraps a batch
+/// shim as `("cmd.exe", ["/c", "<resolved>"])` so it can be spawned.
+pub fn spawn_resolve(name: &str) -> (String, Vec<String>) {
+    // An explicit path that already exists: use it directly.
+    let p = std::path::Path::new(name);
+    let explicit = if p.components().count() > 1 && p.exists() {
+        Some(name.to_string())
+    } else {
+        None
+    };
+    let resolved = explicit.or_else(|| {
+        let out = std::process::Command::new("where.exe")
+            .arg(name)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .map(str::to_string)
+    });
+    match resolved {
+        Some(path) => {
+            let lower = path.to_lowercase();
+            if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+                ("cmd.exe".to_string(), vec!["/c".to_string(), path])
+            } else {
+                (path, Vec::new())
+            }
+        }
+        // Not found — return the bare name so the caller's spawn fails clearly.
+        None => (name.to_string(), Vec::new()),
+    }
 }
 
 pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {

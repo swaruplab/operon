@@ -1055,9 +1055,14 @@ pub async fn start_language_server(
 ) -> Result<LspServerInfo, String> {
     let server_id = uuid::Uuid::new_v4().to_string();
 
-    // Spawn the language server process with stdin/stdout pipes
-    let mut cmd = Command::new(&server_command);
-    cmd.args(&server_args)
+    // Spawn the language server process with stdin/stdout pipes.
+    // `spawn_resolve` finds `.cmd`/`.bat` PATHEXT shims on Windows (npm-based
+    // language servers ship as `.cmd`) — `Command::new` can neither resolve
+    // nor execute those — and wraps batch shims for cmd.exe.
+    let (program, lead_args) = crate::platform::spawn_resolve(&server_command);
+    let mut cmd = Command::new(&program);
+    cmd.args(&lead_args)
+        .args(&server_args)
         .current_dir(&workspace_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1715,26 +1720,34 @@ pub struct SingularityInstance {
 
 #[tauri::command]
 pub async fn singularity_list_images(search_dir: String) -> Result<Vec<SingularityImage>, String> {
-    // Find .sif files in the search directory
-    let output = hide_window(std::process::Command::new("find").args([
-        &search_dir,
-        "-maxdepth",
-        "3",
-        "-name",
-        "*.sif",
-        "-type",
-        "f",
-    ]))
-    .output()
-    .map_err(|e| format!("Failed to search for images: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut images = Vec::new();
-    for line in stdout.lines() {
-        let path = line.trim();
-        if path.is_empty() {
-            continue;
+    // Walk the directory for .sif files (depth <= 3) in Rust rather than
+    // shelling out to `find` — on Windows `find.exe` is an unrelated
+    // string-search tool that would error on the GNU-find flags.
+    fn collect_sif(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
+        if depth > 3 {
+            return;
         }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_sif(&path, depth + 1, out);
+            } else if path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("sif"))
+            {
+                out.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    let mut sif_paths = Vec::new();
+    collect_sif(std::path::Path::new(&search_dir), 1, &mut sif_paths);
+
+    let mut images = Vec::new();
+    for path in &sif_paths {
+        let path = path.as_str();
         let name = std::path::Path::new(path)
             .file_name()
             .map(|n| n.to_string_lossy().to_string())

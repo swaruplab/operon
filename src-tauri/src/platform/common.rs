@@ -5,18 +5,14 @@ pub fn normalize_display_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
-/// Shell-escape a string by wrapping in single quotes and escaping embedded quotes.
-/// Works for bash/zsh on macOS/Linux. Windows uses different escaping.
+/// Shell-escape a string by wrapping it in single quotes for bash/zsh.
+///
+/// Operon runs every command string through a POSIX shell on all platforms
+/// (Git Bash on Windows — cmd.exe cannot parse the codebase's command
+/// strings), so POSIX single-quote escaping is correct everywhere. Single
+/// quotes also preserve Windows backslash paths verbatim.
 pub fn shell_escape(s: &str) -> String {
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, use double quotes and escape embedded double quotes
-        format!("\"{}\"", s.replace('"', "\\\""))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// Shell-escape for embedding inside double quotes.

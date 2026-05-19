@@ -1,17 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Suppress console window creation on Windows for subprocess calls.
-#[cfg(windows)]
-fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
-    use std::os::windows::process::CommandExt;
-    cmd.creation_flags(0x08000000)
-}
-#[cfg(not(windows))]
-fn hide_window(cmd: &mut std::process::Command) -> &mut std::process::Command {
-    cmd
-}
-
 // ─── Data Structures ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,14 +169,15 @@ pub fn get_research_catalog() -> Vec<MCPCatalogEntry> {
 /// This makes the server visible to the Claude agent natively (no --mcp-config needed).
 /// If the server already exists, it is removed first so env/config updates take effect.
 fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
-    // Always remove first to handle "already exists" and to pick up env var changes
-    let _ = hide_window(std::process::Command::new("claude").args([
-        "mcp",
-        "remove",
-        &server.name,
-        "-s",
-        "user",
-    ]))
+    use crate::platform::common::shell_escape;
+    // Always remove first to handle "already exists" and to pick up env var
+    // changes. Routed through the platform shell so Windows finds `claude`
+    // even when it is an npm shim (`claude.cmd`) that `Command::new` can
+    // neither resolve via PATHEXT nor execute directly.
+    let _ = crate::platform::shell_exec(&format!(
+        "claude mcp remove {} -s user",
+        shell_escape(&server.name)
+    ))
     .output(); // ignore errors — server may not exist yet
 
     let mut config_obj = serde_json::Map::new();
@@ -199,14 +189,11 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
     let json_str = serde_json::to_string(&serde_json::Value::Object(config_obj))
         .map_err(|e| format!("Failed to serialize MCP config: {}", e))?;
 
-    let output = hide_window(std::process::Command::new("claude").args([
-        "mcp",
-        "add-json",
-        &server.name,
-        &json_str,
-        "-s",
-        "user",
-    ]))
+    let output = crate::platform::shell_exec(&format!(
+        "claude mcp add-json {} {} -s user",
+        shell_escape(&server.name),
+        shell_escape(&json_str)
+    ))
     .output()
     .map_err(|e| format!("Failed to run `claude mcp add-json`: {}", e))?;
 
@@ -222,9 +209,11 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
 
 /// Remove an MCP server from Claude Code using `claude mcp remove`.
 fn claude_mcp_remove(name: &str) -> Result<(), String> {
-    let output = hide_window(
-        std::process::Command::new("claude").args(["mcp", "remove", name, "-s", "user"]),
-    )
+    // Via the platform shell — see `claude_mcp_add` for why.
+    let output = crate::platform::shell_exec(&format!(
+        "claude mcp remove {} -s user",
+        crate::platform::common::shell_escape(name)
+    ))
     .output()
     .map_err(|e| format!("Failed to run `claude mcp remove`: {}", e))?;
 
@@ -651,9 +640,9 @@ async fn check_runtime(runtime: &str) -> Result<DependencyStatus, String> {
         "sudo apt install nodejs"
     };
 
-    let (cmd, args, min_version, install_hint) = match runtime {
-        "node" => ("node", vec!["--version"], "20.0.0", node_install_hint),
-        "python" => (python_cmd, vec!["--version"], "3.10.0", python_install_hint),
+    let (cmd, min_version, install_hint) = match runtime {
+        "node" => ("node", "20.0.0", node_install_hint),
+        "python" => (python_cmd, "3.10.0", python_install_hint),
         _ => {
             return Ok(DependencyStatus {
                 satisfied: false,
@@ -667,12 +656,12 @@ async fn check_runtime(runtime: &str) -> Result<DependencyStatus, String> {
         }
     };
 
-    let output = tokio::process::Command::new(cmd).args(&args).output().await;
-
-    match output {
-        Ok(out) if out.status.success() => {
-            let version_raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            let version = version_raw.replace('v', "").replace("Python ", "");
+    // Resolve via the platform tool-discovery (`where.exe` on Windows, `which`
+    // elsewhere). A bare `Command::new("node")` misses `.cmd`/PATHEXT shims and
+    // ignores Operon's augmented tool PATH.
+    match crate::platform::check_tool(cmd) {
+        Some((_, version_raw)) => {
+            let version = version_raw.trim().replace('v', "").replace("Python ", "");
             Ok(DependencyStatus {
                 satisfied: true,
                 runtime: runtime.to_string(),
@@ -683,7 +672,7 @@ async fn check_runtime(runtime: &str) -> Result<DependencyStatus, String> {
                 package_installed: true,
             })
         }
-        _ => Ok(DependencyStatus {
+        None => Ok(DependencyStatus {
             satisfied: false,
             runtime: runtime.to_string(),
             runtime_found: false,

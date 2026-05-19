@@ -1127,8 +1127,10 @@ fn resolve_claude_path() -> Option<String> {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let out = std::process::Command::new("where")
             .arg("claude")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW — no console flash
             .output()
             .ok();
         if let Some(o) = out {

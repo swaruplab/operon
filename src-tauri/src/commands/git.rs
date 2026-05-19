@@ -1,15 +1,19 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 
-/// Platform-aware shell escaping for embedding values in shell commands.
-/// Uses single quotes on macOS/Linux, double quotes on Windows.
+/// POSIX single-quote escaping for embedding values in shell commands.
+/// Every command here runs through a POSIX shell (Git Bash on Windows).
 fn esc(s: &str) -> String {
     crate::platform::common::shell_escape(s)
 }
 
 /// Run a shell command in a specific directory, return stdout or error
 fn run_in_dir(command: &str, dir: &str) -> Result<String, String> {
-    let escaped_dir = esc(dir);
+    // Normalize backslashes to forward slashes: the command runs in Git Bash
+    // on Windows, and `cd` there is most reliable with `/` (Windows accepts it
+    // too). `esc` then single-quotes the path so it survives shell parsing.
+    let dir = crate::platform::common::normalize_display_path(dir);
+    let escaped_dir = esc(&dir);
     let full_cmd = format!("cd {} && {}", escaped_dir, command);
     let output = crate::platform::shell_exec(&full_cmd)
         .output()

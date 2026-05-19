@@ -1071,13 +1071,20 @@ if [ "$CRED_FOUND" -eq 0 ]; then
     exit 0
 fi
 
-# Credential files exist — verify they actually work
-# Use TERM=dumb to avoid TUI mode, timeout after 15s
+# Credential files exist — try a quick live check, but treat it as best-effort.
+# Use TERM=dumb to avoid TUI mode. On HPC login nodes the API round-trip is
+# often slow/proxied and `timeout` kills the ping (exit 124). A timeout does
+# NOT mean the credentials are bad — the file is right there — so fall back to
+# AUTH:ok instead of falsely reporting the user as logged out.
 if command -v claude >/dev/null 2>&1; then
-    RESULT=$(TERM=dumb timeout 15 claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null)
+    RESULT=$(TERM=dumb timeout 25 claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null)
     EXIT_CODE=$?
     if [ "$EXIT_CODE" -eq 0 ] && [ -n "$RESULT" ]; then
         echo "AUTH:verified"
+        exit 0
+    elif [ "$EXIT_CODE" -eq 124 ] || [ "$EXIT_CODE" -eq 137 ]; then
+        echo "AUTH:ok"
+        echo "DEBUG:claude ping timed out (exit=$EXIT_CODE) — credentials file present, assuming valid"
         exit 0
     else
         echo "AUTH:expired"
@@ -1881,9 +1888,6 @@ pub async fn start_claude_session(
     };
     let existing_plan = existing_plan.trim().to_string();
 
-    // Build the claude command string
-    let escaped_prompt = prompt.replace('\'', "'\\''");
-
     // Build permission flag based on settings
     let permission_mode = {
         let settings = settings_state.settings.lock().map_err(|e| e.to_string())?;
@@ -2081,7 +2085,7 @@ pub async fn start_claude_session(
                 safety_prefix,
                 now_timestamp,
                 existing_plan_context,
-                escaped_prompt
+                prompt
             );
             format!(
                 "claude {} -p '{}' --verbose --output-format stream-json",
@@ -2136,18 +2140,17 @@ pub async fn start_claude_session(
                 report_prompt.len()
             );
 
-            // Pipe prompt from file via stdin. -p enables print mode (non-interactive),
-            // and the positional prompt argument comes from stdin.
-            // Use platform-appropriate file-to-stdin command
-            #[cfg(target_os = "windows")]
-            let pipe_cmd = format!(
-                "type \"{}\" | claude {} -p --verbose --output-format stream-json",
-                prompt_file_str, permission_flag
-            );
-            #[cfg(not(target_os = "windows"))]
+            // Pipe the prompt from a file via stdin (`-p` = print/non-interactive
+            // mode). This runs through a POSIX shell on every platform (Git Bash
+            // on Windows), so `cat` plus a single-quoted, forward-slash path
+            // works identically — `type` is a cmd.exe builtin and would be wrong
+            // here even on Windows.
+            let prompt_file_posix =
+                crate::platform::common::normalize_display_path(&prompt_file_str);
             let pipe_cmd = format!(
                 "cat '{}' | claude {} -p --verbose --output-format stream-json",
-                prompt_file_str, permission_flag
+                prompt_file_posix.replace('\'', "'\\''"),
+                permission_flag
             );
             pipe_cmd
         }
@@ -2165,7 +2168,7 @@ pub async fn start_claude_session(
                  If you need to look at files or run commands, tell the user to switch to Agent mode.\n\n{}\
                  {}",
                 context_prefix,
-                escaped_prompt
+                prompt
             );
             format!(
                 "claude {} -p '{}' --verbose --output-format stream-json --max-turns 1",
@@ -2181,10 +2184,10 @@ pub async fn start_claude_session(
                     "{}IMPORTANT: As you complete steps from the implementation plan, \
                      update implementation_plan.md to mark completed steps with [x] \
                      so progress is tracked.\n\n{}",
-                    context_prefix, escaped_prompt
+                    context_prefix, prompt
                 )
             } else {
-                format!("{}{}", context_prefix, escaped_prompt)
+                format!("{}{}", context_prefix, prompt)
             };
             format!(
                 "claude {} -p '{}' --verbose --output-format stream-json",
@@ -2195,7 +2198,9 @@ pub async fn start_claude_session(
     };
 
     if let Some(m) = &model {
-        claude_cmd.push_str(&format!(" --model {}", m));
+        // Single-quote: the model string can come from a free-text custom-model
+        // field, so an apostrophe/space would otherwise corrupt the shell command.
+        claude_cmd.push_str(&format!(" --model '{}'", m.replace('\'', "'\\''")));
     }
     if mode == "plan" {
         claude_cmd.push_str(" --max-turns 3");
@@ -2214,7 +2219,7 @@ pub async fn start_claude_session(
         claude_cmd.push_str(" --max-turns 30");
     }
     if let Some(resume) = &resume_session {
-        claude_cmd.push_str(&format!(" --resume {}", resume));
+        claude_cmd.push_str(&format!(" --resume '{}'", resume.replace('\'', "'\\''")));
     }
 
     eprintln!(
@@ -2570,7 +2575,10 @@ pub async fn start_claude_session(
                 ));
             }
             if let Some(key) = &profile.key_file {
-                ssh_tail_args.push_str(&format!(" -i {}", key));
+                // Single-quote the key path: it runs through `bash -l -c`, and a
+                // Windows path (C:\Users\...) would otherwise have its backslashes
+                // eaten as shell escapes, breaking key auth.
+                ssh_tail_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
             }
             // Wait for the output file to appear, then tail -f it.
             // Use base64 encoding to completely avoid all shell quoting/expansion issues
@@ -2923,7 +2931,10 @@ pub async fn start_claude_session(
             ));
         }
         if let Some(key) = &profile.key_file {
-            ssh_args.push_str(&format!(" -i {}", key));
+            // Single-quote the key path: it runs through `bash -l -c`, and a
+            // Windows path (C:\Users\...) would otherwise have its backslashes
+            // eaten as shell escapes, breaking key auth.
+            ssh_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
         }
         // Decode and execute on the remote side
         ssh_args.push_str(&format!(
@@ -3509,7 +3520,10 @@ pub async fn reconnect_session(
             profile.user, profile.host, profile.port
         );
         if let Some(key) = &profile.key_file {
-            ssh_tail_args.push_str(&format!(" -i {}", key));
+            // Single-quote the key path: it runs through `bash -l -c`, and a
+            // Windows path (C:\Users\...) would otherwise have its backslashes
+            // eaten as shell escapes, breaking key auth.
+            ssh_tail_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
         }
 
         // Tail script: first cat any existing content, then tail -f for new lines
@@ -3641,7 +3655,10 @@ pub async fn reconnect_tail(
         ));
     }
     if let Some(key) = &profile.key_file {
-        ssh_tail_args.push_str(&format!(" -i {}", key));
+        // Single-quote the key path: it runs through `bash -l -c`, and a
+        // Windows path (C:\Users\...) would otherwise have its backslashes
+        // eaten as shell escapes, breaking key auth.
+        ssh_tail_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
     }
 
     // Tail script: cat existing content, then tail -f for new lines.
