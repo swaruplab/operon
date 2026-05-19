@@ -54,6 +54,11 @@ export async function deleteSSHProfile(profileId: string): Promise<void> {
   return invoke('delete_ssh_profile', { profileId });
 }
 
+/** Persist a new ordering for the SSH profile list (drag-to-reorder). */
+export async function reorderSSHProfiles(orderedIds: string[]): Promise<void> {
+  return invoke('reorder_ssh_profiles', { orderedIds });
+}
+
 export async function spawnSSHTerminal(terminalId: string, profileId: string): Promise<void> {
   return invoke('spawn_ssh_terminal', { terminalId, profileId });
 }

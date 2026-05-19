@@ -23,7 +23,9 @@ export interface AppSettings {
   custom_api_key: string;
   custom_model: string;
   /** Route custom-provider requests through the bundled Anthropic↔OpenAI
-   *  translation sidecar. Required for Ollama/vLLM/LM-Studio-<0.4.1. */
+   *  translation sidecar. Off by default — the primary route is an
+   *  Anthropic-compatible gateway (OpenRouter/LiteLLM) called directly.
+   *  Enable only for OpenAI-only local runtimes (Ollama/vLLM/LM-Studio<0.4.1). */
   use_translation_proxy: boolean;
   /** Use the xterm.js WebGL renderer addon. Turn off on setups where the
    *  WebGL atlas renders with hairline / ghost-stroke artifacts (seen on
@@ -59,7 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_base_url: '',
   custom_api_key: '',
   custom_model: '',
-  use_translation_proxy: true,
+  use_translation_proxy: false,
   terminal_use_webgl: true,
   ssh_auto_tmux: true,
   ssh_tmux_session: 'operon-main',

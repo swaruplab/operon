@@ -529,6 +529,28 @@ pub async fn delete_ssh_profile(
     Ok(())
 }
 
+/// Reorder the saved SSH profiles to match `ordered_ids` (drag-to-reorder in
+/// the Remote SSH panel). The list order *is* the display order — it's just
+/// the on-disk `Vec`. Uses a stable sort keyed on the position of each id in
+/// `ordered_ids`; any profile not in the list (e.g. a stale frontend) keeps
+/// its relative order and sinks to the end, so reordering can never drop a
+/// profile.
+#[tauri::command]
+pub async fn reorder_ssh_profiles(
+    state: tauri::State<'_, SSHManager>,
+    ordered_ids: Vec<String>,
+) -> Result<(), String> {
+    let mut profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+    profiles.sort_by_key(|p| {
+        ordered_ids
+            .iter()
+            .position(|id| id == &p.id)
+            .unwrap_or(usize::MAX)
+    });
+    save_profiles_to_disk(&profiles)?;
+    Ok(())
+}
+
 // ── SSH Terminal Spawning ──
 
 #[tauri::command]

@@ -687,7 +687,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               <div>
                 <h3 className="text-sm font-medium text-zinc-200">AI Provider</h3>
                 <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                  Route Claude Code through an OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, LiteLLM, OpenRouter, etc.). Requires a proxy that translates Anthropic Messages API to OpenAI Chat Completions.
+                  Route Claude Code to other models — OpenAI, Gemini, open-weights, and more. The recommended way is an Anthropic-compatible gateway (OpenRouter or LiteLLM): Claude Code calls it directly, with no proxy, and it works everywhere — including Windows and remote/HPC sessions.
                 </p>
               </div>
 
@@ -719,34 +719,56 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 >
                   <div className="flex items-center gap-2">
                     <Cpu className={`w-3.5 h-3.5 ${settings.ai_provider === 'custom' ? 'text-purple-400' : 'text-zinc-600'}`} />
-                    <span className="text-xs font-medium text-zinc-200">OpenAI-compatible</span>
+                    <span className="text-xs font-medium text-zinc-200">Custom provider</span>
                     <span className="ml-auto text-[10px] text-zinc-500">advanced</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">Point at a local or self-hosted endpoint.</p>
+                  <p className="text-[11px] text-zinc-500 mt-1">OpenAI, Gemini &amp; others via a gateway, or a local endpoint.</p>
                 </button>
               </div>
 
               {settings.ai_provider === 'custom' && (
                 <div className="space-y-4 border-t border-zinc-800 pt-4">
-                  {/* Presets */}
-                  <div>
-                    <span className="block text-[11px] text-zinc-500 mb-1.5">Quick presets</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {([
-                        { label: 'Ollama', url: 'http://localhost:11434/v1' },
-                        { label: 'LM Studio', url: 'http://localhost:1234/v1' },
-                        { label: 'vLLM', url: 'http://localhost:8000/v1' },
-                        { label: 'LiteLLM', url: 'http://localhost:4000/v1' },
-                        { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
-                      ] as const).map((p) => (
-                        <button
-                          key={p.label}
-                          onClick={() => saveSettings({ ...settings, custom_base_url: p.url })}
-                          className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
-                        >
-                          {p.label}
-                        </button>
-                      ))}
+                  {/* Presets — grouped by route. Clicking a gateway preset turns
+                      the translation proxy OFF; a local-runtime preset turns it ON. */}
+                  <div className="space-y-2.5">
+                    <div>
+                      <span className="block text-[11px] text-zinc-400 mb-1">
+                        Gateways <span className="text-green-500/70">· recommended — no proxy</span>
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {([
+                          { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+                          { label: 'LiteLLM', url: 'http://localhost:4000/v1' },
+                        ] as const).map((p) => (
+                          <button
+                            key={p.label}
+                            onClick={() => saveSettings({ ...settings, custom_base_url: p.url, use_translation_proxy: false })}
+                            className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="block text-[11px] text-zinc-400 mb-1">
+                        Local runtimes <span className="text-amber-500/70">· needs translation proxy</span>
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {([
+                          { label: 'Ollama', url: 'http://localhost:11434/v1' },
+                          { label: 'LM Studio', url: 'http://localhost:1234/v1' },
+                          { label: 'vLLM', url: 'http://localhost:8000/v1' },
+                        ] as const).map((p) => (
+                          <button
+                            key={p.label}
+                            onClick={() => saveSettings({ ...settings, custom_base_url: p.url, use_translation_proxy: true })}
+                            className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -878,7 +900,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                           )}
                         </div>
                         <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
-                          Bridges Claude Code's Anthropic API calls to the OpenAI Chat Completions format this endpoint speaks. Required for Ollama, vLLM, and LM Studio older than 0.4.1. Safe to leave on for any provider.
+                          Optional — leave OFF for the recommended gateway route. Turn it on only when your endpoint speaks OpenAI Chat Completions but not the Anthropic Messages API: Ollama, vLLM, and LM Studio older than 0.4.1. The proxy runs locally, so it is not available on Windows or for remote/HPC sessions.
                         </p>
                       </div>
                       <button

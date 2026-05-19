@@ -13,10 +13,12 @@ fn default_ai_provider() -> String {
 }
 
 fn default_use_translation_proxy() -> bool {
-    // Default ON: when the user switches to a custom provider, Operon starts
-    // the bundled anthropic-proxy sidecar so Claude Code can talk to
-    // Ollama/vLLM/etc. without manual setup.
-    true
+    // Default OFF. The primary multi-provider route is an Anthropic-compatible
+    // gateway (OpenRouter, LiteLLM) that Claude Code calls directly — no proxy,
+    // and it works on every platform including Windows and remote/HPC. The
+    // translation proxy is opt-in, only for OpenAI-only local runtimes (Ollama,
+    // vLLM, LM Studio < 0.4.1), and is local-only.
+    false
 }
 
 fn default_terminal_use_webgl() -> bool {
@@ -86,11 +88,12 @@ pub struct AppSettings {
     #[serde(default)]
     pub custom_model: String,
     /// When true and `ai_provider == "custom"`, route requests through the
-    /// bundled Anthropic↔OpenAI translation proxy sidecar. Required for
-    /// backends that only speak OpenAI Chat Completions (Ollama, vLLM,
-    /// pre-0.4.1 LM Studio). Safe to leave on for endpoints that already
-    /// expose `/v1/messages` — users can disable it manually if they prefer
-    /// a direct connection.
+    /// bundled Anthropic↔OpenAI translation proxy sidecar. Off by default:
+    /// the recommended route is an Anthropic-compatible gateway (OpenRouter,
+    /// LiteLLM) that already exposes `/v1/messages`, which Claude Code calls
+    /// directly. Enable this only for OpenAI-only local runtimes (Ollama,
+    /// vLLM, LM Studio < 0.4.1). The proxy is local-only — not available on
+    /// Windows or for remote/HPC sessions.
     #[serde(default = "default_use_translation_proxy")]
     pub use_translation_proxy: bool,
     /// When true, xterm.js terminals use the WebGL renderer addon. Some GPU
@@ -137,7 +140,7 @@ impl Default for AppSettings {
             custom_base_url: String::new(),
             custom_api_key: String::new(),
             custom_model: String::new(),
-            use_translation_proxy: true,
+            use_translation_proxy: false,
             terminal_use_webgl: true,
             ssh_auto_tmux: true,
             ssh_tmux_session: default_ssh_tmux_session(),

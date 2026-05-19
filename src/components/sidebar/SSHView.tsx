@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus,
   MonitorSmartphone,
@@ -21,7 +21,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { SSHProfile, AuthType, KeySetupProgress } from '../../lib/ssh';
-import { SERVER_CONFIG_FIELDS } from '../../lib/ssh';
+import { SERVER_CONFIG_FIELDS, reorderSSHProfiles } from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
 
 interface SSHViewProps {
@@ -70,6 +70,14 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   // advanced users who already maintain a client config.
   const [configHosts, setConfigHosts] = useState<SSHConfigHost[]>([]);
   const [showConfigPicker, setShowConfigPicker] = useState(false);
+
+  // Drag-to-reorder state. `dragIndex` is the row being dragged; `overIndex`
+  // is the row it's currently hovering over (drives the blue insert line).
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  // Live drag bookkeeping kept in a ref so the window mouse listeners always
+  // read fresh values — the state above is only for rendering the feedback.
+  const dragRef = useRef<{ from: number; over: number; active: boolean } | null>(null);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -192,6 +200,73 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
       console.error('Failed to delete SSH profile:', err);
     }
   };
+
+  // Move the profile at `from` to slot `to` and persist the new order.
+  // The list updates optimistically; the backend just rewrites the on-disk
+  // order, so there's no need to reload on success.
+  const handleReorder = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setProfiles((prev) => {
+      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      reorderSSHProfiles(next.map((p) => p.id)).catch((err) =>
+        console.error('Failed to persist SSH profile order:', err),
+      );
+      return next;
+    });
+  }, []);
+
+  // Pointer-based drag-to-reorder. The Tauri webview has OS-level drag-drop
+  // enabled (file uploads in the Remote Explorer), which swallows the HTML5
+  // drag-and-drop `drop` event — so we drive reordering with plain mouse
+  // events instead, which the native handler leaves alone.
+  const onRowMouseDown = useCallback((e: React.MouseEvent, idx: number) => {
+    if (e.button !== 0) return; // left button only
+    // Let the Connect / Delete buttons handle their own clicks.
+    if ((e.target as HTMLElement).closest('button')) return;
+    const startY = e.clientY;
+    dragRef.current = { from: idx, over: idx, active: false };
+
+    const onMove = (ev: MouseEvent) => {
+      const st = dragRef.current;
+      if (!st) return;
+      // Require a few pixels of movement before treating this as a drag, so
+      // plain clicks and double-clicks aren't mistaken for a reorder.
+      if (!st.active) {
+        if (Math.abs(ev.clientY - startY) < 4) return;
+        st.active = true;
+        setDragIndex(st.from);
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'grabbing';
+      }
+      const rowEl = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)
+        ?.closest('[data-ssh-row]') as HTMLElement | null;
+      if (rowEl) {
+        const over = Number(rowEl.dataset.sshRow);
+        if (!Number.isNaN(over) && over !== st.over) {
+          st.over = over;
+          setOverIndex(over);
+        }
+      }
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      const st = dragRef.current;
+      dragRef.current = null;
+      if (st && st.active) handleReorder(st.from, st.over);
+      setDragIndex(null);
+      setOverIndex(null);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [handleReorder]);
 
   const handleConnect = async (profile: SSHProfile) => {
     const terminalId = crypto.randomUUID();
@@ -801,16 +876,29 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto py-1">
-          {profiles.map((profile) => {
+          {profiles.map((profile, idx) => {
             const isConnected = connectedProfileId === profile.id;
+            const isDragging = dragIndex === idx;
+            // Blue insert line: above the hovered row when dragging upward,
+            // below it when dragging downward.
+            const showTop = dragIndex !== null && overIndex === idx && dragIndex > idx;
+            const showBottom = dragIndex !== null && overIndex === idx && dragIndex < idx;
             return (
             <div
               key={profile.id}
-              className={`group px-3 py-2 cursor-pointer border-b border-zinc-800/30 ${
+              data-ssh-row={idx}
+              onMouseDown={(e) => onRowMouseDown(e, idx)}
+              className={`group relative select-none px-3 py-2 cursor-grab active:cursor-grabbing border-b border-zinc-800/30 ${
                 isConnected ? 'bg-green-500/5 hover:bg-green-500/10' : 'hover:bg-zinc-800/50'
-              }`}
+              } ${isDragging ? 'opacity-40' : ''}`}
               onDoubleClick={() => handleEdit(profile)}
             >
+              {showTop && (
+                <div className="absolute left-0 right-0 -top-px h-0.5 bg-blue-500 z-10" />
+              )}
+              {showBottom && (
+                <div className="absolute left-0 right-0 -bottom-px h-0.5 bg-blue-500 z-10" />
+              )}
               <div className="flex items-center gap-2">
                 <Server className={`w-4 h-4 shrink-0 ${isConnected ? 'text-green-500' : 'text-zinc-500'}`} />
                 <div className="flex-1 min-w-0">

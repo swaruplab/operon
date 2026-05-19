@@ -1710,6 +1710,119 @@ pub struct RemoteContext {
     pub remote_path: String,
 }
 
+// ── Agent file-deletion guard ───────────────────────────────────────────────
+//
+// Operon installs a Claude Code PreToolUse hook on the Bash tool that blocks any
+// command which would delete or destroy a file or folder. Deletion stays with
+// the user: the Explorer's right-click Delete (Operon's own `delete` command,
+// which the agent never calls) and commands the user types in the terminal
+// themselves. The hook runs even under `--dangerously-skip-permissions` because
+// hooks are a separate enforcement layer from the permission system. The agent's
+// only deletion vector is the Bash tool (Write/Edit/NotebookEdit cannot remove a
+// file), so one hook on Bash covers the whole surface.
+
+/// PreToolUse hook script. Reads the tool-call JSON on stdin, extracts the Bash
+/// command, and exits 2 (blocking the call) on any deletion pattern. Portable
+/// across macOS and Linux; no `jq` dependency (python3 → node → raw fallback).
+const GUARD_HOOK_SCRIPT: &str = r##"#!/usr/bin/env bash
+# Operon agent file-deletion guard — Claude Code PreToolUse hook (Bash tool).
+# Exit 2 blocks deletion/destruction commands; exit 0 allows everything else.
+input=$(cat)
+cmd=""
+if command -v python3 >/dev/null 2>&1; then
+  cmd=$(printf '%s' "$input" | python3 -c 'import sys,json
+try:
+    d=json.load(sys.stdin)
+    print((d.get("tool_input") or {}).get("command","") or "")
+except Exception:
+    pass' 2>/dev/null)
+fi
+if [ -z "$cmd" ] && command -v node >/dev/null 2>&1; then
+  cmd=$(printf '%s' "$input" | node -e 'let s="";process.stdin.on("data",function(c){s+=c}).on("end",function(){try{process.stdout.write(((JSON.parse(s).tool_input)||{}).command||"")}catch(e){}})' 2>/dev/null)
+fi
+[ -z "$cmd" ] && cmd="$input"
+deny() {
+  echo "BLOCKED by Operon: the agent may not delete files or folders. This is a hard safety policy set by the user and cannot be bypassed. Deletion is reserved for the user, who will remove files themselves via the Operon file Explorer (right-click -> Delete) or their own terminal. Do NOT retry this command and do NOT attempt a workaround. Instead, tell the user the exact path(s) you wanted to remove and why, then continue with the rest of the task." >&2
+  exit 2
+}
+# Direct deletion commands. The boundary class includes ' and " so an rm
+# laundered through os.system("rm .."), sh -c 'rm ..', eval "rm .." is caught.
+printf '%s' "$cmd" | grep -Eq '(^|[;&|(`"'\'']|&&|\|\||[[:space:]])(rm|rmdir|unlink|shred|srm|trash|trash-put)([[:space:]]|$)' && deny
+printf '%s' "$cmd" | grep -Eq 'find[[:space:]].*(-delete|-exec[[:space:]]+rm)' && deny
+printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+(clean|rm)([[:space:]]|$)' && deny
+printf '%s' "$cmd" | grep -Eq 'rsync[[:space:]].*--delete' && deny
+printf '%s' "$cmd" | grep -Eq 'mv[[:space:]].+[[:space:]]/dev/null([[:space:]]|$)' && deny
+# Deletion via language-interpreter one-liners (python / node / ruby / perl / php).
+printf '%s' "$cmd" | grep -Eq 'os\.(remove|unlink|rmdir|removedirs)|shutil\.rmtree|rmtree[[:space:]]*\(|remove_tree|unlinkSync|rmSync|rmdirSync|\.unlink[[:space:]]*\(|\.rmdir[[:space:]]*\(' && deny
+printf '%s' "$cmd" | grep -Eq 'File\.(delete|unlink)|FileUtils\.(rm|remove)|Dir\.(delete|rmdir|unlink)|fs\.(rm|unlink|rmdir)|(^|[^a-zA-Z0-9_])unlink[[:space:]]*[("$@]' && deny
+exit 0
+"##;
+
+/// Short notice prepended to the agent prompt so Claude knows up front not to
+/// attempt deletions — saves a wasted, hook-denied turn.
+const GUARD_PROMPT_NOTICE: &str = "FILE-SAFETY POLICY: You must not delete files or directories. Operon hard-blocks every deletion command the agent issues (rm, rmdir, unlink, shred, find -delete, git clean, git rm, rsync --delete, and similar) — such commands will fail at the tool level. Do not attempt deletions or workarounds. If a file or folder genuinely needs to be removed, state the exact path and ask the user to delete it themselves via the Explorer or their terminal, then carry on with the rest of the task.\n\n";
+
+/// Build the Claude Code settings JSON that registers the guard hook (local mode).
+fn guard_settings_json(hook_path: &str) -> String {
+    let esc = hook_path.replace('\\', "\\\\").replace('"', "\\\"");
+    format!(
+        r#"{{"hooks":{{"PreToolUse":[{{"matcher":"Bash","hooks":[{{"type":"command","command":"{}"}}]}}]}}}}"#,
+        esc
+    )
+}
+
+/// Shell snippet that writes the guard hook + settings into `$HOME/.operon/guard`
+/// on a remote host. Prepended to the remote run script so the files exist before
+/// `claude` starts. Idempotent — overwrites each session to stay current.
+fn remote_guard_setup_block() -> String {
+    let mut s = String::new();
+    s.push_str("__og=\"$HOME/.operon/guard\"; mkdir -p \"$__og\" 2>/dev/null\n");
+    s.push_str("cat > \"$__og/operon-guard.sh\" <<'__OPERON_GUARD_EOF__'\n");
+    s.push_str(GUARD_HOOK_SCRIPT);
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str("__OPERON_GUARD_EOF__\n");
+    s.push_str("chmod +x \"$__og/operon-guard.sh\" 2>/dev/null\n");
+    s.push_str("printf '%s' '{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"'\"$__og\"'/operon-guard.sh\"}]}]}}' > \"$__og/operon-guard-settings.json\"\n");
+    s
+}
+
+/// Write the guard hook + settings under `~/.operon/guard` and append
+/// `--settings <path>` to `claude_cmd`. Unix-only — the hook is a bash script;
+/// on Windows the call is a no-op (remote sessions still get the guard).
+fn install_local_guard(claude_cmd: &mut String) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        let dir = home.join(".operon").join("guard");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let hook = dir.join("operon-guard.sh");
+        let settings = dir.join("operon-guard-settings.json");
+        if std::fs::write(&hook, GUARD_HOOK_SCRIPT).is_err() {
+            return;
+        }
+        let _ = std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755));
+        if std::fs::write(&settings, guard_settings_json(&hook.to_string_lossy())).is_err() {
+            return;
+        }
+        claude_cmd.push_str(&format!(
+            " --settings '{}'",
+            settings.to_string_lossy().replace('\'', "'\\''")
+        ));
+        eprintln!("[operon] local agent file-deletion guard installed");
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = claude_cmd; // guard hook is a bash script — unix-only for now
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn start_claude_session(
@@ -1829,7 +1942,7 @@ pub async fn start_claude_session(
                 existing_plan.len() / 1024
             )
         };
-        format!("{}{}", safety_prefix, plan_ctx)
+        format!("{}{}{}", GUARD_PROMPT_NOTICE, safety_prefix, plan_ctx)
     };
 
     // Generate a human-readable timestamp for plan sections
@@ -2309,10 +2422,15 @@ pub async fn start_claude_session(
             // install and primes the cache; subsequent runs return instantly. The
             // warmup is best-effort (`|| true`) — if claude isn't installed at all, the
             // real command will fail in the same way it would have without the warmup.
+            // Install the agent file-deletion guard on the remote ($HOME/.operon/guard)
+            // and point this run's claude at it via --settings.
+            let guard_block = remote_guard_setup_block();
+            claude_cmd.push_str(" --settings \"$HOME/.operon/guard/operon-guard-settings.json\"");
             let script_content = format!(
-                "{}{}cd '{}' && (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}{}cd '{}' && (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
                 REMOTE_PATH_PREFIX,
                 api_key_line,
+                guard_block,
                 ctx.remote_path.replace('\'', "'\\''"),
                 claude_cmd,
                 output_file.replace('\'', "'\\''"),
@@ -2760,6 +2878,9 @@ pub async fn start_claude_session(
             }
         }
 
+        // Install the agent file-deletion guard on the remote and point claude at it.
+        let guard_block = remote_guard_setup_block();
+        claude_cmd.push_str(" --settings \"$HOME/.operon/guard/operon-guard-settings.json\"");
         let claude_cmd_abs = claude_cmd.replacen("claude ", &format!("{} ", claude_invoke), 1);
 
         // Step 3: Build the remote command — source profile for PATH (needed for npx/node)
@@ -2774,8 +2895,9 @@ pub async fn start_claude_session(
         let api_key_export =
             ai_provider_env_exports(&ai_provider_env(&settings_state, &proxy_state, &api_key));
         let remote_cmd = format!(
-            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}cd '{}' && {}{}",
+            "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}{}cd '{}' && {}{}",
             api_key_export,
+            guard_block,
             ctx.remote_path.replace('\'', "'\\''"),
             claude_cmd_abs,
             stdin_redirect
@@ -2812,6 +2934,9 @@ pub async fn start_claude_session(
         c
     } else {
         // --- LOCAL: run claude directly ---
+        // Install the agent file-deletion guard (writes ~/.operon/guard, appends
+        // --settings). No-op on Windows.
+        install_local_guard(&mut claude_cmd);
         let mut c = AsyncCommand::new(&shell);
         c.arg("-l").arg("-c").arg(&claude_cmd);
         c.current_dir(&project_path);
