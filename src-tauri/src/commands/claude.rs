@@ -952,7 +952,8 @@ echo "CLAUDE:$CLAUDE_VER"
 echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev/null || echo MISSING)"
 "#;
 
-    let result = super::ssh::ssh_exec(&profile, check_script)
+    let result = super::ssh::ssh_exec_async(profile, check_script.to_string())
+        .await
         .map_err(|e| format!("SSH check failed: {}", e))?;
 
     let node_line = result
@@ -1089,7 +1090,8 @@ fi
 echo "AUTH:ok"
 "#;
 
-    let result = super::ssh::ssh_exec(&profile, check_script)
+    let result = super::ssh::ssh_exec_async(profile, check_script.to_string())
+        .await
         .map_err(|e| format!("SSH auth check failed: {}", e))?;
 
     eprintln!("[Operon] Remote auth check result: {}", result.trim());

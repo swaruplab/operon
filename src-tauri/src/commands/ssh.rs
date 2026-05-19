@@ -277,12 +277,22 @@ impl SSHManager {
 #[cfg(target_os = "windows")]
 struct WinSshExecChannel {
     stdin: std::process::ChildStdin,
-    reader: std::io::BufReader<std::process::ChildStdout>,
+    /// Lines forwarded by a dedicated reader thread (newline preserved). Reading
+    /// through a channel — instead of blocking directly on the pipe — lets
+    /// `exec` enforce a wall-clock timeout, so a stalled connection can never
+    /// hang the caller forever.
+    rx: std::sync::mpsc::Receiver<String>,
     child: std::process::Child,
 }
 
 #[cfg(target_os = "windows")]
 impl WinSshExecChannel {
+    /// If a command produces no output at all for this long, the connection is
+    /// treated as stalled and the channel is torn down. Real long-running work
+    /// (npm installs, large transfers) streams progress continuously and never
+    /// trips this — only a genuinely wedged command does.
+    const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
     fn spawn(profile: &SSHProfile) -> Result<Self, String> {
         use std::io::{BufRead, Read, Write};
 
@@ -378,41 +388,62 @@ impl WinSshExecChannel {
             });
         }
 
-        // Send a probe command and read back to synchronize the channel
-        // This consumes any MOTD/banner output and confirms the shell is ready
-        let mut channel = Self {
-            stdin,
-            reader: std::io::BufReader::new(stdout),
-            child,
-        };
+        // Dedicated reader thread: owns stdout and forwards every line over an
+        // mpsc channel. `exec`/probe then receive with a timeout, so a hung
+        // remote command can never block a plain `read_line` indefinitely.
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => break, // EOF or read error — channel closed
+                    Ok(_) => {
+                        if tx.send(line.clone()).is_err() {
+                            break; // receiver dropped — channel is being torn down
+                        }
+                    }
+                }
+            }
+        });
+
+        let mut channel = Self { stdin, rx, child };
+
+        // Send a probe command and read back to synchronize the channel.
+        // This consumes any MOTD/banner output and confirms the shell is ready.
         let probe_delim = "__OPERON_READY__";
-        let probe_cmd = format!("echo {}\n", probe_delim);
         channel
             .stdin
-            .write_all(probe_cmd.as_bytes())
+            .write_all(format!("echo {}\n", probe_delim).as_bytes())
             .map_err(|e| format!("Failed to send probe: {}", e))?;
         channel
             .stdin
             .flush()
             .map_err(|e| format!("Failed to flush probe: {}", e))?;
 
-        // Read until we see the probe delimiter (skip any MOTD/login noise)
-        let mut line = String::new();
-        let start = std::time::Instant::now();
+        // Read until we see the probe delimiter (skip any MOTD/login noise).
+        let probe_deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
-            if start.elapsed() > std::time::Duration::from_secs(10) {
+            let remaining = probe_deadline
+                .checked_duration_since(std::time::Instant::now())
+                .unwrap_or_default();
+            if remaining.is_zero() {
                 return Err("Exec channel probe timed out — shell not responding".to_string());
             }
-            line.clear();
-            match channel.reader.read_line(&mut line) {
-                Ok(0) => return Err("Exec channel closed during probe".to_string()),
-                Ok(_) => {
+            match channel.rx.recv_timeout(remaining) {
+                Ok(line) => {
                     if line.trim() == probe_delim {
                         break;
                     }
                     // Skip MOTD/banner lines
                 }
-                Err(e) => return Err(format!("Exec channel probe read failed: {}", e)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err("Exec channel probe timed out — shell not responding".to_string());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("Exec channel closed during probe".to_string());
+                }
             }
         }
 
@@ -425,7 +456,7 @@ impl WinSshExecChannel {
     }
 
     fn exec(&mut self, remote_cmd: &str) -> Result<String, String> {
-        use std::io::{BufRead, Write};
+        use std::io::Write;
 
         // Use a unique delimiter that won't appear in command output
         let ts = std::time::SystemTime::now()
@@ -434,8 +465,18 @@ impl WinSshExecChannel {
             .as_nanos();
         let delim = format!("__OPERON_DONE_{}_{}__", std::process::id(), ts);
 
-        // Send command, capture both stdout and stderr, then print delimiter
-        let wrapped = format!("{} 2>&1; echo \"{}\"\n", remote_cmd, delim);
+        // Run the command as a brace group with stdin redirected from
+        // /dev/null. This is critical: the channel's stdin *is* its command
+        // stream, so a command that reads stdin — most notably `npx`, which
+        // prompts "Ok to proceed?" when a package isn't cached — would
+        // otherwise swallow the next command (and the delimiter) and wedge the
+        // whole channel. `</dev/null` gives such commands an immediate EOF.
+        // The group is closed on its own line so a trailing comment in
+        // `remote_cmd` can't absorb the `}`.
+        let wrapped = format!(
+            "{{ {}\n}} </dev/null 2>&1\necho \"{}\"\n",
+            remote_cmd, delim
+        );
 
         self.stdin.write_all(wrapped.as_bytes()).map_err(|e| {
             format!(
@@ -447,20 +488,34 @@ impl WinSshExecChannel {
             .flush()
             .map_err(|e| format!("SSH channel flush failed: {}", e))?;
 
-        // Read lines until we see the delimiter
+        // Read lines until we see the delimiter, bounded by an idle timeout.
         let mut output = String::new();
-        let mut line = String::new();
         loop {
-            line.clear();
-            match self.reader.read_line(&mut line) {
-                Ok(0) => return Err("SSH channel closed unexpectedly".to_string()),
-                Ok(_) => {
-                    if line.trim_end() == delim {
+            match self.rx.recv_timeout(Self::IDLE_TIMEOUT) {
+                Ok(line) => {
+                    let trimmed = line.trim_end_matches(['\r', '\n']);
+                    if trimmed == delim {
+                        break;
+                    }
+                    // If the command's final line lacked a trailing newline,
+                    // `echo` fuses the delimiter onto it. The delimiter is a
+                    // per-call nonce, so a suffix match unambiguously means
+                    // "end of output" — keep the real prefix and stop.
+                    if let Some(prefix) = trimmed.strip_suffix(delim.as_str()) {
+                        output.push_str(prefix);
                         break;
                     }
                     output.push_str(&line);
                 }
-                Err(e) => return Err(format!("SSH channel read failed: {}", e)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(format!(
+                        "SSH channel stalled — no output for {}s. The connection will be rebuilt.",
+                        Self::IDLE_TIMEOUT.as_secs()
+                    ));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("SSH channel closed unexpectedly".to_string());
+                }
             }
         }
 
@@ -564,15 +619,30 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
     // triggers rate-limiting on university/HPC SSH servers.
     #[cfg(target_os = "windows")]
     {
-        use std::sync::OnceLock;
-        static WIN_CHANNELS: OnceLock<Mutex<HashMap<String, WinSshExecChannel>>> = OnceLock::new();
-        let channels_mutex = WIN_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
+        use std::sync::{Arc, OnceLock};
+
+        // Each host gets its own slot behind its own lock. The global map lock
+        // is held only long enough to clone a slot's `Arc` — never across SSH
+        // I/O — so a stalled connection to one server can no longer block
+        // calls to a different server (the cause of "everything times out").
+        type ChannelSlot = Arc<Mutex<Option<WinSshExecChannel>>>;
+        static WIN_CHANNELS: OnceLock<Mutex<HashMap<String, ChannelSlot>>> = OnceLock::new();
+        let map_mutex = WIN_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
         let channel_key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
 
-        let mut channels = channels_mutex.lock().map_err(|e| e.to_string())?;
+        let slot: ChannelSlot = {
+            let mut map = map_mutex.lock().map_err(|e| e.to_string())?;
+            map.entry(channel_key.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(None)))
+                .clone()
+        };
 
-        // Get existing channel or create a new one
-        let need_new = match channels.get_mut(&channel_key) {
+        // Per-host lock: serializes calls to the *same* server (one shared
+        // pipe), but the IDLE_TIMEOUT inside `exec` guarantees it is always
+        // released within a bounded time.
+        let mut guard = slot.lock().map_err(|e| e.to_string())?;
+
+        let need_new = match guard.as_mut() {
             Some(ch) => !ch.is_alive(),
             None => true,
         };
@@ -581,21 +651,20 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                 "[operon-ssh] Opening persistent exec channel for {}",
                 channel_key
             );
-            let ch = WinSshExecChannel::spawn(profile)?;
-            channels.insert(channel_key.clone(), ch);
+            *guard = Some(WinSshExecChannel::spawn(profile)?);
         }
 
-        let channel = channels.get_mut(&channel_key).unwrap();
-        match channel.exec(remote_cmd) {
+        match guard.as_mut().unwrap().exec(remote_cmd) {
             Ok(stdout) => return Ok(stdout),
             Err(e) => {
-                // Channel died — remove it and try once more with a fresh connection
+                // Channel stalled or died — drop it (Drop kills the ssh.exe
+                // process), then rebuild once and retry.
                 eprintln!("[operon-ssh] Exec channel error: {}. Reconnecting...", e);
-                channels.remove(&channel_key);
-                let ch = WinSshExecChannel::spawn(profile)?;
-                channels.insert(channel_key.clone(), ch);
-                let channel = channels.get_mut(&channel_key).unwrap();
-                return channel.exec(remote_cmd);
+                *guard = None;
+                let mut fresh = WinSshExecChannel::spawn(profile)?;
+                let result = fresh.exec(remote_cmd);
+                *guard = Some(fresh);
+                return result;
             }
         }
     }
@@ -684,6 +753,19 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
     unreachable!()
 }
 
+/// Async wrapper around the blocking [`ssh_exec`]. Runs the SSH call on a
+/// dedicated blocking thread (`spawn_blocking`) so a slow or stalled connection
+/// cannot pin an async runtime worker — which, multiplied across concurrent
+/// file-browser and Claude calls, would otherwise freeze all IPC.
+pub(crate) async fn ssh_exec_async(
+    profile: SSHProfile,
+    remote_cmd: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || ssh_exec(&profile, &remote_cmd))
+        .await
+        .map_err(|e| format!("SSH task failed to run: {}", e))?
+}
+
 fn shell_escape(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -731,7 +813,7 @@ pub async fn list_remote_directory(
         shell_escape_inner(&path)
     );
 
-    let output = ssh_exec(&profile, &cmd)?;
+    let output = ssh_exec_async(profile, cmd).await?;
 
     let parts: Vec<&str> = output.splitn(2, "---SEPARATOR---").collect();
     let names_output = parts.first().unwrap_or(&"");
@@ -815,7 +897,7 @@ pub async fn get_remote_home(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let output = ssh_exec(&profile, "echo $HOME")?;
+    let output = ssh_exec_async(profile, "echo $HOME".to_string()).await?;
     Ok(output.trim().to_string())
 }
 
@@ -840,7 +922,7 @@ pub async fn read_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let content = ssh_exec(&profile, &format!("cat {}", shell_escape_inner(&path)))?;
+    let content = ssh_exec_async(profile, format!("cat {}", shell_escape_inner(&path))).await?;
     state.cache.put_file(cache_key, content.clone());
     Ok(content)
 }
@@ -860,7 +942,7 @@ pub async fn read_remote_file_base64(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let output = ssh_exec(&profile, &format!("base64 {}", shell_escape_inner(&path)))?;
+    let output = ssh_exec_async(profile, format!("base64 {}", shell_escape_inner(&path))).await?;
     Ok(output.chars().filter(|c| !c.is_whitespace()).collect())
 }
 
