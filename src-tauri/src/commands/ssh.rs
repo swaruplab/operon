@@ -509,6 +509,9 @@ impl WinSshExecChannel {
     fn exec(&mut self, remote_cmd: &str) -> Result<String, String> {
         use std::io::Write;
 
+        // TODO: temp diagnostic - remove later
+        eprintln!("[operon-ssh] exec: {}...", &remote_cmd[..remote_cmd.len().min(120)]);
+
         // Use a unique delimiter that won't appear in command output
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -524,11 +527,18 @@ impl WinSshExecChannel {
         // whole channel. `</dev/null` gives such commands an immediate EOF.
         // The group is closed on its own line so a trailing comment in
         // `remote_cmd` can't absorb the `}`.
+
+        let wrapped = format!(
+            "( {}\n) </dev/null 2>&1\necho \"{}\"\n",
+            remote_cmd, delim
+        );
+        // attempt to fix premature exit
+        /*
         let wrapped = format!(
             "{{ {}\n}} </dev/null 2>&1\necho \"{}\"\n",
             remote_cmd, delim
         );
-
+        */
         self.stdin.write_all(wrapped.as_bytes()).map_err(|e| {
             format!(
                 "SSH channel write failed (connection may have dropped): {}",

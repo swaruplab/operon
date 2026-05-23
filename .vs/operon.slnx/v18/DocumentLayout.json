@@ -3,20 +3,20 @@
   "WorkspaceRootPath": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\terminal.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\commands\\terminal.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\ssh.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\commands\\ssh.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
     },
     {
-      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\platform\\mod.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
-      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\platform\\mod.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\claude.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
       "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\commands\\claude.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\terminal.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\commands\\terminal.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\platform\\mod.rs||{3B902123-F8A7-4915-9F01-361F908088D0}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:src-tauri\\src\\platform\\mod.rs||{3B902123-F8A7-4915-9F01-361F908088D0}"
     }
   ],
   "DocumentGroupContainers": [
@@ -26,24 +26,23 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 2,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 2,
               "Title": "terminal.rs",
               "DocumentMoniker": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\terminal.rs",
               "RelativeDocumentMoniker": "src-tauri\\src\\commands\\terminal.rs",
               "ToolTip": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\terminal.rs",
               "RelativeToolTip": "src-tauri\\src\\commands\\terminal.rs",
-              "ViewState": "AgIAAEkAAAAAAAAAAAAmwFYAAAAbAAAAAAAAAA==",
+              "ViewState": "AgIAAEkAAAAAAAAAAAAmwFYAAAAVAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-04-09T23:24:09.357Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-09T23:24:09.357Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 2,
+              "DocumentIndex": 3,
               "Title": "mod.rs",
               "DocumentMoniker": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\platform\\mod.rs",
               "RelativeDocumentMoniker": "src-tauri\\src\\platform\\mod.rs",
@@ -51,34 +50,32 @@
               "RelativeToolTip": "src-tauri\\src\\platform\\mod.rs",
               "ViewState": "AgIAAIsCAAAAAAAAAAAAAKECAAABAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-04-09T22:50:14.949Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-04-09T22:50:14.949Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "ssh.rs",
               "DocumentMoniker": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\ssh.rs",
               "RelativeDocumentMoniker": "src-tauri\\src\\commands\\ssh.rs",
               "ToolTip": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\ssh.rs",
               "RelativeToolTip": "src-tauri\\src\\commands\\ssh.rs",
-              "ViewState": "AgIAABwDAAAAAAAAAAAWwOcCAAAnAAAAAAAAAA==",
+              "ViewState": "AgIAANIBAAAAAAAAAAArwN0BAAAtAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
               "WhenOpened": "2026-04-09T22:30:03.961Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 3,
+              "DocumentIndex": 1,
               "Title": "claude.rs",
               "DocumentMoniker": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\claude.rs",
               "RelativeDocumentMoniker": "src-tauri\\src\\commands\\claude.rs",
               "ToolTip": "C:\\Users\\gemma\\Documents\\GitHub\\operon\\src-tauri\\src\\commands\\claude.rs",
               "RelativeToolTip": "src-tauri\\src\\commands\\claude.rs",
-              "ViewState": "AgIAAAcJAAAAAAAAAAAWwBQJAAAvAAAAAAAAAA==",
+              "ViewState": "AgIAAP4DAAAAAAAAAAAAAAYEAAAvAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001001|",
-              "WhenOpened": "2026-03-26T22:10:40.178Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-03-26T22:10:40.178Z"
             }
           ]
         }

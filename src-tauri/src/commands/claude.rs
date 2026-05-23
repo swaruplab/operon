@@ -1206,12 +1206,21 @@ pub async fn check_remote_claude_auth(
     // Two-phase auth check:
     // Phase 1: Quick filesystem scan for credential files
     // Phase 2: If files found, verify they actually work with `claude -p 'ping'`
-    let check_script = r#"
+
+// This was removed from the let check_script = r#"..."
+// block below, but is saved here for reference
+/*
 # Source shell profile so `claude` is in PATH
 for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
     [ -f "$rc" ] && . "$rc" 2>/dev/null
 done
 # Also check common install locations
+export PATH="$HOME/.claude/local/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+*/
+    let check_script = r#"
+# Extend PATH without sourcing profiles — the exec channel uses `bash -l` which
+# already sourced .bash_profile at startup. Re-sourcing here kills the channel
+# if .bash_profile has a non-interactive guard that calls `exit` (not `return`).
 export PATH="$HOME/.claude/local/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
 
 CRED_FOUND=0
