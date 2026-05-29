@@ -5,6 +5,8 @@ import * as monaco from 'monaco-editor';
 import { AppShell } from './components/layout/AppShell';
 import { ProjectProvider } from './context/ProjectContext';
 import { SetupWizard } from './components/setup/SetupWizard';
+import { getApiKey } from './lib/claude';
+import { refreshModelsIfStale } from './lib/models';
 
 // Configure Monaco to use the local bundle instead of CDN.
 // This is critical for Tauri because CSP blocks external scripts.
@@ -23,6 +25,12 @@ function App() {
         // If settings can't be loaded, show setup
         setSetupComplete(false);
       });
+
+    // Auto-refresh the Anthropic model catalog if the cache is > 7 days old.
+    // Silent on failure — UI falls back to the bundled list.
+    getApiKey()
+      .then((key) => refreshModelsIfStale(key))
+      .catch(() => {});
   }, []);
 
   // Loading state — checking settings

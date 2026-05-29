@@ -61,6 +61,7 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
+import { getCachedModels, groupAndSort, type ModelInfo } from '../../lib/models';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -1192,9 +1193,10 @@ export function ChatPanel() {
   const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
-  const [model, setModel] = useState('claude-opus-4-20250514');
+  const [model, setModel] = useState('claude-opus-4-8');
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom'>('anthropic');
   const [customModel, setCustomModel] = useState<string>('');
+  const [anthropicModels, setAnthropicModels] = useState<ModelInfo[]>([]);
 
   // Load default model + session time budget from user settings
   useEffect(() => {
@@ -1726,12 +1728,18 @@ export function ChatPanel() {
       if (provider === 'custom' && s.custom_model) {
         setModel((prev) => (prev === s.custom_model ? prev : s.custom_model));
       } else if (provider === 'anthropic') {
-        setModel((prev) => (prev.startsWith('claude-') ? prev : 'claude-opus-4-20250514'));
+        setModel((prev) => (prev.startsWith('claude-') ? prev : 'claude-opus-4-8'));
       }
     };
     getSettings().then(applyProviderSettings).catch(() => {});
     listen<AppSettings>('app-settings-changed', (event) => {
       applyProviderSettings(event.payload);
+    }).then((u) => unlisteners.push(u));
+
+    // Load the Anthropic model catalog (cached on disk; auto-refreshed in App.tsx).
+    getCachedModels().then(setAnthropicModels).catch(() => {});
+    listen('models-refreshed', () => {
+      getCachedModels().then(setAnthropicModels).catch(() => {});
     }).then((u) => unlisteners.push(u));
 
     // Listen for report scan progress
@@ -3548,11 +3556,37 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           }}
           className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-400 outline-none"
         >
-          <optgroup label="Anthropic">
-            <option value="claude-opus-4-20250514">claude-opus-4-20250514</option>
-            <option value="claude-sonnet-4-20250514">claude-sonnet-4-20250514</option>
-            <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
-          </optgroup>
+          {(() => {
+            const grouped = groupAndSort(anthropicModels);
+            const tiers: Array<[string, ModelInfo[]]> = [
+              ['Anthropic — Opus', grouped.opus],
+              ['Anthropic — Sonnet', grouped.sonnet],
+              ['Anthropic — Haiku', grouped.haiku],
+              ['Anthropic — Other', grouped.other],
+            ];
+            const ids = new Set(anthropicModels.map((m) => m.id));
+            const orphan = !ids.has(model) && model.startsWith('claude-') ? model : null;
+            return (
+              <>
+                {orphan && (
+                  <optgroup label="Anthropic — Saved">
+                    <option value={orphan}>{orphan}</option>
+                  </optgroup>
+                )}
+                {tiers.map(([label, list]) =>
+                  list.length === 0 ? null : (
+                    <optgroup key={label} label={label}>
+                      {list.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )
+                )}
+              </>
+            );
+          })()}
           {aiProvider === 'custom' && customModel && (
             <optgroup label="Custom endpoint">
               <option value={customModel}>{customModel}</option>

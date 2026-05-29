@@ -6,6 +6,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
+import { getCachedModels, fetchAnthropicModels, groupAndSort, type ModelInfo } from '../../lib/models';
+import { getApiKey } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
@@ -234,6 +236,9 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
   const [mcpServers, setMcpServers] = useState<MCPServerStatus[]>([]);
   const [mcpCatalog, setMcpCatalog] = useState<MCPCatalogEntry[]>([]);
   const [mcpLoading, setMcpLoading] = useState(false);
+  const [anthropicModels, setAnthropicModels] = useState<ModelInfo[]>([]);
+  const [modelsRefreshing, setModelsRefreshing] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [mcpDepChecks, setMcpDepChecks] = useState<Record<string, DependencyStatus>>({});
   const [mcpInstalling, setMcpInstalling] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
@@ -307,12 +312,32 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
       refreshMCPServers();
       refreshExtensionSettings();
       translationProxyStatus().then(setProxyStatus).catch(() => {});
+      getCachedModels().then(setAnthropicModels).catch(() => {});
       // Jump to a specific section if the opener requested one
       if (initialSection) {
         setActiveSection(initialSection as typeof activeSection);
       }
     }
   }, [isOpen, initialSection, refreshAuthStatus, refreshMCPServers, refreshExtensionSettings]);
+
+  const refreshAnthropicModels = useCallback(async () => {
+    setModelsRefreshing(true);
+    setModelsError(null);
+    try {
+      const key = await getApiKey();
+      if (!key || !key.trim()) {
+        setModelsError('Add your Anthropic API key in Auth to refresh from the live catalog.');
+        return;
+      }
+      const fresh = await fetchAnthropicModels(key);
+      setAnthropicModels(fresh);
+      emit('models-refreshed', null).catch(() => {});
+    } catch (err) {
+      setModelsError(String(err));
+    } finally {
+      setModelsRefreshing(false);
+    }
+  }, []);
 
   // Poll proxy status while the Provider section is open so the status chip
   // stays accurate if the proxy exits on its own.
@@ -551,18 +576,60 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
             <div className="space-y-5">
               <h3 className="text-sm font-medium text-zinc-200">Claude Code Settings</h3>
 
-              <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Default Model</span>
-                <select
-                  value={settings.model}
-                  onChange={(e) => saveSettings({ ...settings, model: e.target.value })}
-                  className="w-56 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
-                >
-                  <option value="claude-sonnet-4-20250514">Sonnet 4</option>
-                  <option value="claude-opus-4-20250514">Opus 4</option>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-                </select>
-              </label>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm text-zinc-400">Default Model</div>
+                  {modelsError && (
+                    <div className="text-xs text-amber-400 mt-1 max-w-xs">{modelsError}</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={settings.model}
+                    onChange={(e) => saveSettings({ ...settings, model: e.target.value })}
+                    className="w-56 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  >
+                    {(() => {
+                      const grouped = groupAndSort(anthropicModels);
+                      const groups: Array<[string, ModelInfo[]]> = [
+                        ['Opus', grouped.opus],
+                        ['Sonnet', grouped.sonnet],
+                        ['Haiku', grouped.haiku],
+                        ['Other', grouped.other],
+                      ];
+                      // Make sure the saved model id is selectable even if it's
+                      // not in the fetched list (e.g. user typed a custom id).
+                      const ids = new Set(anthropicModels.map((m) => m.id));
+                      const orphan = !ids.has(settings.model) ? settings.model : null;
+                      return (
+                        <>
+                          {orphan && <option value={orphan}>{orphan} (saved)</option>}
+                          {groups.map(([label, list]) =>
+                            list.length === 0 ? null : (
+                              <optgroup key={label} label={label}>
+                                {list.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.display_name || m.id}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )
+                          )}
+                        </>
+                      );
+                    })()}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={refreshAnthropicModels}
+                    disabled={modelsRefreshing}
+                    title="Refresh from api.anthropic.com/v1/models"
+                    className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${modelsRefreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+              </div>
 
               <label className="flex items-center justify-between">
                 <span className="text-sm text-zinc-400">Max Turns</span>

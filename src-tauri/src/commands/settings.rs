@@ -126,7 +126,7 @@ impl Default for AppSettings {
             tab_size: 2,
             word_wrap: false,
             minimap_enabled: true,
-            model: "claude-opus-4-20250514".to_string(),
+            model: "claude-opus-4-8".to_string(),
             max_turns: 25,
             max_budget_usd: 5.0,
             permission_mode: "full_auto".to_string(),
@@ -169,7 +169,17 @@ impl SettingsManager {
     fn load_from_disk() -> Option<AppSettings> {
         let path = Self::config_path()?;
         let data = std::fs::read_to_string(path).ok()?;
-        serde_json::from_str(&data).ok()
+        let mut settings: AppSettings = serde_json::from_str(&data).ok()?;
+        let migrated = match settings.model.as_str() {
+            "claude-opus-4-20250514" => Some("claude-opus-4-8"),
+            "claude-sonnet-4-20250514" => Some("claude-sonnet-4-6"),
+            _ => None,
+        };
+        if let Some(new_id) = migrated {
+            settings.model = new_id.to_string();
+            let _ = Self::save_to_disk(&settings);
+        }
+        Some(settings)
     }
 
     pub fn save_to_disk(settings: &AppSettings) -> Result<(), String> {

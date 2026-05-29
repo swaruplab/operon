@@ -48,7 +48,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tab_size: 2,
   word_wrap: false,
   minimap_enabled: true,
-  model: 'claude-opus-4-20250514',
+  model: 'claude-opus-4-8',
   max_turns: 25,
   max_budget_usd: 5.0,
   permission_mode: 'full_auto',
