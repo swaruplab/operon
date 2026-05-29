@@ -129,10 +129,8 @@ async fn fetch_from_anthropic(api_key: &str) -> Result<Vec<ModelInfo>, String> {
             return Err(format!("Anthropic API {}: {}", status, body));
         }
 
-        let parsed: AnthropicModelsResponse = resp
-            .json()
-            .await
-            .map_err(|e| format!("parse: {}", e))?;
+        let parsed: AnthropicModelsResponse =
+            resp.json().await.map_err(|e| format!("parse: {}", e))?;
 
         all.extend(parsed.data);
 

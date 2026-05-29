@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::net::ToSocketAddrs;
 use std::sync::Mutex;
 use tauri::Emitter;
 
@@ -1310,6 +1311,262 @@ pub async fn scp_dir_from_remote(
     }
 
     Ok(())
+}
+
+// ── SFTP downloads with byte-level progress ──
+//
+// scp_from_remote / scp_dir_from_remote shell out to the system `scp`
+// binary, which gives us no progress signal. For downloads where the user
+// wants to see real progress (large files or directories from HPC), we use
+// the ssh2 crate's SFTP client to read in 64KB chunks and emit one
+// `scp-transfer-progress` event per chunk with byte-level counters.
+
+fn open_ssh2_session(profile: &SSHProfile) -> Result<ssh2::Session, String> {
+    let addr = format!("{}:{}", profile.host, profile.port);
+    let tcp = std::net::TcpStream::connect_timeout(
+        &addr
+            .to_socket_addrs()
+            .map_err(|e| format!("resolve {}: {}", addr, e))?
+            .next()
+            .ok_or_else(|| format!("no address for {}", addr))?,
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(|e| format!("connect {}: {}", addr, e))?;
+    let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(120)));
+    let _ = tcp.set_write_timeout(Some(std::time::Duration::from_secs(120)));
+
+    let mut sess = ssh2::Session::new().map_err(|e| format!("ssh2 new: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake().map_err(|e| format!("handshake: {}", e))?;
+
+    // Try the explicit key file first.
+    if let Some(key_path) = &profile.key_file {
+        let key = std::path::Path::new(key_path);
+        if key.exists() {
+            let _ = sess.userauth_pubkey_file(&profile.user, None, key, None);
+        }
+    }
+
+    // Fall back to ssh-agent identities.
+    if !sess.authenticated() {
+        if let Ok(mut agent) = sess.agent() {
+            if agent.connect().is_ok() && agent.list_identities().is_ok() {
+                if let Ok(idents) = agent.identities() {
+                    for ident in idents {
+                        if agent.userauth(&profile.user, &ident).is_ok() && sess.authenticated() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !sess.authenticated() {
+        return Err(
+            "SSH authentication failed (no key matched and ssh-agent had no usable identity)"
+                .to_string(),
+        );
+    }
+
+    Ok(sess)
+}
+
+fn emit_progress(app: &tauri::AppHandle, completed: u64, total: u64, current_file: &str) {
+    let _ = app.emit(
+        "scp-transfer-progress",
+        serde_json::json!({
+            "completed": completed,
+            "total": total,
+            "current_file": current_file,
+            "errors": 0,
+            "status": "downloading",
+        }),
+    );
+}
+
+/// Download a single remote file via SFTP, emitting byte-level progress.
+#[tauri::command]
+pub async fn sftp_download_with_progress(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let sess = open_ssh2_session(&profile)?;
+        let sftp = sess.sftp().map_err(|e| format!("sftp open: {}", e))?;
+
+        let remote = std::path::Path::new(&remote_path);
+        let stat = sftp
+            .stat(remote)
+            .map_err(|e| format!("stat {}: {}", remote_path, e))?;
+        let total = stat.size.unwrap_or(0);
+        let name = remote
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file")
+            .to_string();
+
+        if let Some(parent) = std::path::Path::new(&local_path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let mut remote_file = sftp
+            .open(remote)
+            .map_err(|e| format!("open remote: {}", e))?;
+        let mut local_file = std::fs::File::create(&local_path)
+            .map_err(|e| format!("create {}: {}", local_path, e))?;
+
+        emit_progress(&app, 0, total, &name);
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut completed: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+        loop {
+            let n = std::io::Read::read(&mut remote_file, &mut buf)
+                .map_err(|e| format!("read: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut local_file, &buf[..n])
+                .map_err(|e| format!("write: {}", e))?;
+            completed += n as u64;
+            if last_emit.elapsed().as_millis() > 33 {
+                last_emit = std::time::Instant::now();
+                emit_progress(&app, completed, total, &name);
+            }
+        }
+        emit_progress(&app, completed, total.max(completed), &name);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {}", e))?
+}
+
+fn sftp_walk_collect(
+    sftp: &ssh2::Sftp,
+    remote_root: &std::path::Path,
+    rel: &std::path::Path,
+    out: &mut Vec<(std::path::PathBuf, u64)>,
+) -> Result<(), String> {
+    let path = if rel.as_os_str().is_empty() {
+        remote_root.to_path_buf()
+    } else {
+        remote_root.join(rel)
+    };
+    let entries = sftp
+        .readdir(&path)
+        .map_err(|e| format!("readdir {:?}: {}", path, e))?;
+    for (entry_path, stat) in entries {
+        let name = entry_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if name.is_empty() || name == "." || name == ".." {
+            continue;
+        }
+        let new_rel = if rel.as_os_str().is_empty() {
+            std::path::PathBuf::from(name)
+        } else {
+            rel.join(name)
+        };
+        if stat.is_dir() {
+            sftp_walk_collect(sftp, remote_root, &new_rel, out)?;
+        } else {
+            out.push((new_rel, stat.size.unwrap_or(0)));
+        }
+    }
+    Ok(())
+}
+
+/// Download a remote directory tree via SFTP. First walks the tree to sum
+/// total bytes, then streams files with cumulative byte progress so the UI
+/// can show a single accurate progress bar.
+#[tauri::command]
+pub async fn sftp_dir_download_with_progress(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let sess = open_ssh2_session(&profile)?;
+        let sftp = sess.sftp().map_err(|e| format!("sftp open: {}", e))?;
+
+        let remote_root = std::path::PathBuf::from(&remote_path);
+        let local_root = std::path::PathBuf::from(&local_path);
+        let root_name = remote_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("directory")
+            .to_string();
+
+        let mut files: Vec<(std::path::PathBuf, u64)> = Vec::new();
+        sftp_walk_collect(&sftp, &remote_root, std::path::Path::new(""), &mut files)?;
+        let total: u64 = files.iter().map(|(_, sz)| *sz).sum();
+
+        std::fs::create_dir_all(&local_root)
+            .map_err(|e| format!("create {}: {}", local_path, e))?;
+
+        emit_progress(&app, 0, total, &root_name);
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut completed: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+
+        for (rel, _) in &files {
+            let remote_file_path = remote_root.join(rel);
+            let local_file_path = local_root.join(rel);
+            if let Some(parent) = local_file_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            let mut remote_file = sftp
+                .open(&remote_file_path)
+                .map_err(|e| format!("open {:?}: {}", remote_file_path, e))?;
+            let mut local_file = std::fs::File::create(&local_file_path)
+                .map_err(|e| format!("create {:?}: {}", local_file_path, e))?;
+            let current_name = rel.to_string_lossy().to_string();
+
+            loop {
+                let n = std::io::Read::read(&mut remote_file, &mut buf)
+                    .map_err(|e| format!("read: {}", e))?;
+                if n == 0 {
+                    break;
+                }
+                std::io::Write::write_all(&mut local_file, &buf[..n])
+                    .map_err(|e| format!("write: {}", e))?;
+                completed += n as u64;
+                if last_emit.elapsed().as_millis() > 33 {
+                    last_emit = std::time::Instant::now();
+                    emit_progress(&app, completed, total, &current_name);
+                }
+            }
+        }
+        emit_progress(&app, completed, total.max(completed), &root_name);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {}", e))?
 }
 
 /// Upload multiple local files to a remote directory via SCP.

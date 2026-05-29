@@ -325,6 +325,13 @@ interface TransferProgress {
   message?: string;
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExplorerProps) {
   const [remotePath, setRemotePath] = useState<string>('');
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -708,34 +715,27 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const downloadToLocal = async (entry: FileEntry) => {
     setContextMenu(null);
 
-    // Use the Tauri save dialog to pick a local destination
-    // For simplicity, download to ~/Downloads/
     const homeDir = await invoke<string>('get_home_dir');
     const downloadsDir = `${homeDir}/Downloads`;
     const localDest = `${downloadsDir}/${entry.name}`;
 
     setTransfer({
       completed: 0,
-      total: 1,
+      total: 0,
       current_file: entry.name,
       errors: 0,
       status: 'downloading',
     });
 
     try {
-      if (entry.is_dir) {
-        await invoke('scp_dir_from_remote', {
-          profileId,
-          remotePath: entry.path,
-          localPath: localDest,
-        });
-      } else {
-        await invoke('scp_from_remote', {
-          profileId,
-          remotePath: entry.path,
-          localPath: localDest,
-        });
-      }
+      const cmd = entry.is_dir
+        ? 'sftp_dir_download_with_progress'
+        : 'sftp_download_with_progress';
+      await invoke(cmd, {
+        profileId,
+        remotePath: entry.path,
+        localPath: localDest,
+      });
       setTransfer({
         completed: 1,
         total: 1,
@@ -792,7 +792,12 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               ) : (
                 <p className="truncate">
                   {transfer.status === 'uploading' ? 'Uploading' : 'Downloading'} {transfer.current_file}
-                  {transfer.total > 1 && ` (${transfer.completed}/${transfer.total})`}
+                  {transfer.status === 'downloading' && transfer.total > 0 && (
+                    ` (${formatBytes(transfer.completed)} / ${formatBytes(transfer.total)})`
+                  )}
+                  {transfer.status === 'uploading' && transfer.total > 1 && (
+                    ` (${transfer.completed}/${transfer.total})`
+                  )}
                 </p>
               )}
             </div>
@@ -803,12 +808,12 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               <X className="w-3 h-3" />
             </button>
           </div>
-          {/* Progress bar for multi-file transfers */}
-          {(transfer.status === 'uploading' || transfer.status === 'downloading') && transfer.total > 1 && (
+          {/* Progress bar — bytes for downloads, file counts for uploads */}
+          {(transfer.status === 'uploading' || transfer.status === 'downloading') && transfer.total > 0 && (
             <div className="mt-1.5 h-1 bg-zinc-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${(transfer.completed / transfer.total) * 100}%` }}
+                style={{ width: `${Math.min(100, (transfer.completed / transfer.total) * 100)}%` }}
               />
             </div>
           )}
