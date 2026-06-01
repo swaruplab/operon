@@ -127,6 +127,7 @@ use commands::{
     list_installed_extensions,
     list_language_servers,
     list_mcp_servers,
+    list_pending_completions,
     list_plan_history,
     // Protocols
     list_protocols,
@@ -136,6 +137,7 @@ use commands::{
     list_ssh_config_hosts,
     list_ssh_profiles,
     list_watched_jobs,
+    mark_completion_seen,
     open_url,
     read_csv_for_report,
     read_extension_snippets,
@@ -152,6 +154,7 @@ use commands::{
     reconnect_tail,
     refresh_environment,
     refresh_models_if_stale,
+    register_slurm_job_metadata,
     register_watched_job,
     remote_claude_login,
     remove_mcp_server,
@@ -159,6 +162,7 @@ use commands::{
     rename_remote_path,
     rename_session,
     reorder_ssh_profiles,
+    request_user_attention,
     resize_terminal,
     save_attachment_file,
     save_clipboard_image,
@@ -229,6 +233,7 @@ use tauri::{Emitter, Manager};
 
 use commands::claude::ClaudeManager;
 use commands::extensions::ExtensionManager;
+use commands::job_notify::JobNotifyManager;
 use commands::proxy::ProxyManager;
 use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
@@ -248,6 +253,7 @@ pub fn run() {
         .manage(ExtensionManager::new())
         .manage(ProxyManager::new())
         .manage(WatchdogManager::new())
+        .manage(JobNotifyManager::new())
         .setup(|app| {
             // Build platform-appropriate menu
             let menu = platform::build_menu(app)
@@ -493,6 +499,11 @@ pub fn run() {
             read_job_events,
             start_job_tail,
             stop_job_tail,
+            // Job completion notifications (0.6.8)
+            register_slurm_job_metadata,
+            list_pending_completions,
+            mark_completion_seen,
+            request_user_attention,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

@@ -111,6 +111,31 @@ terminal_state() {
   esac
 }
 
+find_slurm_log() {
+  # find_slurm_log <jobid> <sbatch_path>
+  # Echo the most plausible path to slurm-<jobid>.out, or empty.
+  local jobid="$1" sbatch="$2"
+  # 1) Same dir as sbatch script (most common pattern)
+  if [ -n "$sbatch" ]; then
+    local d; d=$(dirname "$sbatch" 2>/dev/null)
+    [ -f "$d/slurm-$jobid.out" ] && { echo "$d/slurm-$jobid.out"; return; }
+  fi
+  # 2) Current dir of the watchdog (probably $HOME)
+  [ -f "slurm-$jobid.out" ] && { echo "slurm-$jobid.out"; return; }
+  [ -f "$HOME/slurm-$jobid.out" ] && { echo "$HOME/slurm-$jobid.out"; return; }
+  # 3) sacct sometimes tells us the StdOut path
+  local p
+  p=$(sacct -j "$jobid.batch" -n -X -P -o StdOut 2>/dev/null | head -n1)
+  [ -n "$p" ] && [ -f "$p" ] && { echo "$p"; return; }
+  echo ""
+}
+
+# Encode a multi-line string as a JSON string literal (escape ", \, control chars, newlines).
+json_string() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || \
+  awk 'BEGIN{ORS=""; printf "\""} {gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); print; printf "\\n"} END{printf "\""}'
+}
+
 handle_terminal() {
   # handle_terminal <jobid> <scheduler> <state> <sbatch> <retries_left>
   local jobid="$1" sched="$2" state="$3" sbatch="$4" retries="$5"
@@ -131,9 +156,28 @@ handle_terminal() {
     esac
   fi
 
+  # Pull elapsed seconds + exit code + maxrss from sacct (one round-trip)
+  local raw exit_code elapsed
+  raw=$(sacct -j "$jobid" -n -X -P -o ExitCode,ElapsedRaw 2>/dev/null | head -n1)
+  exit_code="${raw%%|*}"; exit_code="${exit_code:-0:0}"
+  elapsed="${raw#*|}";    elapsed="${elapsed:-0}"
+
+  # Grab tail of the slurm log if we can find it
+  local log_path log_tail_json
+  log_path=$(find_slurm_log "$jobid" "$sbatch")
+  if [ -n "$log_path" ] && [ -f "$log_path" ]; then
+    log_tail_json=$(tail -n 30 "$log_path" 2>/dev/null | json_string)
+  else
+    log_tail_json='""'
+  fi
+  local log_path_json='""'
+  if [ -n "$log_path" ]; then
+    log_path_json=$(printf '%s' "$log_path" | json_string)
+  fi
+
   local ts; ts=$(now_ms)
-  emit_event "$jobid" "$(printf '{"ts":%s,"type":"terminal","state":"%s","action":"%s","resubmitted_as":"%s"}' \
-    "$ts" "$state" "$policy_action" "${new_jobid:-}")"
+  emit_event "$jobid" "$(printf '{"ts":%s,"type":"terminal","state":"%s","action":"%s","resubmitted_as":"%s","exit_code":"%s","elapsed_seconds":%s,"log_path":%s,"log_tail":%s}' \
+    "$ts" "$state" "$policy_action" "${new_jobid:-}" "$exit_code" "${elapsed:-0}" "$log_path_json" "$log_tail_json")"
 
   # If we resubmitted, append a new watchlist entry for the new id with a decremented retry budget.
   if [ -n "$new_jobid" ]; then

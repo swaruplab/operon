@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
-import { getCachedModels, fetchAnthropicModels, groupAndSort, type ModelInfo } from '../../lib/models';
+import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
 import { getApiKey } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
@@ -630,6 +630,35 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </button>
                 </div>
               </div>
+
+              {(() => {
+                const currentModel = anthropicModels.find((m) => m.id === settings.model);
+                const levels = supportedEffortLevels(currentModel);
+                return (
+                  <label className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm text-zinc-400">Reasoning Effort</div>
+                      {levels.length === 0 && (
+                        <div className="text-xs text-zinc-500 mt-0.5">Not supported by this model</div>
+                      )}
+                    </div>
+                    <select
+                      value={settings.effort}
+                      onChange={(e) => saveSettings({ ...settings, effort: e.target.value })}
+                      disabled={levels.length === 0}
+                      className="w-56 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none disabled:opacity-40"
+                    >
+                      {levels.length === 0 ? (
+                        <option value={settings.effort}>—</option>
+                      ) : (
+                        levels.map((lvl) => (
+                          <option key={lvl} value={lvl}>{lvl}</option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                );
+              })()}
 
               <label className="flex items-center justify-between">
                 <span className="text-sm text-zinc-400">Max Turns</span>

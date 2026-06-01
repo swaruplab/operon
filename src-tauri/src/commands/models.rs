@@ -19,6 +19,34 @@ const CACHE_FILENAME: &str = "models_cache.json";
 const CACHE_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 const ANTHROPIC_MODELS_URL: &str = "https://api.anthropic.com/v1/models?limit=100";
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EffortCapability {
+    #[serde(default)]
+    pub supported: bool,
+    #[serde(default)]
+    pub low: CapabilitySupport,
+    #[serde(default)]
+    pub medium: CapabilitySupport,
+    #[serde(default)]
+    pub high: CapabilitySupport,
+    #[serde(default)]
+    pub max: CapabilitySupport,
+    #[serde(default)]
+    pub xhigh: CapabilitySupport,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CapabilitySupport {
+    #[serde(default)]
+    pub supported: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    #[serde(default)]
+    pub effort: EffortCapability,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelInfo {
     pub id: String,
@@ -30,6 +58,8 @@ pub struct ModelInfo {
     pub max_input_tokens: u64,
     #[serde(default)]
     pub max_tokens: u64,
+    #[serde(default)]
+    pub capabilities: ModelCapabilities,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +92,24 @@ fn now_unix() -> i64 {
 /// Update this list when shipping a new release so fresh installs see the
 /// current models even before the first network call.
 fn bundled_models() -> Vec<ModelInfo> {
+    let yes = CapabilitySupport { supported: true };
+    let all_effort = EffortCapability {
+        supported: true,
+        low: yes.clone(),
+        medium: yes.clone(),
+        high: yes.clone(),
+        max: yes.clone(),
+        xhigh: yes.clone(),
+    };
+    let sonnet_effort = EffortCapability {
+        supported: true,
+        low: yes.clone(),
+        medium: yes.clone(),
+        high: yes.clone(),
+        max: CapabilitySupport::default(),
+        xhigh: CapabilitySupport::default(),
+    };
+    let no_effort = EffortCapability::default();
     vec![
         ModelInfo {
             id: "claude-opus-4-8".to_string(),
@@ -69,6 +117,7 @@ fn bundled_models() -> Vec<ModelInfo> {
             created_at: "2026-05-01T00:00:00Z".to_string(),
             max_input_tokens: 1_000_000,
             max_tokens: 128_000,
+            capabilities: ModelCapabilities { effort: all_effort },
         },
         ModelInfo {
             id: "claude-sonnet-4-6".to_string(),
@@ -76,6 +125,9 @@ fn bundled_models() -> Vec<ModelInfo> {
             created_at: "2026-02-01T00:00:00Z".to_string(),
             max_input_tokens: 1_000_000,
             max_tokens: 64_000,
+            capabilities: ModelCapabilities {
+                effort: sonnet_effort,
+            },
         },
         ModelInfo {
             id: "claude-haiku-4-5-20251001".to_string(),
@@ -83,6 +135,7 @@ fn bundled_models() -> Vec<ModelInfo> {
             created_at: "2025-10-01T00:00:00Z".to_string(),
             max_input_tokens: 200_000,
             max_tokens: 64_000,
+            capabilities: ModelCapabilities { effort: no_effort },
         },
     ]
 }
@@ -162,16 +215,42 @@ pub async fn fetch_anthropic_models(api_key: String) -> Result<Vec<ModelInfo>, S
     Ok(models)
 }
 
+/// Synchronous accessor for the cached model list (with bundled fallback).
+/// Used by non-Tauri callers like the claude command assembler that need to
+/// look up a model's capabilities without going through invoke.
+pub fn cached_models_sync() -> Vec<ModelInfo> {
+    read_cache()
+        .map(|c| c.models)
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(bundled_models)
+}
+
+/// Return true if `model_id` supports the given effort level. Models not
+/// found in cache fall through to false → the caller silently omits the
+/// --effort flag rather than failing.
+pub fn model_supports_effort_level(model_id: &str, level: &str) -> bool {
+    let models = cached_models_sync();
+    let Some(m) = models.iter().find(|m| m.id == model_id) else {
+        return false;
+    };
+    if !m.capabilities.effort.supported {
+        return false;
+    }
+    match level {
+        "low" => m.capabilities.effort.low.supported,
+        "medium" => m.capabilities.effort.medium.supported,
+        "high" => m.capabilities.effort.high.supported,
+        "max" => m.capabilities.effort.max.supported,
+        "xhigh" => m.capabilities.effort.xhigh.supported,
+        _ => false,
+    }
+}
+
 /// Return the cached model list, or the bundled fallback if there's no cache.
 /// Always succeeds — the UI can render the dropdown unconditionally.
 #[tauri::command]
 pub async fn get_cached_models() -> Result<Vec<ModelInfo>, String> {
-    if let Some(cache) = read_cache() {
-        if !cache.models.is_empty() {
-            return Ok(cache.models);
-        }
-    }
-    Ok(bundled_models())
+    Ok(cached_models_sync())
 }
 
 /// If the cache is older than 7 days (or missing) AND an API key is provided,

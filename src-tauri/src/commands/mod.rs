@@ -2,6 +2,7 @@ pub mod claude;
 pub mod extensions;
 pub mod files;
 pub mod git;
+pub mod job_notify;
 pub mod knowledge;
 pub mod mcp;
 pub mod models;
@@ -50,6 +51,10 @@ pub use git::{
     git_publish, git_pull, git_push, git_show_commit, git_stage_files, git_stash_drop,
     git_stash_list, git_stash_pop, git_stash_save, git_status, git_switch_branch, git_tag_version,
     git_unstage_files, git_version_info,
+};
+pub use job_notify::{
+    list_pending_completions, mark_completion_seen, register_slurm_job_metadata,
+    request_user_attention,
 };
 pub use knowledge::search_pubmed;
 pub use mcp::{

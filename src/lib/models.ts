@@ -1,11 +1,41 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export interface CapabilitySupport {
+  supported: boolean;
+}
+
+export interface EffortCapability {
+  supported: boolean;
+  low: CapabilitySupport;
+  medium: CapabilitySupport;
+  high: CapabilitySupport;
+  max: CapabilitySupport;
+  xhigh: CapabilitySupport;
+}
+
+export interface ModelCapabilities {
+  effort: EffortCapability;
+}
+
 export interface ModelInfo {
   id: string;
   display_name: string;
   created_at: string;
   max_input_tokens: number;
   max_tokens: number;
+  capabilities: ModelCapabilities;
+}
+
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max' | 'xhigh';
+
+const EFFORT_ORDER: EffortLevel[] = ['low', 'medium', 'high', 'max', 'xhigh'];
+
+/// Return the effort levels supported by a given model, in canonical order.
+/// Empty array means the model doesn't support `--effort` at all (e.g. Haiku 4.5).
+export function supportedEffortLevels(model: ModelInfo | undefined): EffortLevel[] {
+  if (!model?.capabilities?.effort?.supported) return [];
+  const e = model.capabilities.effort;
+  return EFFORT_ORDER.filter((lvl) => e[lvl]?.supported);
 }
 
 export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'other';

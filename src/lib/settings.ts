@@ -9,6 +9,9 @@ export interface AppSettings {
   word_wrap: boolean;
   minimap_enabled: boolean;
   model: string;
+  /** Anthropic effort/reasoning level: 'low' | 'medium' | 'high' | 'max' | 'xhigh'.
+   *  Skipped at command-build time if the chosen model doesn't support the level. */
+  effort: string;
   max_turns: number;
   max_budget_usd: number;
   permission_mode: string; // 'full_auto' | 'safe_mode' | 'supervised'
@@ -49,6 +52,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   word_wrap: false,
   minimap_enabled: true,
   model: 'claude-opus-4-8',
+  effort: 'high',
   max_turns: 25,
   max_budget_usd: 5.0,
   permission_mode: 'full_auto',

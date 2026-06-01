@@ -61,7 +61,16 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
-import { getCachedModels, groupAndSort, type ModelInfo } from '../../lib/models';
+import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
+import {
+  listPendingCompletions,
+  markCompletionSeen,
+  requestUserAttention,
+  variantForState,
+  formatElapsed,
+  type PendingCompletion,
+} from '../../lib/jobNotify';
+import { JobCompletionBanner } from './JobCompletionBanner';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -1197,6 +1206,8 @@ export function ChatPanel() {
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom'>('anthropic');
   const [customModel, setCustomModel] = useState<string>('');
   const [anthropicModels, setAnthropicModels] = useState<ModelInfo[]>([]);
+  const [effort, setEffort] = useState<EffortLevel>('high');
+  const [pendingCompletions, setPendingCompletions] = useState<PendingCompletion[]>([]);
 
   // Load default model + session time budget from user settings
   useEffect(() => {
@@ -1723,6 +1734,9 @@ export function ChatPanel() {
       const provider = s.ai_provider || 'anthropic';
       setAiProvider(provider);
       setCustomModel(s.custom_model || '');
+      if (s.effort) {
+        setEffort(s.effort as EffortLevel);
+      }
       // When custom provider is active, switch the current model to the custom one
       // (if not already). When switching back to Anthropic, reset to opus.
       if (provider === 'custom' && s.custom_model) {
@@ -1741,6 +1755,31 @@ export function ChatPanel() {
     listen('models-refreshed', () => {
       getCachedModels().then(setAnthropicModels).catch(() => {});
     }).then((u) => unlisteners.push(u));
+
+    // Poll for SLURM job completions (every 30s while the chat panel is mounted).
+    // Picks up terminal events written by the remote watchdog daemon; on first
+    // sighting we bounce the dock so the user notices even if Operon isn't focused.
+    let pollHandle: ReturnType<typeof setInterval> | null = null;
+    let seenKeys = new Set<string>();
+    const poll = async () => {
+      try {
+        const fresh = await listPendingCompletions();
+        const newKeys = new Set(fresh.map((c) => `${c.profile_id}::${c.job_id}::${c.terminal_at_ms}`));
+        const justArrived = [...newKeys].some((k) => !seenKeys.has(k));
+        setPendingCompletions(fresh);
+        if (justArrived && seenKeys.size > 0) {
+          // Don't bounce on the very first poll after mount (those are completions
+          // the user already knew about from the previous session).
+          requestUserAttention().catch(() => {});
+        }
+        seenKeys = newKeys;
+      } catch {
+        // Network blip — ignore, next tick will retry
+      }
+    };
+    poll();
+    pollHandle = setInterval(poll, 30_000);
+    unlisteners.push(() => { if (pollHandle) clearInterval(pollHandle); });
 
     // Listen for report scan progress
     listen<{ dirs_scanned: number; files_found: number; current_dir: string }>('report-scan-progress', (event) => {
@@ -3433,6 +3472,45 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
     sendMessage('Generate report');
   }, [reportPhase, sendMessage]);
 
+  // ── Job completion handlers ──
+  const handleResumeJob = useCallback((c: PendingCompletion) => {
+    const variant = variantForState(c.state);
+    const elapsed = formatElapsed(c.elapsed_seconds);
+    const jobLabel = c.job_name ? `${c.job_name} (job ${c.job_id})` : `job ${c.job_id}`;
+    const tail = c.log_tail.trim();
+    const tailBlock = tail ? `\n\nLast 30 lines of ${c.log_path || 'the slurm log'}:\n\`\`\`\n${tail}\n\`\`\`\n` : '';
+    let header: string;
+    if (variant === 'success') {
+      header = `SLURM ${jobLabel} completed (exit ${c.exit_code}) after ${elapsed}.`;
+      if (c.expected_output) header += ` Expected output: ${c.expected_output}.`;
+    } else if (variant === 'timeout') {
+      header = `SLURM ${jobLabel} hit walltime (${elapsed}) and was cancelled. Output may be partial.`;
+    } else if (variant === 'cancelled') {
+      header = `SLURM ${jobLabel} was cancelled at ${elapsed} (state ${c.state}).`;
+    } else {
+      header = `SLURM ${jobLabel} FAILED (exit ${c.exit_code}) after ${elapsed}.`;
+    }
+    const ask = variant === 'success' ? "What's next?" : 'Please diagnose and propose a fix.';
+    const message = `${header}${tailBlock}\n${ask}`;
+    markCompletionSeen(c.profile_id, c.job_id, c.terminal_at_ms).catch(() => {});
+    setPendingCompletions((prev) =>
+      prev.filter((p) => !(p.profile_id === c.profile_id && p.job_id === c.job_id)),
+    );
+    setIsStreaming(false);
+    sendMessage(message);
+  }, [sendMessage]);
+
+  const handleViewLog = useCallback((c: PendingCompletion) => {
+    if (!c.log_path) return;
+    emit('open-file', { path: c.log_path, profileId: c.profile_id }).catch(() => {});
+  }, []);
+
+  const handleDismissCompletion = useCallback((c: PendingCompletion) => {
+    setPendingCompletions((prev) =>
+      prev.filter((p) => !(p.profile_id === c.profile_id && p.job_id === c.job_id)),
+    );
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // @-mention popup keyboard navigation
     if (mentionActive && mentionItems.length > 0) {
@@ -3596,7 +3674,46 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <option value="__configure_provider__">Configure provider…</option>
           </optgroup>
         </select>
+        {(() => {
+          const currentModel = anthropicModels.find((m) => m.id === model);
+          const levels = supportedEffortLevels(currentModel);
+          if (levels.length === 0) return null;
+          const activeIdx = Math.max(0, levels.indexOf(effort));
+          const cycle = () => {
+            const next = levels[(activeIdx + 1) % levels.length];
+            setEffort(next);
+            // Persist immediately so the next session start picks it up.
+            getSettings()
+              .then((s) => invoke('update_settings', { settings: { ...s, effort: next } }))
+              .catch(() => {});
+          };
+          return (
+            <button
+              type="button"
+              onClick={cycle}
+              title={`Reasoning effort: ${effort}. Click to cycle (${levels.join(' → ')})`}
+              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+            >
+              {effort}
+            </button>
+          );
+        })()}
       </div>
+
+      {/* Job completion banners (one per pending) */}
+      {pendingCompletions.length > 0 && (
+        <div className="border-b border-zinc-800/30 shrink-0 py-1 bg-zinc-950/50">
+          {pendingCompletions.map((c) => (
+            <JobCompletionBanner
+              key={`${c.profile_id}::${c.job_id}::${c.terminal_at_ms}`}
+              completion={c}
+              onResume={handleResumeJob}
+              onViewLog={handleViewLog}
+              onDismiss={handleDismissCompletion}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Remote connection banner */}
       {remoteInfo && (

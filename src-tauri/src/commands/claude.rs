@@ -2201,6 +2201,18 @@ pub async fn start_claude_session(
         // Single-quote: the model string can come from a free-text custom-model
         // field, so an apostrophe/space would otherwise corrupt the shell command.
         claude_cmd.push_str(&format!(" --model '{}'", m.replace('\'', "'\\''")));
+
+        // Effort level (Opus 4.8 / Sonnet 4.6). Only append when the model
+        // actually supports the chosen level — otherwise silently skip so a
+        // user with "max" pinned can switch to a model that doesn't have it
+        // (e.g. Haiku 4.5) without the CLI rejecting the flag.
+        let effort = {
+            let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
+            s.effort.clone()
+        };
+        if !effort.is_empty() && super::models::model_supports_effort_level(m, &effort) {
+            claude_cmd.push_str(&format!(" --effort {}", effort));
+        }
     }
     if mode == "plan" {
         claude_cmd.push_str(" --max-turns 3");
@@ -2221,6 +2233,23 @@ pub async fn start_claude_session(
     if let Some(resume) = &resume_session {
         claude_cmd.push_str(&format!(" --resume '{}'", resume.replace('\'', "'\\''")));
     }
+
+    // Persistent-job-watcher hand-off rule. Tells the agent to register any
+    // long-running SLURM job with Operon and end the turn, rather than poll
+    // it inside the conversation (which dies when Operon closes and costs
+    // tokens while alive). Operon will surface the completion as a banner
+    // and the user can resume on demand.
+    let slurm_rule = "PERSISTENT JOB WATCHER (Operon):\\n\
+        After submitting a SLURM job that you expect to take more than 10 minutes (any sbatch with --time > 00:10:00, or anything you cannot reasonably wait on inline), DO NOT enter a polling loop. Operon runs a remote watchdog that survives the app being closed and will notify the user when the job completes.\\n\
+        \\n\
+        Instead:\\n\
+        1. Capture the job id from the sbatch output (e.g. \\\"Submitted batch job 52805324\\\").\\n\
+        2. Tell the user: 'Submitted job <id>. Watcher will notify you when it completes — feel free to close Operon.'\\n\
+        3. State what file or condition you expect the job to produce (e.g. 'expected output: config/array_index.tsv').\\n\
+        4. END YOUR TURN. Do not loop on squeue/sacct. Do not sleep. Do not poll.\\n\
+        \\n\
+        The user will resume the conversation with the job result when ready.";
+    claude_cmd.push_str(&format!(" --append-system-prompt '{}'", slurm_rule));
 
     eprintln!(
         "[operon] Final claude command (first 200 chars): {}",

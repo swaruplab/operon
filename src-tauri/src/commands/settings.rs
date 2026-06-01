@@ -40,6 +40,13 @@ fn default_ssh_tmux_session() -> String {
     "operon-main".to_string()
 }
 
+fn default_effort() -> String {
+    // Matches Anthropic's documented default for Opus 4.8 (the latest at ship
+    // time). For models that don't support `effort` at all (e.g. Haiku 4.5)
+    // the flag is simply skipped — no fallback noise.
+    "high".to_string()
+}
+
 fn default_session_time_budget_minutes() -> u32 {
     // Soft wall-clock cap (in minutes) on a single agent session. The frontend
     // uses this to surface warn-only banners at 75% and 100% of the budget so
@@ -57,6 +64,12 @@ pub struct AppSettings {
     pub word_wrap: bool,
     pub minimap_enabled: bool,
     pub model: String,
+    /// Anthropic effort/reasoning level: "low" | "medium" | "high" | "max" | "xhigh".
+    /// Only applied when the chosen model's capabilities.effort lists the level
+    /// as supported (so a user pinning "max" then switching to Haiku silently
+    /// degrades to no --effort flag rather than erroring).
+    #[serde(default = "default_effort")]
+    pub effort: String,
     pub max_turns: u32,
     pub max_budget_usd: f64,
     /// Permission level: "full_auto", "safe_mode", or "supervised"
@@ -127,6 +140,7 @@ impl Default for AppSettings {
             word_wrap: false,
             minimap_enabled: true,
             model: "claude-opus-4-8".to_string(),
+            effort: default_effort(),
             max_turns: 25,
             max_budget_usd: 5.0,
             permission_mode: "full_auto".to_string(),
