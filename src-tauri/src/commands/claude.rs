@@ -35,6 +35,10 @@ fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
 ///   is enabled AND the bundled `anthropic-proxy` sidecar is running, the base
 ///   URL is rewritten to the local proxy so backends that only speak OpenAI
 ///   Chat Completions (Ollama, vLLM, LM Studio pre-0.4.1) work transparently.
+/// - "portkey": sets `ANTHROPIC_BASE_URL` to the configured Portkey gateway
+///   (institutional or self-hosted) and `ANTHROPIC_AUTH_TOKEN` to the user's
+///   virtual API key. Portkey's Anthropic passthrough means Claude Code talks
+///   `/v1/messages` directly — no translation proxy, works on Windows + HPC.
 fn ai_provider_env(
     settings_state: &tauri::State<'_, super::settings::SettingsManager>,
     proxy_state: &tauri::State<'_, super::proxy::ProxyManager>,
@@ -44,6 +48,19 @@ fn ai_provider_env(
         Ok(s) => s.clone(),
         Err(_) => return Vec::new(),
     };
+    if settings.ai_provider == "portkey" {
+        let base = settings.portkey_base_url.trim();
+        let key = settings.portkey_api_key.trim();
+        if !base.is_empty() && !key.is_empty() {
+            return vec![
+                ("ANTHROPIC_BASE_URL".to_string(), base.to_string()),
+                ("ANTHROPIC_AUTH_TOKEN".to_string(), key.to_string()),
+            ];
+        }
+        // Misconfigured Portkey — fall through to direct Anthropic key so the
+        // session can at least start with an obvious error rather than a
+        // silent network failure.
+    }
     let upstream = settings.custom_base_url.trim();
     if settings.ai_provider == "custom" && !upstream.is_empty() {
         // If the translation proxy is running and the user wants it, Claude
@@ -97,6 +114,66 @@ fn claude_shell() -> String {
     {
         crate::platform::default_shell()
     }
+}
+
+/// Guarantee a sane baseline PATH for any local bash login-shell we spawn.
+///
+/// When Operon is launched from Finder/Spotlight, launchd hands it a very
+/// minimal env (no /usr/bin on some setups). Spawning `bash -l -c "..."` then
+/// causes bash to source the user's `.bash_profile` BEFORE running the
+/// command — and if that profile uses `id`, `uname`, `stat`, or any other
+/// coreutil that isn't on the inherited PATH, the profile emits "command not
+/// found" to stderr. Operon's stderr-reader treats that as a fatal session
+/// error even though the actual command runs fine.
+///
+/// Fix: prepend the standard macOS / Linux binary directories to PATH before
+/// bash forks. The user's existing PATH (if any) wins for everything beyond
+/// the baseline, so this doesn't shadow custom toolchains.
+#[cfg(not(target_os = "windows"))]
+fn enforce_baseline_path(cmd: &mut tokio::process::Command) {
+    const BASELINE: &str = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin";
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let merged = if inherited.is_empty() {
+        BASELINE.to_string()
+    } else {
+        format!("{}:{}", BASELINE, inherited)
+    };
+    cmd.env("PATH", merged);
+}
+
+#[cfg(target_os = "windows")]
+fn enforce_baseline_path(_cmd: &mut tokio::process::Command) {
+    // Windows: PATH baseline is handled separately by claude_shell()'s
+    // Git Bash resolver and CLAUDE_CODE_GIT_BASH_PATH.
+}
+
+/// True if a line of stderr looks like a benign coreutil-not-found from the
+/// user's shell profile (e.g. `bash: line 12: id: command not found`).
+/// We only suppress these for a small fixed list of coreutils that a profile
+/// might legitimately call — never for `claude`, `node`, `npm`, etc., so a
+/// real "binary not found" failure is still surfaced.
+fn is_profile_coreutil_warning(line: &str) -> bool {
+    // Match the bash-error shape: "bash: ... : <util>: ..." where <util> is
+    // a known coreutil that profiles commonly invoke before PATH is set up.
+    const BENIGN_UTILS: &[&str] = &[
+        "id", "uname", "hostname", "tty", "stty", "tput", "stat", "uptime",
+        "whoami", "groups", "logname", "basename", "dirname",
+    ];
+    let l = line.trim();
+    // Two common shapes:
+    //   bash: line N: <util>: command not found
+    //   bash: <file>: line N: <util>: command not found
+    // And the "No such file or directory" variant for the binary itself.
+    if !l.starts_with("bash:") && !l.starts_with("zsh:") && !l.starts_with("sh:") {
+        return false;
+    }
+    if !l.contains("command not found") && !l.contains("No such file or directory") {
+        return false;
+    }
+    BENIGN_UTILS.iter().any(|u| {
+        // Match ": <util>: " so we don't catch "myid: command not found".
+        l.contains(&format!(": {}:", u))
+    })
 }
 
 // --- Types ---
@@ -2249,7 +2326,16 @@ pub async fn start_claude_session(
         4. END YOUR TURN. Do not loop on squeue/sacct. Do not sleep. Do not poll.\\n\
         \\n\
         The user will resume the conversation with the job result when ready.";
-    claude_cmd.push_str(&format!(" --append-system-prompt '{}'", slurm_rule));
+    // POSIX-escape the rule before wrapping in outer single quotes. The rule
+    // contains inner single quotes ("Submitted job <id>. ...") and angle
+    // brackets — without this, the inner ' closes the outer quote and bash
+    // interprets `<id>` as a stdin redirection from a file called `id`,
+    // producing the misleading "bash: line 1: id: No such file or directory"
+    // (which has nothing to do with the /usr/bin/id coreutil).
+    claude_cmd.push_str(&format!(
+        " --append-system-prompt '{}'",
+        slurm_rule.replace('\'', "'\\''")
+    ));
 
     eprintln!(
         "[operon] Final claude command (first 200 chars): {}",
@@ -2994,6 +3080,12 @@ pub async fn start_claude_session(
         cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
     }
 
+    // Make sure /usr/bin etc. are on PATH before bash sources the user's
+    // login profile (~/.bash_profile). Without this, profiles that call
+    // coreutils like `id` emit "command not found" to stderr at startup
+    // and Operon's stderr-reader misreports it as a fatal session error.
+    enforce_baseline_path(&mut cmd);
+
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     hide_window_async(&mut cmd);
@@ -3105,6 +3197,16 @@ pub async fn start_claude_session(
                         || lt.contains("proceeding without")
                         || lt.contains("file truncated")
                         || lt.contains("tail:")
+                        // Profile-sourcing complaints from a user's
+                        // .bash_profile that calls a coreutil (id, uname,
+                        // stat, tput, etc.) before PATH is set up. We
+                        // already prepend a baseline PATH in
+                        // enforce_baseline_path() so these should rarely
+                        // fire, but allow them through as warnings if they
+                        // do. Match the exact "bash: line N: <util>: ..."
+                        // shape to avoid masking real "claude not found"
+                        // or "node not found" failures.
+                        || is_profile_coreutil_warning(lt)
                 });
 
                 if !is_just_warning {

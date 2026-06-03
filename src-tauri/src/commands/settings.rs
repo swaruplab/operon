@@ -100,6 +100,26 @@ pub struct AppSettings {
     /// Model id reported by the custom endpoint (e.g. "qwen2.5-coder:32b").
     #[serde(default)]
     pub custom_model: String,
+    // ── Portkey gateway provider (Operon 0.7.0) ──
+    /// Base URL of the Portkey-compatible gateway, e.g.
+    /// `https://api.zotgpt.uci.edu/v1` (UCI ZotGPT) or
+    /// `https://api.portkey.ai/v1` (Portkey Cloud).
+    /// Only consulted when `ai_provider == "portkey"`.
+    #[serde(default)]
+    pub portkey_base_url: String,
+    /// Portkey virtual API key issued by the gateway portal.
+    #[serde(default)]
+    pub portkey_api_key: String,
+    /// Currently selected model slug for Portkey (e.g.
+    /// `@zotgpt-api-bedrock/us.anthropic.claude-opus-4-7`). Format depends
+    /// on the gateway's workspace.
+    #[serde(default)]
+    pub portkey_model: String,
+    /// Stable id of the preset the user picked (e.g. `uci-zotgpt`,
+    /// `portkey-cloud`, `self-hosted`, `custom`). Used by the UI to render
+    /// preset-specific help text and links.
+    #[serde(default)]
+    pub portkey_preset_id: String,
     /// When true and `ai_provider == "custom"`, route requests through the
     /// bundled Anthropic↔OpenAI translation proxy sidecar. Off by default:
     /// the recommended route is an Anthropic-compatible gateway (OpenRouter,
@@ -154,6 +174,10 @@ impl Default for AppSettings {
             custom_base_url: String::new(),
             custom_api_key: String::new(),
             custom_model: String::new(),
+            portkey_base_url: String::new(),
+            portkey_api_key: String::new(),
+            portkey_model: String::new(),
+            portkey_preset_id: String::new(),
             use_translation_proxy: false,
             terminal_use_webgl: true,
             ssh_auto_tmux: true,

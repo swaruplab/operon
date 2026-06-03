@@ -6,6 +6,7 @@ pub mod job_notify;
 pub mod knowledge;
 pub mod mcp;
 pub mod models;
+pub mod portkey;
 pub mod proxy;
 pub mod report;
 pub mod settings;
@@ -63,6 +64,7 @@ pub use mcp::{
     list_mcp_servers, remove_mcp_server, update_mcp_server_env,
 };
 pub use models::{fetch_anthropic_models, get_cached_models, refresh_models_if_stale};
+pub use portkey::{fetch_portkey_models, list_portkey_presets, refresh_portkey_presets};
 pub use proxy::{start_translation_proxy, stop_translation_proxy, translation_proxy_status};
 pub use report::{
     batch_read_file_previews, batch_read_remote_file_previews, extract_methods_info,

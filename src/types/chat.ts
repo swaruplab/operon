@@ -51,6 +51,13 @@ export interface ClaudeSystemEvent {
   model?: string;
 }
 
+export interface ClaudeMessageUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
 export interface ClaudeAssistantEvent {
   type: 'assistant';
   message: {
@@ -61,6 +68,10 @@ export interface ClaudeAssistantEvent {
       | { type: 'thinking'; thinking: string }
       | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     >;
+    /// Token-usage block attached to every assistant turn. `input_tokens` is
+    /// the size of the full prompt the model saw on this turn — i.e. the
+    /// current context-window-fullness measurement.
+    usage?: ClaudeMessageUsage;
   };
   session_id?: string;
 }

@@ -71,6 +71,7 @@ import {
   type PendingCompletion,
 } from '../../lib/jobNotify';
 import { JobCompletionBanner } from './JobCompletionBanner';
+import { TokenUsageBar } from './TokenUsageBar';
 
 type ClaudeMode = 'agent' | 'plan' | 'ask' | 'report';
 
@@ -1203,11 +1204,17 @@ export function ChatPanel() {
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [model, setModel] = useState('claude-opus-4-8');
-  const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom'>('anthropic');
+  const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom' | 'portkey'>('anthropic');
   const [customModel, setCustomModel] = useState<string>('');
+  const [portkeyModel, setPortkeyModel] = useState<string>('');
   const [anthropicModels, setAnthropicModels] = useState<ModelInfo[]>([]);
   const [effort, setEffort] = useState<EffortLevel>('high');
   const [pendingCompletions, setPendingCompletions] = useState<PendingCompletion[]>([]);
+  // Token-usage state — `contextTokens` is the input_tokens from the latest
+  // assistant turn, which equals "tokens the model saw on this turn" =
+  // current context-window-fullness.
+  const [contextTokens, setContextTokens] = useState<number>(0);
+  const [cacheReadTokens, setCacheReadTokens] = useState<number>(0);
 
   // Load default model + session time budget from user settings
   useEffect(() => {
@@ -1412,6 +1419,8 @@ export function ChatPanel() {
     setClaudeSessionId(null);
     sessionStartTime.current = 0;
     setElapsedMinutes(0);
+    setContextTokens(0);
+    setCacheReadTokens(0);
     setMentions([]);
     setMentionActive(false);
     setMentionItems([]);
@@ -1598,6 +1607,11 @@ export function ChatPanel() {
               setClaudeSessionId(data.session_id);
             }
             if (data.type === 'assistant' && 'message' in data) {
+              const usage = data.message.usage;
+              if (usage && typeof usage.input_tokens === 'number') {
+                setContextTokens(usage.input_tokens);
+                setCacheReadTokens(usage.cache_read_input_tokens ?? 0);
+              }
               const msgId = data.message.id || crypto.randomUUID();
               const blocks: ContentBlock[] = data.message.content.map((c) => {
                 if (c.type === 'text') return { type: 'text' as const, text: c.text };
@@ -1734,12 +1748,18 @@ export function ChatPanel() {
       const provider = s.ai_provider || 'anthropic';
       setAiProvider(provider);
       setCustomModel(s.custom_model || '');
+      setPortkeyModel(s.portkey_model || '');
       if (s.effort) {
         setEffort(s.effort as EffortLevel);
       }
-      // When custom provider is active, switch the current model to the custom one
-      // (if not already). When switching back to Anthropic, reset to opus.
-      if (provider === 'custom' && s.custom_model) {
+      // Switch the active session model to match the selected provider.
+      // - portkey: use the Portkey-side slug (e.g. @workspace/model-id)
+      // - custom: use the custom OpenAI-compat endpoint's model
+      // - anthropic: reset to a known good Anthropic ID if the current
+      //   model isn't a claude-* (e.g. user just switched away from portkey).
+      if (provider === 'portkey' && s.portkey_model) {
+        setModel((prev) => (prev === s.portkey_model ? prev : s.portkey_model));
+      } else if (provider === 'custom' && s.custom_model) {
         setModel((prev) => (prev === s.custom_model ? prev : s.custom_model));
       } else if (provider === 'anthropic') {
         setModel((prev) => (prev.startsWith('claude-') ? prev : 'claude-opus-4-8'));
@@ -2087,6 +2107,14 @@ export function ChatPanel() {
         }
 
         if (data.type === 'assistant' && 'message' in data) {
+          // Capture token usage if the event carries it. `input_tokens` is the
+          // size of the full prompt the model saw on this turn — i.e. the
+          // current context-window-fullness measurement.
+          const usage = data.message.usage;
+          if (usage && typeof usage.input_tokens === 'number') {
+            setContextTokens(usage.input_tokens);
+            setCacheReadTokens(usage.cache_read_input_tokens ?? 0);
+          }
           const msgId = data.message.id || crypto.randomUUID();
           const isNewMsg = !seenMsgIds.current.has(msgId);
 
@@ -3670,6 +3698,11 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               <option value={customModel}>{customModel}</option>
             </optgroup>
           )}
+          {aiProvider === 'portkey' && portkeyModel && (
+            <optgroup label="Portkey gateway">
+              <option value={portkeyModel}>{portkeyModel}</option>
+            </optgroup>
+          )}
           <optgroup label="—">
             <option value="__configure_provider__">Configure provider…</option>
           </optgroup>
@@ -3696,6 +3729,23 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             >
               {effort}
             </button>
+          );
+        })()}
+        {(() => {
+          // Context-window bar. Only renders when we have both a usage
+          // measurement and a known context size for the active model.
+          // Useful for everyone — subscription users see compaction approach,
+          // API-key users get a free signal of prompt size.
+          const currentModel = anthropicModels.find((m) => m.id === model);
+          const max = currentModel?.max_input_tokens || 0;
+          if (max === 0 || contextTokens === 0) return null;
+          return (
+            <TokenUsageBar
+              used={contextTokens}
+              max={max}
+              cacheRead={cacheReadTokens}
+              compact
+            />
           );
         })()}
       </div>
@@ -4515,8 +4565,9 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             </div>
           </div>
         )}
-        {/* Session time-budget warnings — warn-only, never auto-stop. */}
-        {isStreaming && sessionBudgetMinutes > 0 && elapsedMinutes >= sessionBudgetMinutes && (
+        {/* Session time-budget warnings — warn-only, never auto-stop.
+            Hidden for OAuth/subscription auth (no cost-per-minute concern). */}
+        {authState?.method !== 'oauth' && isStreaming && sessionBudgetMinutes > 0 && elapsedMinutes >= sessionBudgetMinutes && (
           <div className="my-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/40 text-[12px]">
             <p className="text-rose-300 font-medium mb-1">
               Session has reached its time budget ({elapsedMinutes} / {sessionBudgetMinutes} min)
@@ -4544,7 +4595,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             </div>
           </div>
         )}
-        {isStreaming &&
+        {authState?.method !== 'oauth' &&
+          isStreaming &&
           sessionBudgetMinutes > 0 &&
           elapsedMinutes >= Math.floor(sessionBudgetMinutes * 0.75) &&
           elapsedMinutes < sessionBudgetMinutes && (
@@ -4840,7 +4892,12 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <div className="flex items-center gap-2 text-[10px] text-zinc-600">
               {/* Session time budget — per-session override.
                   Shows "Xm / Ym" when streaming so the user can see spend
-                  at a glance. Tints amber/rose at 75% / 100%. */}
+                  at a glance. Tints amber/rose at 75% / 100%.
+                  Hidden for OAuth/subscription auth — wall-clock warnings
+                  are oriented around cost-per-token, which doesn't apply
+                  to fixed-fee Max/Pro plans. The token-usage bar in the
+                  model row (TokenUsageBar) carries the load there. */}
+              {authState?.method !== 'oauth' && (
               <span
                 className="flex items-center gap-1"
                 title="Session time budget (minutes). Warns at 75% and 100%. 0 = off."
@@ -4871,6 +4928,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   </span>
                 )}
               </span>
+              )}
               <span>
                 {claudeSessionId ? `Session: ${claudeSessionId.slice(0, 8)}` : 'New session'}
               </span>

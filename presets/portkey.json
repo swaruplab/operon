@@ -1,0 +1,32 @@
+{
+  "$comment": "Portkey gateway presets for Operon. Add your institution's preset here via a pull request. Operon fetches this file on launch (cached 7 days) and merges with the bundled fallback list. Fetched entries win on id collision, so an update here propagates to existing installs without an Operon release.",
+  "$schema_version": 1,
+  "presets": [
+    {
+      "id": "uci-zotgpt",
+      "label": "UCI ZotGPT Gateway",
+      "base_url": "https://api.zotgpt.uci.edu/v1",
+      "description": "UC Irvine's institutional AI gateway (powered by Portkey).",
+      "eligibility": "UCI faculty, staff, graduate students; PI-sponsored undergraduates.",
+      "signup_url": "https://portal.azureapi.zotgpt.uci.edu",
+      "docs_url": "https://zotgpt.uci.edu/services/gateway",
+      "privacy_summary": "12-month retention, no training, P3 compliant, IRB-relevant audit trail.",
+      "suggested_models": [
+        "@zotgpt-api-bedrock/us.anthropic.claude-opus-4-7",
+        "@zotgpt-api-bedrock/us.anthropic.claude-sonnet-4-5",
+        "@openai-prod/gpt-5.5"
+      ]
+    },
+    {
+      "id": "portkey-cloud",
+      "label": "Portkey Cloud",
+      "base_url": "https://api.portkey.ai/v1",
+      "description": "Portkey's multi-tenant hosted gateway. Pay-as-you-go.",
+      "eligibility": "Anyone with a Portkey account.",
+      "signup_url": "https://app.portkey.ai/signup",
+      "docs_url": "https://portkey.ai/docs",
+      "privacy_summary": "Portkey's data handling policy applies. Configure providers in the Portkey dashboard.",
+      "suggested_models": []
+    }
+  ]
+}

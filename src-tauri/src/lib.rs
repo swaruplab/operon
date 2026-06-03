@@ -49,6 +49,7 @@ use commands::{
     enable_mcp_server,
     extract_methods_info,
     fetch_anthropic_models,
+    fetch_portkey_models,
     generate_protocol,
     generate_protocol_from_files,
     generate_report_pdf,
@@ -129,6 +130,7 @@ use commands::{
     list_mcp_servers,
     list_pending_completions,
     list_plan_history,
+    list_portkey_presets,
     // Protocols
     list_protocols,
     list_remote_directory,
@@ -154,6 +156,7 @@ use commands::{
     reconnect_tail,
     refresh_environment,
     refresh_models_if_stale,
+    refresh_portkey_presets,
     register_slurm_job_metadata,
     register_watched_job,
     remote_claude_login,
@@ -384,6 +387,10 @@ pub fn run() {
             fetch_anthropic_models,
             get_cached_models,
             refresh_models_if_stale,
+            // Portkey gateway (Operon 0.7.0)
+            list_portkey_presets,
+            refresh_portkey_presets,
+            fetch_portkey_models,
             // Translation proxy
             start_translation_proxy,
             stop_translation_proxy,

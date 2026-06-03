@@ -7,6 +7,7 @@ import { ProjectProvider } from './context/ProjectContext';
 import { SetupWizard } from './components/setup/SetupWizard';
 import { getApiKey } from './lib/claude';
 import { refreshModelsIfStale } from './lib/models';
+import { refreshPortkeyPresets } from './lib/portkey';
 
 // Configure Monaco to use the local bundle instead of CDN.
 // This is critical for Tauri because CSP blocks external scripts.
@@ -31,6 +32,10 @@ function App() {
     getApiKey()
       .then((key) => refreshModelsIfStale(key))
       .catch(() => {});
+
+    // Same idea for the Portkey gateway preset list — pulls any new
+    // institutional presets added to operon/presets/portkey.json on GitHub.
+    refreshPortkeyPresets().catch(() => {});
   }, []);
 
   // Loading state — checking settings

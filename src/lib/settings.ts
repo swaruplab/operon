@@ -20,11 +20,17 @@ export interface AppSettings {
   mcp_servers: MCPServerConfig[];
   extension_settings: Record<string, Record<string, unknown>>;
   last_project_path?: string | null;
-  // AI provider (OpenAI-compatible endpoint support)
-  ai_provider: 'anthropic' | 'custom';
+  // AI provider — direct Anthropic, an OpenAI-compatible endpoint, or a
+  // Portkey gateway (institutional like UCI ZotGPT, Portkey Cloud, or self-hosted)
+  ai_provider: 'anthropic' | 'custom' | 'portkey';
   custom_base_url: string;
   custom_api_key: string;
   custom_model: string;
+  // Portkey gateway (Operon 0.7.0)
+  portkey_base_url: string;
+  portkey_api_key: string;
+  portkey_model: string;
+  portkey_preset_id: string;
   /** Route custom-provider requests through the bundled Anthropic↔OpenAI
    *  translation sidecar. Off by default — the primary route is an
    *  Anthropic-compatible gateway (OpenRouter/LiteLLM) called directly.
@@ -65,6 +71,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   custom_base_url: '',
   custom_api_key: '',
   custom_model: '',
+  portkey_base_url: '',
+  portkey_api_key: '',
+  portkey_model: '',
+  portkey_preset_id: '',
   use_translation_proxy: false,
   terminal_use_webgl: true,
   ssh_auto_tmux: true,

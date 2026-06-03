@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield, Cpu, RefreshCw } from 'lucide-react';
+import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield, Cpu, RefreshCw, Lock, Globe } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
 import { isMac } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,6 +7,7 @@ import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
 import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
+import { listPortkeyPresets, fetchPortkeyModels, type PortkeyPreset, type PortkeyModel } from '../../lib/portkey';
 import { getApiKey } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
@@ -200,6 +201,245 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
               )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Portkey provider sub-panel ──
+// Lives inside the Provider section. Renders the deployment dropdown
+// (UCI ZotGPT / Portkey Cloud / self-hosted / custom), pre-fills the base
+// URL from the picked preset, accepts the virtual key, and lets the user
+// pick a model — auto-fetched from the gateway's /v1/models endpoint with
+// a free-text fallback when fetch fails or for offline use.
+function PortkeyProviderPanel({
+  settings,
+  saveSettings,
+}: {
+  settings: AppSettings;
+  saveSettings: (s: AppSettings) => void;
+}) {
+  const [presets, setPresets] = useState<PortkeyPreset[]>([]);
+  const [models, setModels] = useState<PortkeyModel[]>([]);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [customSlug, setCustomSlug] = useState(false);
+
+  useEffect(() => {
+    listPortkeyPresets().then(setPresets).catch(() => {});
+  }, []);
+
+  const activePreset = presets.find((p) => p.id === settings.portkey_preset_id);
+
+  const pickPreset = (id: string) => {
+    const p = presets.find((x) => x.id === id);
+    if (!p) return;
+    // Pre-fill the base URL from the preset. Empty for self-hosted/custom so
+    // the user types their own. Don't clobber a user-entered URL when they
+    // re-select the same preset.
+    const next: AppSettings = {
+      ...settings,
+      portkey_preset_id: id,
+      portkey_base_url: p.base_url || settings.portkey_base_url,
+      // If preset has suggested models and nothing is set, pre-pick the first.
+      portkey_model:
+        settings.portkey_model ||
+        (p.suggested_models.length > 0 ? p.suggested_models[0] : ''),
+    };
+    saveSettings(next);
+    setModels([]);
+    setModelError(null);
+  };
+
+  const refreshModels = async () => {
+    setFetchingModels(true);
+    setModelError(null);
+    try {
+      const fresh = await fetchPortkeyModels(
+        settings.portkey_base_url,
+        settings.portkey_api_key,
+      );
+      setModels(fresh);
+      if (fresh.length === 0) {
+        setModelError('Gateway returned 0 models — paste a slug manually below.');
+      }
+    } catch (err) {
+      setModelError(String(err));
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const hintModels: string[] = activePreset?.suggested_models ?? [];
+  // Combined list: live-fetched (preferred) OR hint list (fallback). De-dup.
+  const modelOptions: string[] = [
+    ...new Set([...models.map((m) => m.id), ...hintModels]),
+  ];
+
+  return (
+    <div className="space-y-4 border-t border-zinc-800 pt-4">
+      {/* Deployment dropdown */}
+      <label className="block">
+        <span className="block text-[11px] text-zinc-400 mb-1">Gateway deployment</span>
+        <select
+          value={settings.portkey_preset_id || ''}
+          onChange={(e) => pickPreset(e.target.value)}
+          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50"
+        >
+          <option value="" disabled>
+            Choose your gateway…
+          </option>
+          {presets.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {activePreset && (
+          <span className="block text-[10px] text-zinc-500 mt-1">{activePreset.description}</span>
+        )}
+      </label>
+
+      {/* Preset-specific eligibility + signup links */}
+      {activePreset && (activePreset.eligibility || activePreset.signup_url) && (
+        <div className="bg-zinc-900/50 border border-zinc-800 rounded-md p-2.5 space-y-1.5 text-[11px]">
+          {activePreset.eligibility && (
+            <div className="text-zinc-300">
+              <span className="text-zinc-500">Eligibility · </span>
+              {activePreset.eligibility}
+            </div>
+          )}
+          <div className="flex items-center gap-3 text-[11px]">
+            {activePreset.signup_url && (
+              <button
+                onClick={() =>
+                  invoke('open_url', { url: activePreset.signup_url }).catch(() => {})
+                }
+                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+              >
+                <ExternalLink className="w-3 h-3 pointer-events-none" />
+                Get an API key
+              </button>
+            )}
+            {activePreset.docs_url && (
+              <button
+                onClick={() =>
+                  invoke('open_url', { url: activePreset.docs_url }).catch(() => {})
+                }
+                className="flex items-center gap-1 text-zinc-400 hover:text-zinc-300"
+              >
+                <ExternalLink className="w-3 h-3 pointer-events-none" />
+                Docs
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Base URL — pre-filled from preset, editable for self-hosted/custom */}
+      <label className="block">
+        <span className="block text-[11px] text-zinc-400 mb-1">Base URL</span>
+        <input
+          type="text"
+          value={settings.portkey_base_url}
+          onChange={(e) => saveSettings({ ...settings, portkey_base_url: e.target.value })}
+          placeholder="https://api.zotgpt.uci.edu/v1"
+          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+        />
+        <span className="block text-[10px] text-zinc-600 mt-1">
+          Should end in <span className="font-mono">/v1</span>. Portkey speaks Anthropic's
+          <span className="font-mono"> /v1/messages</span> natively — works on Windows + HPC.
+        </span>
+      </label>
+
+      {/* Virtual API key */}
+      <label className="block">
+        <span className="block text-[11px] text-zinc-400 mb-1">Virtual API key</span>
+        <input
+          type="password"
+          value={settings.portkey_api_key}
+          onChange={(e) => saveSettings({ ...settings, portkey_api_key: e.target.value })}
+          placeholder="pk-…"
+          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+        />
+      </label>
+
+      {/* Model selector */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-zinc-400">Model</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={refreshModels}
+              disabled={
+                fetchingModels ||
+                !settings.portkey_base_url.trim() ||
+                !settings.portkey_api_key.trim()
+              }
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+              title="Call /v1/models on the configured gateway"
+            >
+              <RefreshCw className={`w-3 h-3 ${fetchingModels ? 'animate-spin' : ''}`} />
+              {fetchingModels ? 'Loading…' : 'Refresh catalog'}
+            </button>
+            <button
+              onClick={() => setCustomSlug((v) => !v)}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300"
+            >
+              {customSlug ? 'Pick from list' : 'Paste slug'}
+            </button>
+          </div>
+        </div>
+        {customSlug ? (
+          <input
+            type="text"
+            value={settings.portkey_model}
+            onChange={(e) => saveSettings({ ...settings, portkey_model: e.target.value })}
+            placeholder="@workspace/model-slug"
+            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+          />
+        ) : (
+          <select
+            value={settings.portkey_model}
+            onChange={(e) => saveSettings({ ...settings, portkey_model: e.target.value })}
+            disabled={modelOptions.length === 0}
+            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono disabled:opacity-50"
+          >
+            {modelOptions.length === 0 ? (
+              <option value="">
+                {settings.portkey_model || 'Refresh catalog or paste a slug'}
+              </option>
+            ) : (
+              <>
+                {settings.portkey_model && !modelOptions.includes(settings.portkey_model) && (
+                  <option value={settings.portkey_model}>{settings.portkey_model} (saved)</option>
+                )}
+                {modelOptions.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </>
+            )}
+          </select>
+        )}
+        {modelError && <div className="text-[10px] text-amber-400">{modelError}</div>}
+        {models.length === 0 && hintModels.length > 0 && !modelError && (
+          <div className="text-[10px] text-zinc-600">
+            Showing suggested slugs for {activePreset?.label}. Click "Refresh catalog" to load the live list.
+          </div>
+        )}
+      </div>
+
+      {/* Privacy footnote */}
+      {activePreset?.privacy_summary && (
+        <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 leading-relaxed pt-1">
+          <Lock className="w-3 h-3 mt-0.5 shrink-0 text-zinc-600" />
+          <span>
+            <span className="text-zinc-400">Privacy · </span>
+            {activePreset.privacy_summary}
+          </span>
         </div>
       )}
     </div>
@@ -788,7 +1028,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               </div>
 
               {/* Provider choice */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => saveSettings({ ...settings, ai_provider: 'anthropic' })}
                   className={`p-3 rounded-lg border text-left transition-all ${
@@ -802,7 +1042,23 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     <span className="text-xs font-medium text-zinc-200">Anthropic</span>
                     <span className="ml-auto text-[10px] text-zinc-500">default</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">Use the hosted Claude API. Best tool-use quality.</p>
+                  <p className="text-[11px] text-zinc-500 mt-1">Hosted Claude API. Best tool-use quality.</p>
+                </button>
+
+                <button
+                  onClick={() => saveSettings({ ...settings, ai_provider: 'portkey' })}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    settings.ai_provider === 'portkey'
+                      ? 'border-emerald-500/60 bg-emerald-950/20'
+                      : 'border-zinc-700/50 hover:border-zinc-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Shield className={`w-3.5 h-3.5 ${settings.ai_provider === 'portkey' ? 'text-emerald-400' : 'text-zinc-600'}`} />
+                    <span className="text-xs font-medium text-zinc-200">Portkey gateway</span>
+                    <span className="ml-auto text-[10px] text-zinc-500">institutional</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500 mt-1">UCI ZotGPT, Portkey Cloud, or your own.</p>
                 </button>
 
                 <button
@@ -818,9 +1074,13 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     <span className="text-xs font-medium text-zinc-200">Custom provider</span>
                     <span className="ml-auto text-[10px] text-zinc-500">advanced</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">OpenAI, Gemini &amp; others via a gateway, or a local endpoint.</p>
+                  <p className="text-[11px] text-zinc-500 mt-1">OpenAI/Gemini/open-weights via gateway or local.</p>
                 </button>
               </div>
+
+              {settings.ai_provider === 'portkey' && (
+                <PortkeyProviderPanel settings={settings} saveSettings={saveSettings} />
+              )}
 
               {settings.ai_provider === 'custom' && (
                 <div className="space-y-4 border-t border-zinc-800 pt-4">
