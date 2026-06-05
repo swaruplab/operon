@@ -4,6 +4,68 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-06-05
+
+Protocol catalog overhaul. Removed non-bioinformatics protocols that had
+slipped in (finance, quantum, materials science) and merged curated bio
+skills from three upstream skill repositories. Net: 192 → 706 bundled
+protocols, all bio/clinical/scientific-computing oriented.
+
+### Added
+
+- **OpenClaw Medical Skills** (`FreedomIntelligence/OpenClaw-Medical-Skills`).
+  150 clear-bio top-level skills imported as Operon protocols. Highlights:
+  AlphaFold/Boltz/Chai structure prediction; antibody-design-agent;
+  autonomous-oncology-agent; bindcraft / binder-design; bone-marrow-ai-agent;
+  cell-free-expression; ChEMBL search; ChemCrow drug discovery;
+  cellular-senescence-agent; clinical-diagnostic-reasoning; chatehr-clinician-assistant;
+  many more. 395 fine-grained `bio-*` sub-skills (per-step ATAC/ChIP/alignment
+  workflows) were intentionally skipped to keep the flat catalog navigable;
+  the broader-scope skills cover the same territory.
+- **bioSkills** (`GPTomics/bioSkills`). 345 skills across 49 categories
+  Operon previously lacked, imported with a category prefix to keep names
+  unambiguous and the catalog flat. New themes include `variant-calling-*`
+  (13), `crispr-screens-*` (15), `comparative-genomics-*` (13),
+  `chip-seq-*` (12), `clip-seq-*` (12), `hi-c-analysis-*` (9),
+  `flow-cytometry-*` (8), `tcr-bcr-analysis-*` (5), `metagenomics-*` (7),
+  `microbiome-*` (6), `ribo-seq-*` (5), `long-read-sequencing-*` (8),
+  `methylation-analysis-*` (5), `epitranscriptomics-*` (5),
+  `epidemiological-genomics-*` (5), `multi-omics-integration-*` (4),
+  `liquid-biopsy-*` (6), `immunoinformatics-*` (5), `phasing-imputation-*` (4),
+  `pathway-analysis-*` (6), `clinical-biostatistics-*` (12),
+  `experimental-design-*` (5), `causal-genomics-*` (11),
+  `temporal-genomics-*` (5), `population-genetics-*` (6),
+  `primer-design-*` (3), `genome-engineering-*` (5),
+  `restriction-analysis-*` (4), and many more.
+- **SciAgent Skills** (`jaechang-hits/SciAgent-Skills`). 41 skills across
+  the three categories Operon didn't cover: `lab-automation-*` (Benchling,
+  Opentrons, ProtocolsIO, PyLabRobot integrations + Western-blot
+  quantification), `medical-imaging-*` (histolab WSI, Imaging Data Commons,
+  nnU-Net segmentation, OMERO, pathml, pydicom, scikit-image), and
+  `scientific-computing-*` (29 numerical + ML skills: PyTorch Lightning,
+  numpyro, jax, scipy, statsmodels, etc.).
+
+### Removed
+
+- **22 non-bioinformatics protocols** that had no clear connection to the
+  Swarup-Lab use case. Finance (`alpha-vantage`, `edgartools`,
+  `fred-economic-data`, `hedgefundmonitor`, `market-research-reports`,
+  `usfiscaldata`), quantum computing (`cirq`, `qiskit`, `qutip`,
+  `pennylane`), physical sciences (`astropy`, `fluidsim`, `pymatgen`,
+  `rowan`), general RL/ML (`stable-baselines3`, `pufferlib`, `aeon`,
+  `timesfm-forecasting`, `consciousness-council`), math/sim (`simpy`,
+  `sympy`, `what-if-oracle`).
+
+### Notes
+
+- **Catalog size**: 192 → 706 protocols. The bundled-protocols help item
+  has been updated to reflect new totals and the upstream skill sources.
+- **Naming**: bioSkills + SciAgent skills are imported with their category
+  as a prefix (e.g. `hi-c-analysis-cooler-loading`, `lab-automation-pylabrobot`)
+  so the flat Operon model is preserved without name collisions.
+- All imports respect skip-if-exists: any pre-existing Operon protocol with
+  the same name was kept and the upstream version was not copied over.
+
 ## [0.7.0] — 2026-06-04
 
 A big release. Three headline themes: a new **Portkey gateway provider** for
