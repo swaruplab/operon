@@ -162,10 +162,43 @@ fn ai_provider_env(
     }
 }
 
-/// Render the same env vars as a `export K='V'; ...` string for injection into
-/// remote shell scripts.
-fn ai_provider_env_exports(env: &[(String, String)]) -> String {
+/// Env vars that must be cleared (unset / `cmd.env_remove`) for the active provider,
+/// so a value the user's shell profile (~/.bashrc / ~/.zshrc) or the inherited
+/// environment may have set can't override the value we explicitly emit in
+/// [`ai_provider_env`].
+///
+/// - "anthropic" — clear ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN. A leftover
+///   `export ANTHROPIC_BASE_URL=...` (from prior Portkey / custom-endpoint
+///   tinkering) would route Claude requests to the wrong gateway and produce a
+///   `400 Either x-portkey-config or x-portkey-provider header is required` from
+///   Portkey, or a `404` from any other proxy that doesn't speak Anthropic.
+/// - "custom" / "portkey" — clear ANTHROPIC_API_KEY. With both API_KEY and
+///   AUTH_TOKEN set, the Anthropic SDK sends `x-api-key`, which most bearer-only
+///   proxies (Ollama, vLLM, anthropic-proxy, Portkey virtual-key routes) reject
+///   or treat as anonymous.
+fn ai_provider_env_unset(
+    settings_state: &tauri::State<'_, super::settings::SettingsManager>,
+) -> Vec<&'static str> {
+    let settings = match settings_state.settings.lock() {
+        Ok(s) => s.clone(),
+        Err(_) => return Vec::new(),
+    };
+    match settings.ai_provider.as_str() {
+        "custom" | "portkey" => vec!["ANTHROPIC_API_KEY"],
+        // Default and explicit "anthropic" both want direct-to-anthropic.
+        _ => vec!["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
+    }
+}
+
+/// Render the env vars as a `unset X Y; export K='V'; ...` string for injection
+/// into remote shell scripts. The `unset` prefix runs AFTER the user's shell
+/// profile has been sourced — so it clears any stale provider variables the
+/// profile may have re-exported before our own `export`s take effect.
+fn ai_provider_env_exports(env: &[(String, String)], unset: &[&str]) -> String {
     let mut out = String::new();
+    if !unset.is_empty() {
+        out.push_str(&format!("unset {}; ", unset.join(" ")));
+    }
     for (k, v) in env {
         out.push_str(&format!("export {}='{}'; ", k, v.replace('\'', "'\\''")));
     }
@@ -2604,7 +2637,8 @@ pub async fn start_claude_session(
             // them set. For custom endpoints this emits ANTHROPIC_BASE_URL +
             // ANTHROPIC_AUTH_TOKEN instead of ANTHROPIC_API_KEY.
             let provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
-            let api_key_line = ai_provider_env_exports(&provider_env);
+            let provider_unset = ai_provider_env_unset(&settings_state);
+            let api_key_line = ai_provider_env_exports(&provider_env, &provider_unset);
             // Pre-flight warmup: the Anthropic launcher (~/.local/bin/claude etc.) checks
             // its npm-cached package on every invocation and shows an interactive
             //   "Need to install @anthropic-ai/claude-code@X.Y.Z — Ok to proceed? (y)"
@@ -2817,6 +2851,9 @@ pub async fn start_claude_session(
             tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
             for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
                 tail_cmd.env(k, v);
+            }
+            for k in ai_provider_env_unset(&settings_state) {
+                tail_cmd.env_remove(k);
             }
             tail_cmd.stdout(std::process::Stdio::piped());
             tail_cmd.stderr(std::process::Stdio::piped());
@@ -3087,8 +3124,10 @@ pub async fn start_claude_session(
         // env vars by default, and HPC servers rarely have AcceptEnv configured
         // for custom vars. For custom endpoints this forwards ANTHROPIC_BASE_URL
         // + ANTHROPIC_AUTH_TOKEN so the remote Claude hits the same proxy.
-        let api_key_export =
-            ai_provider_env_exports(&ai_provider_env(&settings_state, &proxy_state, &api_key));
+        let api_key_export = ai_provider_env_exports(
+            &ai_provider_env(&settings_state, &proxy_state, &api_key),
+            &ai_provider_env_unset(&settings_state),
+        );
         let remote_cmd = format!(
             "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}{}cd '{}' && {}{}",
             api_key_export,
@@ -3135,14 +3174,32 @@ pub async fn start_claude_session(
         // Install the agent file-deletion guard (writes ~/.operon/guard, appends
         // --settings). No-op on Windows.
         install_local_guard(&mut claude_cmd);
+        // Prepend `unset <provider-conflicting vars>` so any stale value re-exported
+        // by the user's shell profile (~/.zshrc, ~/.bash_profile) inside `bash -l`
+        // is cleared BEFORE claude runs. Without this, e.g. an
+        // `export ANTHROPIC_BASE_URL=https://api.portkey.ai/v1` left over in
+        // .zshrc routes "Anthropic-direct" sessions to Portkey and produces the
+        // confusing "x-portkey-provider header required" 400.
+        let provider_unset = ai_provider_env_unset(&settings_state);
+        let unset_prefix = if provider_unset.is_empty() {
+            String::new()
+        } else {
+            format!("unset {}; ", provider_unset.join(" "))
+        };
+        let wrapped_cmd = format!("{}{}", unset_prefix, claude_cmd);
         let mut c = AsyncCommand::new(&shell);
-        c.arg("-l").arg("-c").arg(&claude_cmd);
+        c.arg("-l").arg("-c").arg(&wrapped_cmd);
         c.current_dir(&project_path);
         c
     };
 
     for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
         cmd.env(k, v);
+    }
+    // Belt-and-suspenders: also strip the conflicting vars from the inherited
+    // env we hand to bash, so even profile-less spawns (`sh -c` style) stay clean.
+    for k in ai_provider_env_unset(&settings_state) {
+        cmd.env_remove(k);
     }
 
     // On Windows, Claude Code requires Git Bash. Set the path so it can find it.

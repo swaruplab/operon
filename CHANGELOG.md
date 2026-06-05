@@ -4,6 +4,42 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] — 2026-06-05
+
+Stops stale shell-profile env vars from hijacking provider routing — the
+"x-portkey-provider header required" 400 you'd see on an Anthropic-direct
+session, and the silent 401/anonymous failures on Ollama / vLLM endpoints,
+both came from the same root cause.
+
+### Fixed
+
+- **Anthropic-direct sessions hitting Portkey** (`src-tauri/src/commands/
+  claude.rs`). When the user picked Provider = Anthropic, Operon set
+  `ANTHROPIC_API_KEY` but never cleared `ANTHROPIC_BASE_URL` /
+  `ANTHROPIC_AUTH_TOKEN`. If those were exported in `~/.zshrc` /
+  `~/.bash_profile` (common after any prior Portkey or custom-endpoint
+  tinkering), `bash -l` re-exported them inside the spawn and Claude
+  Code's SDK routed `/v1/messages` to the wrong gateway. Portkey then
+  rejected the call with `400 Either x-portkey-config or
+  x-portkey-provider header is required`.
+- **Custom / Ollama / vLLM endpoints returning 401** — symmetric bug.
+  Picking Custom set `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` but
+  left a stale `ANTHROPIC_API_KEY` in place; the SDK preferred
+  `x-api-key` over `Authorization: Bearer`, and bearer-only proxies
+  treated the request as anonymous.
+
+### Changed
+
+- New helper `ai_provider_env_unset()` returns the list of vars to clear
+  for the active provider:
+  - `anthropic` → `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`
+  - `custom` / `portkey` → `ANTHROPIC_API_KEY`
+- `ai_provider_env_exports()` now emits `unset X Y;` before the
+  `export`s, so even profile-re-exported vars are cleared.
+- All four spawn paths (local, remote terminal mode, remote SSH
+  headless, remote tail) updated to also call `cmd.env_remove()` on the
+  inherited env — belt-and-suspenders against profile-less subshells.
+
 ## [0.7.2] — 2026-06-05
 
 Catalog cleanup + protocol-card display fix on top of the v0.7.1 import
