@@ -1,0 +1,81 @@
+/* Operon brand palette — #FFBE98 (peach).
+ *
+ * Material's named-palette options don't cover this hue, so we override
+ * the CSS variables Material exposes. Both light ("default") and dark
+ * ("slate") schemes are themed.
+ *
+ * Peach is light, so on the light-mode primary header (the bar at the
+ * top), we use dark text. On dark-mode, peach becomes the accent color
+ * and the primary header stays peach with dark text.
+ */
+
+:root {
+  --operon-peach:        #FFBE98;
+  --operon-peach-light:  #FFD4BA;
+  --operon-peach-dark:   #E69A73;
+  --operon-peach-darker: #C97A55;
+}
+
+/* ---- LIGHT mode (default scheme) -------------------------------------- */
+
+[data-md-color-scheme="default"] {
+  /* Primary (header bar, tabs, sidebar active) */
+  --md-primary-fg-color:           var(--operon-peach);
+  --md-primary-fg-color--light:    var(--operon-peach-light);
+  --md-primary-fg-color--dark:     var(--operon-peach-dark);
+  /* Text/icon color on top of the primary background. Peach is light,
+     so we use near-black for contrast (AA on #FFBE98). */
+  --md-primary-bg-color:           #1a1a1a;
+  --md-primary-bg-color--light:    rgba(26, 26, 26, 0.7);
+
+  /* Accent (links, hover, focus). Use darker peach so it's readable on
+     a white page background. */
+  --md-accent-fg-color:            var(--operon-peach-darker);
+  --md-accent-fg-color--transparent: rgba(201, 122, 85, 0.1);
+
+  /* Code-block + inline-code "primary" color */
+  --md-code-hl-name-color:         var(--operon-peach-darker);
+}
+
+/* ---- DARK mode (slate scheme) ----------------------------------------- */
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:           var(--operon-peach);
+  --md-primary-fg-color--light:    var(--operon-peach-light);
+  --md-primary-fg-color--dark:     var(--operon-peach-dark);
+  /* Header text on the peach bar stays dark — same rationale as light. */
+  --md-primary-bg-color:           #1a1a1a;
+  --md-primary-bg-color--light:    rgba(26, 26, 26, 0.7);
+
+  /* On dark page background, peach itself is highly readable as accent. */
+  --md-accent-fg-color:            var(--operon-peach);
+  --md-accent-fg-color--transparent: rgba(255, 190, 152, 0.15);
+
+  /* Body links — peach against the slate background */
+  --md-typeset-a-color:            var(--operon-peach);
+}
+
+/* ---- Small visual nits ------------------------------------------------ */
+
+/* Tab indicator under the active top-level nav tab — make sure it's
+   visible against the peach header. */
+.md-tabs__link--active,
+.md-tabs__item--active > .md-tabs__link {
+  font-weight: 600;
+}
+
+/* Tabbed code blocks: active tab underlined in peach */
+.md-typeset .tabbed-set > input:checked + label {
+  border-color: var(--operon-peach-dark);
+  color: var(--operon-peach-darker);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .tabbed-set > input:checked + label {
+  color: var(--operon-peach);
+  border-color: var(--operon-peach);
+}
+
+/* Search bar focus ring */
+.md-search__input:focus {
+  outline-color: var(--operon-peach-dark);
+}

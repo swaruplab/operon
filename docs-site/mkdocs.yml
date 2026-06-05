@@ -14,15 +14,16 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      # Brand color overridden by assets/stylesheets/extra.css → #FFBE98 peach
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
@@ -89,6 +90,9 @@ markdown_extensions:
 
 plugins:
   - search
+
+extra_css:
+  - assets/stylesheets/extra.css
 
 nav:
   - Home: index.md
