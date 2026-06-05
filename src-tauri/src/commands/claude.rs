@@ -118,7 +118,10 @@ fn ai_provider_env(
                 ("ANTHROPIC_BASE_URL".to_string(), base_for_sdk),
                 ("ANTHROPIC_AUTH_TOKEN".to_string(), key.to_string()),
                 ("DISABLE_PROMPT_CACHING".to_string(), "1".to_string()),
-                ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(), "1".to_string()),
+                (
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
+                    "1".to_string(),
+                ),
                 ("MAX_THINKING_TOKENS".to_string(), "0".to_string()),
                 ("ANTHROPIC_BETAS".to_string(), String::new()),
             ];
@@ -223,8 +226,8 @@ fn is_profile_coreutil_warning(line: &str) -> bool {
     // Match the bash-error shape: "bash: ... : <util>: ..." where <util> is
     // a known coreutil that profiles commonly invoke before PATH is set up.
     const BENIGN_UTILS: &[&str] = &[
-        "id", "uname", "hostname", "tty", "stty", "tput", "stat", "uptime",
-        "whoami", "groups", "logname", "basename", "dirname",
+        "id", "uname", "hostname", "tty", "stty", "tput", "stat", "uptime", "whoami", "groups",
+        "logname", "basename", "dirname",
     ];
     let l = line.trim();
     // Two common shapes:
