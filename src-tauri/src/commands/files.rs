@@ -386,228 +386,304 @@ pub struct ProtocolEntry {
     pub category: String,    // auto-detected category for grouping
 }
 
-/// Auto-detect a protocol category from its id and content.
-/// Categories: database, pipeline, writing, visualization, integration, genomics,
-///             cheminformatics, ml_ai, statistics, tool, other
+/// Auto-detect a protocol category from its id.
+///
+/// Bio-first taxonomy designed for the 700+ bundled protocols (Operon
+/// originals + OpenClaw + bioSkills + SciAgent imports). Categories are
+/// ordered by specificity — first match wins. Catch-all is "other" but
+/// it should be small now.
 fn detect_category(id: &str, _content: &str) -> String {
     let id = id.to_lowercase();
+    let has = |s: &str| id.contains(s);
+    let starts = |s: &str| id.starts_with(s);
+    let eq = |s: &str| id == s;
 
-    // --- Databases & References (match first — very explicit naming) ---
-    if id.ends_with("-database")
-        || id.contains("database")
-        || id == "openalex-database"
-        || id == "depmap"
+    // --- Single-cell ----------------------------------------------------
+    if starts("single-cell-") || has("scrna") || has("scanpy") || eq("seurat")
+        || eq("anndata") || eq("scvelo") || has("scvi") || has("cellxgene")
+        || has("cellbender") || has("cellchat") || has("hdwgcna") || eq("mrvi")
+        || eq("resolvi") || has("singlecell") || has("kallisto") || has("lamindb")
+        || has("doublet") || has("lineage-tracing") || has("perturb-seq")
+        || has("cellagent") || has("cellfree-rna") || has("expression-matrix-")
+        || has("metabolite-communication") || has("bgpt-paper") || has("biokernel")
+        || eq("cell-free-expression") || eq("single-cellphone-db")
+        || eq("universal-single-cell-annotator") || starts("tooluniverse-single-cell")
+        || eq("differentiation-schemes")
     {
-        return "database".to_string();
+        return "single_cell".to_string();
     }
 
-    // --- Writing, Documents & Publishing ---
-    if id.contains("writing")
-        || id.contains("docx")
-        || id.contains("pptx")
-        || id.contains("xlsx")
-        || id.contains("pdf")
-        || id.contains("latex")
-        || id.contains("poster")
-        || id.contains("slide")
-        || id.contains("paper-2-web")
-        || id.contains("literature-review")
-        || id.contains("peer-review")
-        || id.contains("citation")
-        || id.contains("infographic")
-        || id.contains("venue-template")
-        || id.contains("markdown")
-        || id.contains("report")
-        || id.contains("research-grant")
-        || id.contains("scientific-writing")
-        || id.contains("scientific-slide")
-        || id.contains("scientific-schemat")
-        || id.contains("open-notebook")
-        || id.contains("clinical-report")
-        || id.contains("markitdown")
+    // --- Chromatin (ATAC, ChIP, Hi-C, motifs) ---------------------------
+    if starts("atac-seq-") || has("atacseq") || has("snapatac") || eq("archr")
+        || starts("chip-seq-") || has("chipseq") || starts("hi-c-analysis-")
+        || has("hi-c") || has("nucleosome") || has("footprint") || has("peak-calling")
+        || has("motif-") || has("super-enhancer") || has("chromatin")
+        || eq("deeptools")
     {
-        return "writing".to_string();
+        return "chromatin".to_string();
     }
 
-    // --- Visualization & Plotting ---
-    if id.contains("volcano")
-        || id.contains("plot")
-        || id.contains("heatmap")
-        || id.contains("visualization")
-        || id.contains("matplotlib")
-        || id.contains("seaborn")
-        || id.contains("plotly")
-        || id.contains("generate-image")
-        || id.contains("umap-learn")
+    // --- RNA biology (bulk RNA-seq, alt splicing, ribo-seq, small RNA) --
+    if starts("rna-quantification-") || starts("rna-structure-") || has("rnaseq")
+        || has("rna-seq") || has("differential-expression") || has("pydeseq")
+        || has("deseq2") || has("bulk-rna") || has("bulk-deg") || has("bulk-combat")
+        || has("bulk-trajblend") || has("bulk-wgcna") || has("bulk-to-single")
+        || has("bulk-stringdb") || starts("ribo-seq-") || has("riboseq")
+        || starts("alternative-splicing-") || has("isoform") || starts("small-rna-seq-")
+        || has("mirna") || starts("clip-seq-") || has("rna-protein") || has("transcript")
     {
-        return "visualization".to_string();
+        return "rna".to_string();
     }
 
-    // --- Lab Integrations & Platforms ---
-    if id.contains("integration")
-        || id.contains("latchbio")
-        || id.contains("benchling")
-        || id.contains("dnanexus")
-        || id.contains("omero")
-        || id.contains("opentrons")
-        || id.contains("ginkgo")
-        || id.contains("labarchive")
-        || id.contains("protocolsio")
-        || id.contains("pylabrobot")
-        || id.contains("rowan")
-        || id.contains("modal")
-        || id.contains("denario")
-        || id.contains("adaptyv")
+    // --- Spatial / imaging mass cytometry -------------------------------
+    if starts("spatial-transcriptomics-") || has("spatial-trans") || has("squidpy")
+        || eq("stellar-atlas") || has("imaging-mass") || has("xenium") || has("visium")
+        || has("merfish") || has("seqfish") || has("cosmx") || has("starmap")
+        || eq("single-to-spatial-mapping") || eq("spatial-tutorials")
+        || starts("tooluniverse-spatial")
     {
-        return "integration".to_string();
+        return "spatial".to_string();
     }
 
-    // --- Genomics & Omics Analysis Pipelines ---
-    if id.contains("pipeline")
-        || id.contains("seq-analysis")
-        || id.contains("rnaseq")
-        || id.contains("atacseq")
-        || id.contains("spatial-transcriptomics")
-        || id.contains("scrna")
-        || id.contains("bulk-rna")
-        || id.contains("scvelo")
-        || id.contains("gwas")
-        || id.contains("phylogenetic")
-        || id.contains("neuropixel")
-        || id.contains("metabolomics")
-        || id.contains("glycoengineering")
-        || id.contains("molecular-dynamics")
-        || id.contains("scanpy")
-        || id.contains("anndata")
-        || id.contains("pydeseq")
-        || id.contains("pysam")
-        || id.contains("scvi")
-        || id.contains("cellxgene")
-        || id.contains("lamindb")
-        || id.contains("scikit-bio")
-        || id.contains("deeptools")
-        || id.contains("flowio")
-        || id.contains("pathml")
-        || id.contains("histolab")
-        || id.contains("tiledbvcf")
-        || id.contains("gtars")
-        || id.contains("geniml")
-        || id.contains("polars-bio")
-        || id.contains("etetoolkit")
-        || id.contains("biopython")
-        || id.contains("bioservices")
-        || id.contains("gget")
-        || id.contains("pyopenms")
-        || id.contains("matchms")
-        || id.contains("arboreto")
-        || id.contains("neurokit")
-        || id.contains("pydicom")
-        || id.contains("imaging-data")
-        || id.contains("get-available-resources")
+    // --- Variants & population genetics ---------------------------------
+    if starts("variant-calling-") || has("variant-call") || starts("population-genetics-")
+        || starts("causal-genomics-") || starts("phasing-imputation-")
+        || starts("comparative-genomics-") || starts("temporal-genomics-")
+        || starts("epidemiological-genomics-") || starts("ecological-genomics-")
+        || has("gwas") || has("qtl-") || has("mendelian-random") || has("imputation")
+        || has("haplotype") || has("ancestry") || has("fine-mapping") || has("colocaliz")
+        || has("pleiotropy") || has("polygenic")
+        || eq("genome-compare") || eq("tcga-preprocessing")
     {
-        return "genomics".to_string();
+        return "population".to_string();
     }
 
-    // --- Cheminformatics & Drug Discovery ---
-    if id.contains("rdkit")
-        || id.contains("deepchem")
-        || id.contains("diffdock")
-        || id.contains("datamol")
-        || id.contains("molfeat")
-        || id.contains("medchem")
-        || id.contains("torchdrug")
-        || id.contains("esm")
-        || id.contains("alphafold")
-        || id.contains("dhdna")
-        || id.contains("pytdc")
-        || id.contains("primekg")
-        || id.contains("cobrapy")
-        || id.contains("pymatgen")
+    if starts("copy-number-") || has("cnv-")
+        || has("chromosomal-instability") || has("aneuploid")
     {
-        return "cheminformatics".to_string();
+        return "copy_number".to_string();
     }
 
-    // --- ML, AI & Quantum Computing ---
-    if id.contains("transformers")
-        || id.contains("pytorch")
-        || id.contains("torch-geometric")
-        || id.contains("scikit-learn")
-        || id.contains("stable-baselines")
-        || id.contains("pennylane")
-        || id.contains("qiskit")
-        || id.contains("qutip")
-        || id.contains("cirq")
-        || id.contains("shap")
-        || id.contains("pufferlib")
-        || id.contains("hypogenic")
-        || id.contains("timesfm")
-        || id.contains("aeon")
-        || id.contains("pymc")
-        || id.contains("scikit-survival")
+    // --- CRISPR / genome engineering ------------------------------------
+    if starts("crispr-screens-") || has("crispr") || has("sgrna") || has("bagel-")
+        || has("mageck") || has("base-editing") || has("prime-editing")
+        || starts("genome-engineering-") || starts("restriction-analysis-")
     {
-        return "ml_ai".to_string();
+        return "crispr".to_string();
     }
 
-    // --- Statistics & Data Science ---
-    if id.contains("statsmodels")
-        || id.contains("statistical")
-        || id.contains("polars")
-        || id.contains("dask")
-        || id.contains("vaex")
-        || id.contains("zarr")
-        || id.contains("sympy")
-        || id.contains("simpy")
-        || id.contains("pymoo")
-        || id.contains("networkx")
-        || id.contains("exploratory-data")
-        || id.contains("matlab")
-        || id.contains("geopandas")
-        || id.contains("fluidsim")
-        || id.contains("astropy")
-        || id.contains("geomaster")
+    // --- Liquid biopsy / cfDNA / ctDNA ---------------------------------
+    if has("liquid-biopsy") || has("cfdna") || has("ctdna") || has("circulating-dna")
+        || has("cellfree-dna") || starts("liquid-biopsy-")
     {
-        return "statistics".to_string();
+        return "liquid_biopsy".to_string();
     }
 
-    // --- Research & Reasoning ---
-    if id.contains("hypothesis")
-        || id.contains("brainstorming")
-        || id.contains("critical-thinking")
-        || id.contains("scholar-evaluation")
-        || id.contains("consciousness")
-        || id.contains("what-if")
-        || id.contains("research-lookup")
-        || id.contains("bgpt-paper")
-        || id.contains("perplexity-search")
-        || id.contains("parallel-web")
-        || id.contains("pyzotero")
+    // --- Immunology (TCR/BCR, antibody, vaccine, flow) ------------------
+    if starts("tcr-bcr-analysis-") || has("tcr-") || has("bcr-") || has("antibody")
+        || has("vaccine") || has("epitope") || starts("immunoinformatics-")
+        || has("mhc-") || has("hla-") || has("immune-")
     {
-        return "research".to_string();
+        return "immunology".to_string();
     }
 
-    // --- Clinical & Healthcare ---
-    if id.contains("clinical")
-        || id.contains("treatment")
-        || id.contains("pyhealth")
-        || id.contains("iso-13485")
+    if starts("flow-cytometry-") || eq("flowio") || has("cytometry")
+    {
+        return "cytometry".to_string();
+    }
+
+    // --- Microbiome / metagenomics --------------------------------------
+    if starts("microbiome-") || starts("metagenomics-") || has("metagenom")
+        || has("qiime") || has("dada2") || has("kraken") || has("metaphlan")
+        || has("16s-rrna")
+    {
+        return "microbiome".to_string();
+    }
+
+    // --- Epigenetics (methylation, m6A, etc.) ---------------------------
+    if starts("methylation-analysis-") || has("methylation") || has("bisulfite")
+        || starts("epitranscriptomics-") || has("epitranscript") || has("m6a")
+        || has("dnam-") || starts("tooluniverse-epigenomics")
+    {
+        return "epigenetics".to_string();
+    }
+
+    // --- Genome assembly / annotation / long-read -----------------------
+    if starts("genome-assembly-") || starts("genome-annotation-")
+        || starts("long-read-sequencing-") || has("nanopore") || has("hifi")
+        || has("pacbio") || has("oxford-nanopore") || has("assembly-")
+        || has("contig-") || has("scaffold")
+    {
+        return "genome_assembly".to_string();
+    }
+
+    if starts("genome-intervals-") || starts("sequence-io-") || starts("sequence-manipulation-")
+        || starts("alignment-files-") || starts("alignment-") || starts("read-alignment-")
+        || starts("read-qc-") || eq("biopython") || eq("bioservices") || eq("gget")
+        || eq("scikit-bio") || eq("pysam") || has("gtars") || has("geniml")
+        || has("polars-bio") || eq("etetoolkit") || has("bedtools")
+        || starts("primer-design") || eq("neurokit2") || eq("neuropixels-analysis")
+        || eq("tiledbvcf") || eq("get-available-resources") || eq("slurm-job-script-generator")
+        || eq("mesh-generation") || starts("tooluniverse-sequence")
+        || starts("tooluniverse-") && (has("retrieval") || has("interactions") || has("infectious"))
+    {
+        return "bio_tools".to_string();
+    }
+
+    // --- Phylogenetics --------------------------------------------------
+    if starts("phylogenetics-") || has("phylogen") || has("tree-of-life")
+    {
+        return "phylogenetics".to_string();
+    }
+
+    // --- Proteomics & structural biology --------------------------------
+    if starts("proteomics-") || has("proteomic") || has("alphafold") || has("esm-")
+        || eq("esm") || has("rosetta") || eq("boltz") || eq("boltzgen") || eq("chai")
+        || has("pdb-") || eq("uniprot-database") || has("antibody-design")
+        || has("bindcraft") || has("binder-design") || has("protein-structure")
+        || has("protein-engineering") || has("interpro") || starts("structural-biology-")
+        || has("cryo-em") || has("xray-crystal")
+        || starts("protein-") || eq("proteinmpnn") || eq("molecular-dynamics")
+        || eq("glycoengineering") || starts("tooluniverse-protein")
+        || starts("tooluniverse-binder")
+    {
+        return "proteomics_structure".to_string();
+    }
+
+    // --- Drug discovery / cheminformatics -------------------------------
+    if has("drug-discovery") || has("agentd-drug") || has("chemcrow") || has("chematagent")
+        || eq("rdkit") || eq("datamol") || eq("deepchem") || eq("diffdock")
+        || eq("molfeat") || eq("medchem") || eq("torchdrug") || has("chembl")
+        || has("admet") || has("docking") || eq("pytdc") || has("chemical-property")
+        || has("primekg") || has("dhdna") || has("toxicity-predict")
+        || starts("drug-") || starts("drugbank") || starts("modern-drug")
+        || starts("tooluniverse-drug") || starts("tooluniverse-chemical")
+        || starts("tooluniverse-network-pharmacology")
+    {
+        return "drug_discovery".to_string();
+    }
+
+    // --- Metabolomics / lipidomics --------------------------------------
+    if starts("metabolomics-") || has("metabolom") || eq("matchms") || has("hmdb")
+        || has("metabolite") || eq("pyopenms") || has("lipidom") || has("brenda")
+    {
+        return "metabolomics".to_string();
+    }
+
+    // --- Systems biology / pathways / networks --------------------------
+    if starts("pathway-analysis-") || starts("systems-biology-") || has("systems-biology")
+        || has("pathway") || eq("cobrapy") || has("reactome") || has("kegg")
+        || has("gene-regulatory") || has("grn-") || eq("arboreto") || has("network-analysis")
+        || has("regulon") || starts("tooluniverse-gene-enrichment")
+    {
+        return "systems_biology".to_string();
+    }
+
+    // --- Medical imaging ------------------------------------------------
+    if starts("medical-imaging-") || has("medical-imaging") || eq("pydicom")
+        || eq("histolab") || eq("pathml") || eq("imaging-data-commons")
+        || has("nnunet") || has("scikit-image") || has("whole-slide")
+        || has("histopath") || has("radiology")
+    {
+        return "medical_imaging".to_string();
+    }
+
+    // --- Clinical & healthcare -----------------------------------------
+    if has("clinical") || has("ehr-") || has("fhir") || has("treatment") || has("patient")
+        || has("oncology") || starts("clinical-biostatistics-") || has("autonomous-oncolog")
+        || has("cancer-metab") || has("tumor-") || has("chatehr") || has("claims-appeal")
+        || has("care-coordination") || has("ai-physician") || has("iso-13485")
+        || eq("pyhealth") || has("bone-marrow") || has("cellular-senescence")
+        || has("chip-clonal") || has("trialgpt") || has("clinical-trial")
+        || has("disease-") || has("clinpgx") || has("pharmacogenom")
+        || starts("medical-") || has("health-analyzer") || has("health-trend")
+        || starts("tooluniverse-cancer") || starts("tooluniverse-immunotherapy")
+        || starts("tooluniverse-infectious") || starts("tooluniverse-pharmacovig")
     {
         return "clinical".to_string();
     }
 
-    // --- Finance & Business ---
-    if id.contains("alpha-vantage")
-        || id.contains("hedgefund")
-        || id.contains("edgartools")
-        || id.contains("fred-economic")
-        || id.contains("usfiscaldata")
-        || id.contains("market-research")
-        || id.contains("datacommons")
+    // --- Lab automation / platforms -------------------------------------
+    if starts("lab-automation-") || has("benchling") || has("opentrons") || has("pylabrobot")
+        || has("protocolsio") || has("dnanexus") || has("latchbio") || has("labarchive")
+        || has("ginkgo") || has("omero") || eq("adaptyv") || eq("modal")
+        || has("integration") || eq("denario")
     {
-        return "finance".to_string();
+        return "lab_automation".to_string();
     }
 
-    // Catch-all: anything with "import " or "pip install" in content is likely a tool
-    // But we avoid reading content for performance with 180+ protocols
+    // --- Databases & references -----------------------------------------
+    if id.ends_with("-database") || has("database") || eq("depmap") || eq("openalex-database")
+        || eq("datacommons-client") || starts("database-access-") || has("ncbi-")
+        || has("ensembl") || has("uniprot") || has("clinvar") || has("gnomad")
+        || has("gtex") || has("string-database") || has("cbioportal")
+    {
+        return "databases".to_string();
+    }
+
+    // --- Writing / documents / publishing -------------------------------
+    if has("writing") || has("docx") || has("pptx") || has("xlsx") || has("pdf")
+        || has("latex") || has("poster") || has("slide") || has("paper-2")
+        || has("literature-review") || has("peer-review") || has("citation")
+        || has("infographic") || has("venue-template") || has("markdown")
+        || has("scientific-writing") || has("scientific-schemat") || has("open-notebook")
+        || has("markitdown") || has("research-grant") || has("clinical-report")
+        || starts("reporting-")
+    {
+        return "writing".to_string();
+    }
+
+    // --- Visualization & plotting ---------------------------------------
+    if has("volcano") || has("-plot") || has("heatmap") || has("visualization")
+        || eq("matplotlib") || eq("seaborn") || eq("plotly") || has("generate-image")
+        || eq("umap-learn") || has("dashboard") || starts("data-visualization-")
+    {
+        return "visualization".to_string();
+    }
+
+    // --- ML & scientific computing --------------------------------------
+    if starts("scientific-computing-") || has("transformers") || has("pytorch")
+        || has("torch-geometric") || has("scikit-learn") || has("jax-")
+        || has("numpyro") || has("hypogenic") || has("hypothesis-generation")
+        || has("bayesian-optim") || has("deep-learning") || has("neural-")
+        || starts("machine-learning-") || has("shap") || has("scikit-survival")
+        || has("pymc")
+    {
+        return "ml_compute".to_string();
+    }
+
+    // --- Statistics & data science --------------------------------------
+    if eq("statsmodels") || has("statistical-analysis") || has("polars") || eq("dask")
+        || eq("vaex") || has("zarr") || has("pymoo") || has("networkx")
+        || has("exploratory-data") || starts("biostatistics-") || has("survival-")
+        || eq("geopandas") || eq("matlab")
+    {
+        return "statistics".to_string();
+    }
+
+    // --- Research & reasoning -------------------------------------------
+    if has("hypothesis") || has("brainstorming") || has("critical-thinking")
+        || has("scholar-evaluation") || has("what-if") || has("research-lookup")
+        || has("perplexity") || has("parallel-web") || has("pyzotero")
+        || starts("experimental-design-") || has("ai-analyzer")
+    {
+        return "research".to_string();
+    }
+
+    // --- Multi-agent bio workflows (OpenClaw-style *-agent) -------------
+    if id.ends_with("-agent") || has("-agent-") || has("biomni") || has("biomaster")
+        || has("biomedical-search") || has("biomedical-data") || has("aav-vector")
+        || has("ai-physician") || has("biologist-analyst") || has("chemist-analyst")
+    {
+        return "bio_agents".to_string();
+    }
+
+    // Final catch-all for tooluniverse-* (any specific subroute already
+    // handled above; the rest land in bio_tools as a sensible default).
+    if starts("tooluniverse-") {
+        return "bio_tools".to_string();
+    }
+
     "other".to_string()
 }
 
@@ -636,30 +712,116 @@ fn id_to_display_name(id: &str) -> String {
 }
 
 /// Extract description: first non-empty, non-header line from the markdown.
-fn extract_description(content: &str) -> String {
-    for line in content.lines() {
+/// Parse YAML-style frontmatter at the top of a SKILL.md / PROTOCOL.md.
+/// Returns `(name, description)` if a `---` block is found with those keys.
+/// Many OpenClaw skills use this layout:
+///
+///   <!-- COPYRIGHT NOTICE ... -->
+///   ---
+///   name: biomni-general-agent
+///   description: …
+///   ---
+///   ## Body
+///
+/// Without frontmatter awareness, the legacy "first # heading" scan grabs the
+/// `# COPYRIGHT NOTICE` line *inside* the HTML comment as the protocol title.
+fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>) {
+    // Skip any HTML comment block(s) before the frontmatter.
+    let cursor = strip_leading_html_comments(content);
+    let mut lines = cursor.lines();
+    // First non-blank line must be `---`.
+    let first = match lines.by_ref().find(|l| !l.trim().is_empty()) {
+        Some(l) if l.trim() == "---" => l,
+        _ => return (None, None),
+    };
+    let _ = first;
+    let mut name = None;
+    let mut desc = None;
+    for line in lines {
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
+        if trimmed == "---" {
+            break;
+        }
+        if let Some(rest) = trimmed.strip_prefix("name:") {
+            name = Some(rest.trim().trim_matches(['"', '\'']).to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("description:") {
+            desc = Some(rest.trim().trim_matches(['"', '\'']).to_string());
+        }
+    }
+    (name, desc)
+}
+
+/// Return the slice of `content` after any leading whitespace-only lines and
+/// any leading HTML comment blocks (`<!-- … -->`). Used so frontmatter and
+/// heading scans don't accidentally consume copyright-header HTML comments.
+fn strip_leading_html_comments(content: &str) -> &str {
+    let mut s = content.trim_start();
+    while let Some(rest) = s.strip_prefix("<!--") {
+        if let Some(end) = rest.find("-->") {
+            s = rest[end + 3..].trim_start();
+        } else {
+            break;
+        }
+    }
+    s
+}
+
+/// First `# Heading` after any HTML-comment / frontmatter preamble.
+/// Returns None if no heading found.
+fn extract_first_heading(content: &str) -> Option<String> {
+    let mut s = strip_leading_html_comments(content);
+    // Skip a frontmatter block if present.
+    if s.trim_start().starts_with("---") {
+        if let Some(after_first) = s.trim_start().strip_prefix("---") {
+            if let Some(end) = after_first.find("\n---") {
+                s = &after_first[end + 4..];
+            }
+        }
+    }
+    s.lines()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with("# "))
+        .map(|l| l.trim_start_matches("# ").trim().to_string())
+}
+
+fn extract_description(content: &str) -> String {
+    // Try YAML frontmatter description first.
+    if let (_, Some(d)) = parse_frontmatter(content) {
+        if !d.is_empty() {
+            return truncate_120(&d);
+        }
+    }
+    // Fall back to first prose line after stripping HTML comments + frontmatter.
+    let mut s = strip_leading_html_comments(content);
+    if s.trim_start().starts_with("---") {
+        if let Some(after_first) = s.trim_start().strip_prefix("---") {
+            if let Some(end) = after_first.find("\n---") {
+                s = &after_first[end + 4..];
+            }
+        }
+    }
+    for line in s.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("<!--") {
             continue;
         }
         let clean = trimmed.trim_start_matches(['*', '_', '-', '>', ' ']);
         if !clean.is_empty() {
-            let desc = if clean.len() > 120 {
-                format!(
-                    "{}...",
-                    &clean[..clean
-                        .char_indices()
-                        .nth(120)
-                        .map(|(i, _)| i)
-                        .unwrap_or(clean.len())]
-                )
-            } else {
-                clean.to_string()
-            };
-            return desc;
+            return truncate_120(clean);
         }
     }
     "No description".to_string()
+}
+
+fn truncate_120(s: &str) -> String {
+    if s.len() > 120 {
+        format!(
+            "{}...",
+            &s[..s.char_indices().nth(120).map(|(i, _)| i).unwrap_or(s.len())]
+        )
+    } else {
+        s.to_string()
+    }
 }
 
 /// Count all files recursively in a directory.
@@ -729,10 +891,12 @@ fn scan_protocols_in_dir(
             seen_ids.insert(id.clone());
 
             let content = std::fs::read_to_string(&entry_point).unwrap_or_default();
-            let display_name = content
-                .lines()
-                .find(|l| l.starts_with("# "))
-                .map(|l| l.trim_start_matches("# ").trim().to_string())
+            // Title priority: YAML frontmatter `name:` → first `# heading`
+            // (after HTML-comment / frontmatter preamble) → id-derived label.
+            let (fm_name, _) = parse_frontmatter(&content);
+            let display_name = fm_name
+                .map(|n| id_to_display_name(&n))
+                .or_else(|| extract_first_heading(&content))
                 .unwrap_or_else(|| id_to_display_name(&id));
             let description = extract_description(&content);
             let file_count = count_files_recursive(&path);
@@ -760,10 +924,10 @@ fn scan_protocols_in_dir(
             seen_ids.insert(id.clone());
 
             let content = std::fs::read_to_string(&path).unwrap_or_default();
-            let display_name = content
-                .lines()
-                .find(|l| l.starts_with("# "))
-                .map(|l| l.trim_start_matches("# ").trim().to_string())
+            let (fm_name, _) = parse_frontmatter(&content);
+            let display_name = fm_name
+                .map(|n| id_to_display_name(&n))
+                .or_else(|| extract_first_heading(&content))
                 .unwrap_or_else(|| id_to_display_name(&id));
             let description = extract_description(&content);
 

@@ -4,6 +4,65 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] — 2026-06-05
+
+Catalog cleanup + protocol-card display fix on top of the v0.7.1 import
+batch. Net: 706 → 665 protocols, all bio/clinical/scientific-computing
+oriented, with proper titles + descriptions rendered from YAML frontmatter.
+
+### Removed
+
+- **41 protocols** with no bioinformatics connection, including:
+  - **geomaster** — geospatial / satellite imagery (Sentinel, Landsat, etc.)
+  - **Non-bio scientific computing** imports: `aeon`, `astropy-astronomy`,
+    `geopandas-geospatial`, `matlab-scientific-computing`, `pymatgen`
+    (materials), `pymoo` (generic optim), `simpy-discrete-event-simulation`,
+    `sympy-symbolic-math`, `uspto-database` (patents), `vaex-dataframes`
+  - **Originals also pure-generic**: `geopandas`, `matlab`, `uspto-database`,
+    `vaex`, `dask`, `polars`, `scikit-learn`, `networkx`, `pytorch-lightning`,
+    `torch-geometric`, `transformers`, `shap`, `zarr-python`, `modal`,
+    `pymc`, `statsmodels`, `pymoo`, `statistical-analysis`
+  - **Generic search / academic**: `openalex-database` (all-disciplines
+    scholarly DB — keep PubMed/bioRxiv instead), `perplexity-search`,
+    `scholar-evaluation`
+  - **Generic compute-host**: `modal`
+- **All large data bundles** inside imported skills (~12MB freed):
+  - `*/repo/src/db/chroma_squidpy_db/` (60MB vector DB shipped in two
+    spatial-transcriptomics skills — purged from both copies)
+  - `*/repo/dataset/` TREC corpora in `trialgpt-matching`
+  - `*/data/GPTCellType/datasets/` in `cellagent-annotation`
+  - `.gitignore` rule added so future protocol imports drop them automatically
+
+### Fixed
+
+- **Protocol cards rendering as "COPYRIGHT NOTICE"**
+  (`src-tauri/src/commands/files.rs`). OpenClaw skills begin with an HTML
+  comment block (`<!-- # COPYRIGHT NOTICE ... -->`) followed by YAML
+  frontmatter (`---\nname: …\ndescription: …\n---`). The legacy parser
+  picked the `# COPYRIGHT NOTICE` line *inside* the HTML comment as the
+  protocol title, and the literal `<!--` as the description. New parser:
+  - Strips leading HTML comments before scanning
+  - Reads YAML frontmatter `name` + `description` when present
+  - Falls back to first real `# heading` only after the preamble
+- **`detect_category`** rewritten with a bio-first taxonomy (`src-tauri/
+  src/commands/files.rs`) covering: single-cell, spatial, chromatin (ATAC/
+  ChIP/Hi-C), bulk RNA, CRISPR, cytometry, epigenetics, immunology,
+  microbiome, liquid biopsy, population/variants, copy number, genome
+  assembly, phylogenetics, sequence I/O, proteomics/structural, drug
+  discovery, metabolomics, systems biology, medical imaging, clinical,
+  lab automation, databases, bio agents, ML compute, statistics,
+  visualization, writing, research. "Other" went from ~400 protocols
+  (most of v0.7.1's catalog) to 0.
+
+### Changed
+
+- **Protocol category labels + icons** in `ProtocolsView.tsx` updated to
+  match the new bio-first taxonomy. 30 themed categories, best-first
+  ordering, lucide icons appropriate to each domain (Dna, Microscope,
+  Stethoscope, Atom, Pill, Bug, ScanLine, etc.).
+- **Help panel** "Bundled bioinformatics protocols" item updated to
+  reflect the new count (665) and curation criteria.
+
 ## [0.7.1] — 2026-06-05
 
 Protocol catalog overhaul. Removed non-bioinformatics protocols that had

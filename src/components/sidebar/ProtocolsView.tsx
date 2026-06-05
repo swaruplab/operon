@@ -33,6 +33,20 @@ import {
   DollarSign,
   Lightbulb,
   Download,
+  Microscope,
+  Pill,
+  Activity,
+  Network,
+  Image as ImageIcon,
+  Workflow,
+  Atom,
+  Globe,
+  Heart,
+  Shield,
+  Bug,
+  Telescope,
+  ScanLine,
+  Bot,
   Copy,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
@@ -77,26 +91,71 @@ type CreateTab = 'generate' | 'manual';
 type FilterTab = 'all' | 'user' | 'bundled';
 
 const CATEGORY_META: Record<string, { label: string; icon: typeof Database; color: string }> = {
-  genomics:        { label: 'Genomics & Omics',          icon: Dna,           color: 'text-green-600 dark:text-green-400' },
-  database:        { label: 'Databases & References',     icon: Database,      color: 'text-blue-600 dark:text-blue-400' },
-  cheminformatics: { label: 'Cheminformatics & Drug Discovery', icon: FlaskConical, color: 'text-pink-600 dark:text-pink-400' },
-  ml_ai:           { label: 'ML, AI & Quantum',           icon: Brain,         color: 'text-purple-600 dark:text-purple-400' },
-  visualization:   { label: 'Visualization & Plotting',   icon: BarChart3,     color: 'text-amber-600 dark:text-amber-400' },
-  writing:         { label: 'Writing & Documents',        icon: PenTool,       color: 'text-cyan-600 dark:text-cyan-400' },
-  statistics:      { label: 'Statistics & Data Science',  icon: TrendingUp,    color: 'text-orange-600 dark:text-orange-400' },
-  integration:     { label: 'Lab Platforms & Integrations', icon: Plug,         color: 'text-indigo-600 dark:text-indigo-400' },
-  research:        { label: 'Research & Reasoning',       icon: Lightbulb,     color: 'text-yellow-600 dark:text-yellow-400' },
-  clinical:        { label: 'Clinical & Healthcare',      icon: Stethoscope,   color: 'text-red-600 dark:text-red-400' },
-  finance:         { label: 'Finance & Business',         icon: DollarSign,    color: 'text-emerald-600 dark:text-emerald-400' },
-  pipeline:        { label: 'Pipelines',                  icon: GitBranch,     color: 'text-teal-600 dark:text-teal-400' },
-  tool:            { label: 'Tools & Packages',           icon: Package,       color: 'text-violet-600 dark:text-violet-400' },
-  other:           { label: 'Other',                      icon: Layers,        color: 'text-secondary' },
+  // Wet-lab data analysis (assay-specific) ─────────────────────────────
+  single_cell:         { label: 'Single-cell',                  icon: Dna,          color: 'text-green-600 dark:text-green-400' },
+  spatial:             { label: 'Spatial transcriptomics',      icon: Microscope,   color: 'text-emerald-600 dark:text-emerald-400' },
+  chromatin:           { label: 'Chromatin (ATAC, ChIP, Hi-C)', icon: Network,      color: 'text-teal-600 dark:text-teal-400' },
+  rna:                 { label: 'Bulk RNA & isoforms',          icon: Activity,     color: 'text-lime-600 dark:text-lime-400' },
+  crispr:              { label: 'CRISPR & genome engineering',  icon: Workflow,     color: 'text-yellow-600 dark:text-yellow-400' },
+  cytometry:           { label: 'Flow cytometry',               icon: ScanLine,     color: 'text-amber-600 dark:text-amber-400' },
+  epigenetics:         { label: 'Epigenetics & RNA mod.',       icon: Layers,       color: 'text-orange-600 dark:text-orange-400' },
+  immunology:          { label: 'Immunology (TCR/BCR, abx)',    icon: Shield,       color: 'text-rose-600 dark:text-rose-400' },
+  microbiome:          { label: 'Microbiome & metagenomics',    icon: Bug,          color: 'text-fuchsia-600 dark:text-fuchsia-400' },
+  liquid_biopsy:       { label: 'Liquid biopsy (cfDNA/ctDNA)',  icon: Heart,        color: 'text-pink-600 dark:text-pink-400' },
+  // Genomics broader ───────────────────────────────────────────────────
+  population:          { label: 'Variants & population gen.',   icon: Telescope,    color: 'text-sky-600 dark:text-sky-400' },
+  copy_number:         { label: 'Copy number',                  icon: BarChart3,    color: 'text-blue-600 dark:text-blue-400' },
+  genome_assembly:     { label: 'Genome assembly & long-read',  icon: GitBranch,    color: 'text-indigo-600 dark:text-indigo-400' },
+  phylogenetics:       { label: 'Phylogenetics',                icon: Network,      color: 'text-violet-600 dark:text-violet-400' },
+  bio_tools:           { label: 'Sequence I/O & alignment',     icon: Package,      color: 'text-purple-600 dark:text-purple-400' },
+  // Structural / chemical / pathways ──────────────────────────────────
+  proteomics_structure:{ label: 'Proteomics & structural bio',  icon: Atom,         color: 'text-cyan-600 dark:text-cyan-400' },
+  drug_discovery:      { label: 'Drug discovery & chem',        icon: Pill,         color: 'text-pink-700 dark:text-pink-300' },
+  metabolomics:        { label: 'Metabolomics',                 icon: FlaskConical, color: 'text-emerald-700 dark:text-emerald-300' },
+  systems_biology:     { label: 'Systems biology & pathways',   icon: Network,      color: 'text-blue-700 dark:text-blue-300' },
+  // Clinical ──────────────────────────────────────────────────────────
+  clinical:            { label: 'Clinical & healthcare',        icon: Stethoscope,  color: 'text-red-600 dark:text-red-400' },
+  medical_imaging:     { label: 'Medical imaging & pathology',  icon: ImageIcon,    color: 'text-red-700 dark:text-red-300' },
+  // Lab & data infrastructure ─────────────────────────────────────────
+  lab_automation:      { label: 'Lab automation & platforms',   icon: Plug,         color: 'text-indigo-700 dark:text-indigo-300' },
+  databases:           { label: 'Databases & references',       icon: Database,     color: 'text-blue-600 dark:text-blue-400' },
+  // Cross-cutting / agentic ───────────────────────────────────────────
+  bio_agents:          { label: 'Bio agents & multi-tool',      icon: Bot,          color: 'text-purple-700 dark:text-purple-300' },
+  ml_compute:          { label: 'ML & scientific computing',    icon: Brain,        color: 'text-purple-600 dark:text-purple-400' },
+  statistics:          { label: 'Statistics & data science',    icon: TrendingUp,   color: 'text-orange-600 dark:text-orange-400' },
+  visualization:       { label: 'Visualization & plotting',     icon: BarChart3,    color: 'text-amber-600 dark:text-amber-400' },
+  writing:             { label: 'Writing & documents',          icon: PenTool,      color: 'text-cyan-700 dark:text-cyan-300' },
+  research:            { label: 'Research & reasoning',         icon: Lightbulb,    color: 'text-yellow-600 dark:text-yellow-400' },
+  // Legacy slots — for any pre-existing protocol still tagged with these
+  finance:             { label: 'Finance & business',           icon: DollarSign,   color: 'text-emerald-600 dark:text-emerald-400' },
+  integration:         { label: 'Lab platforms & integrations', icon: Plug,         color: 'text-indigo-600 dark:text-indigo-400' },
+  genomics:            { label: 'Genomics & omics',             icon: Dna,          color: 'text-green-600 dark:text-green-400' },
+  cheminformatics:     { label: 'Cheminformatics',              icon: FlaskConical, color: 'text-pink-600 dark:text-pink-400' },
+  ml_ai:               { label: 'ML & AI',                      icon: Brain,        color: 'text-purple-600 dark:text-purple-400' },
+  pipeline:            { label: 'Pipelines',                    icon: GitBranch,    color: 'text-teal-600 dark:text-teal-400' },
+  tool:                { label: 'Tools & packages',             icon: Package,      color: 'text-violet-600 dark:text-violet-400' },
+  database:            { label: 'Databases & references',       icon: Database,     color: 'text-blue-600 dark:text-blue-400' },
+  other:               { label: 'Other',                        icon: Layers,       color: 'text-secondary' },
 };
 
 const CATEGORY_ORDER = [
-  'genomics', 'database', 'cheminformatics', 'ml_ai', 'visualization',
-  'writing', 'statistics', 'integration', 'research', 'clinical',
-  'finance', 'pipeline', 'tool', 'other',
+  // Wet-lab assays (most common starting points)
+  'single_cell', 'spatial', 'chromatin', 'rna', 'crispr',
+  'cytometry', 'epigenetics', 'immunology', 'microbiome', 'liquid_biopsy',
+  // Broader genomics
+  'population', 'copy_number', 'genome_assembly', 'phylogenetics', 'bio_tools',
+  // Structural & chemical
+  'proteomics_structure', 'drug_discovery', 'metabolomics', 'systems_biology',
+  // Clinical
+  'clinical', 'medical_imaging',
+  // Lab & data infrastructure
+  'lab_automation', 'databases',
+  // Cross-cutting / agentic
+  'bio_agents', 'ml_compute', 'statistics', 'visualization', 'writing', 'research',
+  // Legacy buckets (shown if any pre-existing protocol still uses them)
+  'genomics', 'cheminformatics', 'ml_ai', 'integration', 'pipeline', 'tool', 'database', 'finance',
+  // Fallback
+  'other',
 ];
 
 export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remotePath: remotePathProp }: ProtocolsViewProps) {

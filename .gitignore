@@ -73,3 +73,13 @@ memory/
 # Python bytecode caches inside bundled protocols
 __pycache__/
 *.pyc
+
+# Large data bundles inside imported protocol skill 'repo/' dirs — keep SKILL.md + scripts, drop datasets/vector-dbs
+protocols/*/repo/src/db/
+protocols/*/repo/dataset/
+src-tauri/protocols/*/repo/src/db/
+src-tauri/protocols/*/repo/dataset/
+
+# Specific large vector-DB + corpora that some upstream skills ship
+**/chroma_squidpy_db/
+**/data_level0.bin
