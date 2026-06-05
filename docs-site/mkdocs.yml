@@ -1,0 +1,141 @@
+site_name: Operon
+site_description: AI-powered IDE for bioinformatics — built by biologists, for biologists.
+site_url: https://swaruplab.github.io/operon/
+site_author: Swarup Lab, UC Irvine
+repo_url: https://github.com/swaruplab/operon
+repo_name: swaruplab/operon
+edit_uri: edit/cross-platform/docs-site/docs/
+copyright: Copyright © Swarup Lab, UC Irvine · MIT licensed
+
+theme:
+  name: material
+  logo: img/Logo-icon_Final.png
+  favicon: img/Logo-icon_Final.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/swaruplab/operon
+    - icon: fontawesome/solid/globe
+      link: https://swaruplab.bio.uci.edu/operon
+  generator: false
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - footnotes
+  - tables
+  - def_list
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Install:
+      - install/index.md
+      - macOS: install/macos.md
+      - Windows: install/windows.md
+      - Linux: install/linux.md
+      - Build from source: install/build-from-source.md
+  - Workspace:
+      - workspace/index.md
+      - File explorer: workspace/file-explorer.md
+      - Code editor: workspace/code-editor.md
+      - Integrated terminal: workspace/terminal.md
+      - Settings: workspace/settings.md
+      - Light & dark theme: workspace/theme.md
+      - Keyboard shortcuts: workspace/shortcuts.md
+      - Git integration: workspace/git.md
+  - AI:
+      - ai/index.md
+      - Four modes: ai/modes.md
+      - Providers (Anthropic / Portkey / Custom): ai/providers.md
+      - Private LLM stack: ai/private-llm.md
+      - PubMed integration: ai/pubmed.md
+      - MCP catalog: ai/mcp.md
+  - HPC:
+      - hpc/index.md
+      - SSH connections: hpc/ssh.md
+      - tmux sessions: hpc/tmux.md
+      - SLURM / PBS / SGE: hpc/slurm.md
+      - Architecture: hpc/architecture.md
+      - HPC gotchas: hpc/gotchas.md
+  - Protocols:
+      - protocols/index.md
+      - Browsing the catalog: protocols/browse.md
+      - Creating your own: protocols/custom.md
+  - Recipes:
+      - recipes/index.md
+      - PBMC scRNA-seq: recipes/scrna-pbmc.md
+      - Bulk RNA-seq with DESeq2: recipes/bulk-rnaseq-deseq2.md
+      - Spatial Visium: recipes/spatial-visium.md
+      - ATAC-seq peak calling: recipes/atacseq.md
+      - PubMed-grounded literature review: recipes/pubmed-review.md
+  - Reference:
+      - Architecture: architecture.md
+      - Troubleshooting: troubleshooting.md
+      - FAQ: faq.md
+      - Changelog: changelog.md
+      - Contributing: contributing.md
