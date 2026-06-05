@@ -102,7 +102,7 @@ export function AppShell() {
 
 
   return (
-    <div className="h-screen flex flex-col bg-zinc-950 text-zinc-50 select-none">
+    <div className="h-screen flex flex-col bg-canvas text-primary select-none">
       {/* Top Bar */}
       <TopBar onToggleSidebar={toggleSidebar} onToggleChat={toggleChat} onOpenSettings={() => setSettingsOpen(true)} onOpenHelp={() => setHelpOpen(true)} />
 
@@ -137,7 +137,7 @@ export function AppShell() {
               <Panel id="sidebar" defaultSize={20} minSize={15} maxSize={35} order={1}>
                 <Sidebar activeView={activeView} onViewChange={setActiveView} />
               </Panel>
-              <PanelResizeHandle className="w-[3px] bg-zinc-900 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150" />
+              <PanelResizeHandle className="w-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:w-[3px]" />
             </>
           )}
 
@@ -154,7 +154,7 @@ export function AppShell() {
               </Panel>
               {terminalVisible && (
                 <>
-                  <PanelResizeHandle className="h-[3px] bg-zinc-900 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150" />
+                  <PanelResizeHandle className="h-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:h-[3px]" />
                   <Panel id="terminal" defaultSize={35} minSize={10} order={2}>
                     <TerminalArea />
                   </Panel>
@@ -166,7 +166,7 @@ export function AppShell() {
           {/* Right Chat Panel */}
           {chatVisible && (
             <>
-              <PanelResizeHandle className="w-[3px] bg-zinc-900 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150" />
+              <PanelResizeHandle className="w-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:w-[3px]" />
               <Panel id="chat" defaultSize={30} minSize={20} maxSize={50} order={3}>
                 <ChatPanel />
               </Panel>

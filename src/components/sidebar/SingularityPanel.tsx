@@ -187,32 +187,32 @@ function SingularityPanelContent() {
   if (!singularityInstalled) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+          <div className="flex items-center gap-1.5 text-xs text-secondary">
             <HardDrive className="w-4 h-4" />
             <span className="font-medium">Singularity/Apptainer</span>
           </div>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center">
-          <AlertCircle className="w-8 h-8 text-zinc-600" />
+          <AlertCircle className="w-8 h-8 text-subtle" />
           <div>
-            <p className="text-sm font-medium text-zinc-300 mb-1">Singularity/Apptainer Not Installed</p>
-            <p className="text-xs text-zinc-500 mb-3">
+            <p className="text-sm font-medium text-secondary mb-1">Singularity/Apptainer Not Installed</p>
+            <p className="text-xs text-muted mb-3">
               Install Singularity or Apptainer to use this HPC container tool.
             </p>
-            <p className="text-xs text-zinc-500 mb-3">
+            <p className="text-xs text-muted mb-3">
               On HPC clusters, load the module:
             </p>
-            <code className="block text-xs bg-zinc-800/50 p-2 rounded text-zinc-400 mb-3 font-mono">
+            <code className="block text-xs bg-surface/50 p-2 rounded text-secondary mb-3 font-mono">
               module load singularity
             </code>
-            <p className="text-xs text-zinc-600 mb-3">Or install locally:</p>
-            <code className="block text-xs bg-zinc-800/50 p-2 rounded text-zinc-400 mb-3 font-mono">
+            <p className="text-xs text-subtle mb-3">Or install locally:</p>
+            <code className="block text-xs bg-surface/50 p-2 rounded text-secondary mb-3 font-mono">
               brew install apptainer
             </code>
             <button
               onClick={checkSingularity}
-              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 rounded transition-colors"
+              className="px-3 py-1.5 bg-surface hover:bg-elevated text-xs text-secondary rounded transition-colors"
             >
               Retry
             </button>
@@ -224,9 +224,9 @@ function SingularityPanelContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-          <HardDrive className="w-4 h-4 text-purple-400" />
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+        <div className="flex items-center gap-1.5 text-xs text-secondary">
+          <HardDrive className="w-4 h-4 text-purple-600 dark:text-purple-400" />
           <span className="font-medium">Singularity/Apptainer</span>
         </div>
         <button
@@ -234,7 +234,7 @@ function SingularityPanelContent() {
             if (activeTab === 'images') loadImages();
             if (activeTab === 'instances') loadInstances();
           }}
-          className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
           title="Refresh"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -242,20 +242,20 @@ function SingularityPanelContent() {
       </div>
 
       {error && (
-        <div className="mx-2 mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-xs text-red-300 flex items-start gap-2">
+        <div className="mx-2 mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Tab Buttons */}
-      <div className="flex border-b border-zinc-800 px-2 py-1 gap-1">
+      <div className="flex border-b border-border-default px-2 py-1 gap-1">
         <button
           onClick={() => setActiveTab('images')}
           className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition-colors ${
             activeTab === 'images'
-              ? 'bg-purple-900/40 text-purple-300'
-              : 'text-zinc-500 hover:text-zinc-400'
+              ? 'bg-purple-900/40 text-purple-700 dark:text-purple-300'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           <Box className="w-3.5 h-3.5" />
@@ -265,8 +265,8 @@ function SingularityPanelContent() {
           onClick={() => setActiveTab('instances')}
           className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition-colors ${
             activeTab === 'instances'
-              ? 'bg-purple-900/40 text-purple-300'
-              : 'text-zinc-500 hover:text-zinc-400'
+              ? 'bg-purple-900/40 text-purple-700 dark:text-purple-300'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           <Terminal className="w-3.5 h-3.5" />
@@ -277,7 +277,7 @@ function SingularityPanelContent() {
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
         {loading && (
-          <div className="flex items-center justify-center h-32 text-zinc-600">
+          <div className="flex items-center justify-center h-32 text-subtle">
             <Loader2 className="w-4 h-4 animate-spin mr-2" />
             Loading...
           </div>
@@ -287,19 +287,19 @@ function SingularityPanelContent() {
         {activeTab === 'images' && !loading && (
           <div className="p-2 space-y-2">
             {/* Search directory and pull controls */}
-            <div className="bg-zinc-800 rounded p-2 space-y-1">
-              <label className="block text-xs font-medium text-zinc-400">Search Directory:</label>
+            <div className="bg-surface rounded p-2 space-y-1">
+              <label className="block text-xs font-medium text-secondary">Search Directory:</label>
               <input
                 type="text"
                 value={searchDir}
                 onChange={(e) => setSearchDir(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && loadImages()}
                 placeholder="$HOME/.sif"
-                className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 placeholder:text-zinc-600"
+                className="w-full px-2 py-1 bg-panel border border-border-strong rounded text-xs text-secondary placeholder:text-subtle"
               />
               <button
                 onClick={loadImages}
-                className="w-full px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 rounded transition-colors"
+                className="w-full px-2 py-1 bg-elevated hover:bg-elevated text-xs text-secondary rounded transition-colors"
               >
                 Search
               </button>
@@ -309,25 +309,25 @@ function SingularityPanelContent() {
             {!showPullInput ? (
               <button
                 onClick={() => setShowPullInput(true)}
-                className="w-full flex items-center justify-center gap-2 px-2 py-2 bg-purple-900/30 hover:bg-purple-900/50 text-xs text-purple-300 rounded transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-2 py-2 bg-purple-900/30 hover:bg-purple-900/50 text-xs text-purple-700 dark:text-purple-300 rounded transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 Pull Image
               </button>
             ) : (
-              <div className="bg-zinc-800 rounded p-2 space-y-1">
+              <div className="bg-surface rounded p-2 space-y-1">
                 <input
                   type="text"
                   value={pullUri}
                   onChange={(e) => setPullUri(e.target.value)}
                   placeholder="docker://ubuntu:latest"
-                  className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-300 placeholder:text-zinc-600"
+                  className="w-full px-2 py-1 bg-panel border border-border-strong rounded text-xs text-secondary placeholder:text-subtle"
                 />
                 <div className="flex gap-1">
                   <button
                     onClick={handlePullImage}
                     disabled={actionLoading.has(`pull-${pullUri}`)}
-                    className="flex-1 px-2 py-1 bg-purple-900/40 hover:bg-purple-900/60 text-xs text-purple-300 rounded transition-colors disabled:opacity-50"
+                    className="flex-1 px-2 py-1 bg-purple-900/40 hover:bg-purple-900/60 text-xs text-purple-700 dark:text-purple-300 rounded transition-colors disabled:opacity-50"
                   >
                     {actionLoading.has(`pull-${pullUri}`) ? (
                       <Loader2 className="w-3 h-3 animate-spin mx-auto" />
@@ -340,7 +340,7 @@ function SingularityPanelContent() {
                       setShowPullInput(false);
                       setPullUri('');
                     }}
-                    className="flex-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 rounded transition-colors"
+                    className="flex-1 px-2 py-1 bg-elevated hover:bg-elevated text-xs text-secondary rounded transition-colors"
                   >
                     Cancel
                   </button>
@@ -350,24 +350,24 @@ function SingularityPanelContent() {
 
             {/* Images list */}
             {images.length === 0 ? (
-              <div className="text-center py-8 text-xs text-zinc-600">No .sif images found</div>
+              <div className="text-center py-8 text-xs text-subtle">No .sif images found</div>
             ) : (
               images.map((image) => (
-                <div key={image.path} className="bg-zinc-800 rounded p-2 space-y-1">
+                <div key={image.path} className="bg-surface rounded p-2 space-y-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-200 truncate">{image.name}</p>
-                      <p className="text-[10px] text-zinc-500">
+                      <p className="text-xs font-medium text-primary truncate">{image.name}</p>
+                      <p className="text-[10px] text-muted">
                         {image.size} · {image.modified}
                       </p>
-                      <p className="text-[10px] text-zinc-600 truncate font-mono">{image.path}</p>
+                      <p className="text-[10px] text-subtle truncate font-mono">{image.path}</p>
                     </div>
                   </div>
                   <div className="flex gap-1 pt-1">
                     <button
                       onClick={() => performImageAction(image.path, 'shell')}
                       disabled={actionLoading.has(`${image.path}-shell`)}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 rounded transition-colors disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-elevated hover:bg-elevated text-xs text-secondary rounded transition-colors disabled:opacity-50"
                       title="Shell"
                     >
                       {actionLoading.has(`${image.path}-shell`) ? (
@@ -380,7 +380,7 @@ function SingularityPanelContent() {
                     <button
                       onClick={() => performImageAction(image.path, 'run')}
                       disabled={actionLoading.has(`${image.path}-run`)}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-900/40 hover:bg-green-900/60 text-xs text-green-300 rounded transition-colors disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-900/40 hover:bg-green-900/60 text-xs text-green-700 dark:text-green-300 rounded transition-colors disabled:opacity-50"
                       title="Run"
                     >
                       {actionLoading.has(`${image.path}-run`) ? (
@@ -401,22 +401,22 @@ function SingularityPanelContent() {
         {activeTab === 'instances' && !loading && (
           <div className="p-2 space-y-1">
             {instances.length === 0 ? (
-              <div className="text-center py-8 text-xs text-zinc-600">No running instances</div>
+              <div className="text-center py-8 text-xs text-subtle">No running instances</div>
             ) : (
               instances.map((instance) => (
-                <div key={instance.name} className="bg-zinc-800 rounded p-2">
+                <div key={instance.name} className="bg-surface rounded p-2">
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-200 truncate">{instance.name}</p>
-                      <p className="text-[10px] text-zinc-500">PID: {instance.pid}</p>
-                      <p className="text-[10px] text-zinc-600 truncate font-mono">{instance.image}</p>
+                      <p className="text-xs font-medium text-primary truncate">{instance.name}</p>
+                      <p className="text-[10px] text-muted">PID: {instance.pid}</p>
+                      <p className="text-[10px] text-subtle truncate font-mono">{instance.image}</p>
                     </div>
                   </div>
                   <div className="flex gap-1 pt-1">
                     <button
                       onClick={() => performInstanceAction(instance.name, 'instance_stop')}
                       disabled={actionLoading.has(`${instance.name}-instance_stop`)}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-400 rounded transition-colors disabled:opacity-50"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-600 dark:text-red-400 rounded transition-colors disabled:opacity-50"
                       title="Stop"
                     >
                       {actionLoading.has(`${instance.name}-instance_stop`) ? (

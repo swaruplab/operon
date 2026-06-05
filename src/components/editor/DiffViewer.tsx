@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { DiffEditor } from '@monaco-editor/react';
-import { detectLanguage } from './CodeEditor';
+import { detectLanguage, monacoThemeNameFor } from './CodeEditor';
+import { useTheme } from '../../context/ThemeContext';
 
 interface DiffViewerProps {
   filePath: string;
@@ -18,23 +19,25 @@ export function DiffViewer({
   onReject,
 }: DiffViewerProps) {
   const [sideBySide, setSideBySide] = useState(true);
+  const { resolved } = useTheme();
+  const activeTheme = monacoThemeNameFor(resolved);
 
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800">
-        <span className="text-xs text-zinc-400 truncate">{filePath}</span>
+      <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default">
+        <span className="text-xs text-secondary truncate">{filePath}</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSideBySide((v) => !v)}
-            className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-0.5 rounded bg-zinc-800"
+            className="text-xs text-secondary hover:text-primary px-2 py-0.5 rounded bg-surface"
           >
             {sideBySide ? 'Inline' : 'Side by Side'}
           </button>
           {onReject && (
             <button
               onClick={onReject}
-              className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-zinc-800"
+              className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-700 px-2 py-0.5 rounded bg-surface"
             >
               Reject
             </button>
@@ -42,7 +45,7 @@ export function DiffViewer({
           {onAccept && (
             <button
               onClick={onAccept}
-              className="text-xs text-green-400 hover:text-green-300 px-2 py-0.5 rounded bg-zinc-800"
+              className="text-xs text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-700 px-2 py-0.5 rounded bg-surface"
             >
               Accept
             </button>
@@ -57,7 +60,7 @@ export function DiffViewer({
           original={original}
           modified={modified}
           language={detectLanguage(filePath)}
-          theme="operon-dark"
+          theme={activeTheme}
           options={{
             readOnly: true,
             renderSideBySide: sideBySide,

@@ -147,25 +147,25 @@ function DockerPanelContent() {
   if (!dockerInstalled) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+          <div className="flex items-center gap-1.5 text-xs text-secondary">
             <Container className="w-4 h-4" />
             <span className="font-medium">Docker</span>
           </div>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 text-center">
-          <AlertCircle className="w-8 h-8 text-zinc-600" />
+          <AlertCircle className="w-8 h-8 text-subtle" />
           <div>
-            <p className="text-sm font-medium text-zinc-300 mb-1">Docker Not Installed</p>
-            <p className="text-xs text-zinc-500 mb-3">
+            <p className="text-sm font-medium text-secondary mb-1">Docker Not Installed</p>
+            <p className="text-xs text-muted mb-3">
               Install Docker Desktop or Docker Engine to use this tool.
             </p>
-            <code className="block text-xs bg-zinc-800/50 p-2 rounded text-zinc-400 mb-3 font-mono">
+            <code className="block text-xs bg-surface/50 p-2 rounded text-secondary mb-3 font-mono">
               brew install docker
             </code>
             <button
               onClick={checkDocker}
-              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-300 rounded transition-colors"
+              className="px-3 py-1.5 bg-surface hover:bg-elevated text-xs text-secondary rounded transition-colors"
             >
               Retry
             </button>
@@ -177,9 +177,9 @@ function DockerPanelContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-          <Container className="w-4 h-4 text-blue-400" />
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+        <div className="flex items-center gap-1.5 text-xs text-secondary">
+          <Container className="w-4 h-4 text-blue-600 dark:text-blue-400" />
           <span className="font-medium">Docker</span>
         </div>
         <button
@@ -188,7 +188,7 @@ function DockerPanelContent() {
             if (activeTab === 'images') loadImages();
             if (activeTab === 'volumes') loadVolumes();
           }}
-          className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
           title="Refresh"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -196,20 +196,20 @@ function DockerPanelContent() {
       </div>
 
       {error && (
-        <div className="mx-2 mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-xs text-red-300 flex items-start gap-2">
+        <div className="mx-2 mt-2 p-2 bg-red-900/20 border border-red-700/30 rounded text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
       )}
 
       {/* Tab Buttons */}
-      <div className="flex border-b border-zinc-800 px-2 py-1 gap-1">
+      <div className="flex border-b border-border-default px-2 py-1 gap-1">
         <button
           onClick={() => setActiveTab('containers')}
           className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition-colors ${
             activeTab === 'containers'
-              ? 'bg-blue-900/40 text-blue-300'
-              : 'text-zinc-500 hover:text-zinc-400'
+              ? 'bg-blue-900/40 text-blue-700 dark:text-blue-300'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           <Container className="w-3.5 h-3.5" />
@@ -219,8 +219,8 @@ function DockerPanelContent() {
           onClick={() => setActiveTab('images')}
           className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition-colors ${
             activeTab === 'images'
-              ? 'bg-blue-900/40 text-blue-300'
-              : 'text-zinc-500 hover:text-zinc-400'
+              ? 'bg-blue-900/40 text-blue-700 dark:text-blue-300'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           <Box className="w-3.5 h-3.5" />
@@ -230,8 +230,8 @@ function DockerPanelContent() {
           onClick={() => setActiveTab('volumes')}
           className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded transition-colors ${
             activeTab === 'volumes'
-              ? 'bg-blue-900/40 text-blue-300'
-              : 'text-zinc-500 hover:text-zinc-400'
+              ? 'bg-blue-900/40 text-blue-700 dark:text-blue-300'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           <HardDrive className="w-3.5 h-3.5" />
@@ -242,7 +242,7 @@ function DockerPanelContent() {
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto">
         {loading && (
-          <div className="flex items-center justify-center h-32 text-zinc-600">
+          <div className="flex items-center justify-center h-32 text-subtle">
             <Loader2 className="w-4 h-4 animate-spin mr-2" />
             Loading...
           </div>
@@ -252,27 +252,27 @@ function DockerPanelContent() {
         {activeTab === 'containers' && !loading && (
           <div className="p-2 space-y-1">
             {containers.length === 0 ? (
-              <div className="text-center py-8 text-xs text-zinc-600">No containers</div>
+              <div className="text-center py-8 text-xs text-subtle">No containers</div>
             ) : (
               containers.map((container) => (
-                <div key={container.id} className="bg-zinc-800 rounded p-2 space-y-1">
+                <div key={container.id} className="bg-surface rounded p-2 space-y-1">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-200 truncate">{container.names}</p>
-                      <p className="text-[10px] text-zinc-500 truncate">{container.image}</p>
+                      <p className="text-xs font-medium text-primary truncate">{container.names}</p>
+                      <p className="text-[10px] text-muted truncate">{container.image}</p>
                     </div>
                     <span
                       className={`text-[10px] font-medium px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${
                         container.state === 'running'
-                          ? 'bg-green-900/40 text-green-300'
-                          : 'bg-zinc-700 text-zinc-400'
+                          ? 'bg-green-900/40 text-green-700 dark:text-green-300'
+                          : 'bg-elevated text-secondary'
                       }`}
                     >
                       {container.state}
                     </span>
                   </div>
                   {container.ports && (
-                    <p className="text-[10px] text-zinc-500 truncate">Ports: {container.ports}</p>
+                    <p className="text-[10px] text-muted truncate">Ports: {container.ports}</p>
                   )}
                   <div className="flex gap-1 pt-1">
                     {container.state === 'running' ? (
@@ -280,7 +280,7 @@ function DockerPanelContent() {
                         <button
                           onClick={() => performContainerAction(container.id, 'stop')}
                           disabled={actionLoading.has(`${container.id}-stop`)}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 rounded transition-colors disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-elevated hover:bg-elevated text-xs text-secondary rounded transition-colors disabled:opacity-50"
                           title="Stop"
                         >
                           {actionLoading.has(`${container.id}-stop`) ? (
@@ -293,7 +293,7 @@ function DockerPanelContent() {
                         <button
                           onClick={() => performContainerAction(container.id, 'logs')}
                           disabled={actionLoading.has(`${container.id}-logs`)}
-                          className="flex items-center justify-center px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-300 rounded transition-colors disabled:opacity-50"
+                          className="flex items-center justify-center px-2 py-1 bg-elevated hover:bg-elevated text-xs text-secondary rounded transition-colors disabled:opacity-50"
                           title="Logs"
                         >
                           {actionLoading.has(`${container.id}-logs`) ? (
@@ -307,7 +307,7 @@ function DockerPanelContent() {
                       <button
                         onClick={() => performContainerAction(container.id, 'start')}
                         disabled={actionLoading.has(`${container.id}-start`)}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-900/40 hover:bg-green-900/60 text-xs text-green-300 rounded transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-900/40 hover:bg-green-900/60 text-xs text-green-700 dark:text-green-300 rounded transition-colors disabled:opacity-50"
                         title="Start"
                       >
                         {actionLoading.has(`${container.id}-start`) ? (
@@ -321,7 +321,7 @@ function DockerPanelContent() {
                     <button
                       onClick={() => performContainerAction(container.id, 'remove')}
                       disabled={actionLoading.has(`${container.id}-remove`)}
-                      className="flex items-center justify-center px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-400 rounded transition-colors disabled:opacity-50"
+                      className="flex items-center justify-center px-2 py-1 bg-red-900/30 hover:bg-red-900/50 text-xs text-red-600 dark:text-red-400 rounded transition-colors disabled:opacity-50"
                       title="Remove"
                     >
                       {actionLoading.has(`${container.id}-remove`) ? (
@@ -341,16 +341,16 @@ function DockerPanelContent() {
         {activeTab === 'images' && !loading && (
           <div className="p-2 space-y-1">
             {images.length === 0 ? (
-              <div className="text-center py-8 text-xs text-zinc-600">No images</div>
+              <div className="text-center py-8 text-xs text-subtle">No images</div>
             ) : (
               images.map((image) => (
-                <div key={image.id} className="bg-zinc-800 rounded p-2">
+                <div key={image.id} className="bg-surface rounded p-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-zinc-200 truncate">
+                      <p className="text-xs font-medium text-primary truncate">
                         {image.repository}:{image.tag}
                       </p>
-                      <p className="text-[10px] text-zinc-500">
+                      <p className="text-[10px] text-muted">
                         {image.size} · {image.created}
                       </p>
                     </div>
@@ -365,13 +365,13 @@ function DockerPanelContent() {
         {activeTab === 'volumes' && !loading && (
           <div className="p-2 space-y-1">
             {volumes.length === 0 ? (
-              <div className="text-center py-8 text-xs text-zinc-600">No volumes</div>
+              <div className="text-center py-8 text-xs text-subtle">No volumes</div>
             ) : (
               volumes.map((volume) => (
-                <div key={volume.name} className="bg-zinc-800 rounded p-2">
-                  <p className="text-xs font-medium text-zinc-200 truncate">{volume.name}</p>
-                  <p className="text-[10px] text-zinc-500">{volume.driver}</p>
-                  <p className="text-[10px] text-zinc-600 truncate font-mono">{volume.mountpoint}</p>
+                <div key={volume.name} className="bg-surface rounded p-2">
+                  <p className="text-xs font-medium text-primary truncate">{volume.name}</p>
+                  <p className="text-[10px] text-muted">{volume.driver}</p>
+                  <p className="text-[10px] text-subtle truncate font-mono">{volume.mountpoint}</p>
                 </div>
               ))
             )}

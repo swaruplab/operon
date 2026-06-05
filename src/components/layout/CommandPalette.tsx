@@ -80,10 +80,10 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
       />
 
       {/* Palette */}
-      <div className="relative w-[560px] bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl shadow-black/50 overflow-hidden">
+      <div className="relative w-[560px] bg-panel rounded-xl border border-border-strong shadow-2xl shadow-black/50 overflow-hidden">
         {/* Search input */}
-        <div className="flex items-center px-4 border-b border-zinc-800">
-          <span className="text-zinc-500 text-sm mr-2">&gt;</span>
+        <div className="flex items-center px-4 border-b border-border-default">
+          <span className="text-muted text-sm mr-2">&gt;</span>
           <input
             ref={inputRef}
             type="text"
@@ -91,7 +91,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type a command..."
-            className="flex-1 py-3 bg-transparent text-zinc-50 text-sm outline-none placeholder:text-zinc-600"
+            className="flex-1 py-3 bg-transparent text-primary text-sm outline-none placeholder:text-subtle"
           />
         </div>
 
@@ -107,14 +107,14 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
               className={`
                 w-full flex items-center justify-between px-4 py-2 text-sm transition-colors
                 ${i === selectedIndex
-                  ? "bg-zinc-800 text-zinc-50"
-                  : "text-zinc-300 hover:bg-zinc-800/50"
+                  ? "bg-surface text-primary"
+                  : "text-secondary hover:bg-hover/50"
                 }
               `}
             >
               <span>{cmd.label}</span>
               {cmd.shortcut && (
-                <span className="text-[11px] text-zinc-500 font-mono bg-zinc-800 px-1.5 py-0.5 rounded">
+                <span className="text-[11px] text-muted font-mono bg-surface px-1.5 py-0.5 rounded">
                   {cmd.shortcut}
                 </span>
               )}
@@ -122,7 +122,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
           ))}
 
           {filtered.length === 0 && (
-            <div className="px-4 py-8 text-center text-zinc-600 text-sm">
+            <div className="px-4 py-8 text-center text-subtle text-sm">
               No matching commands
             </div>
           )}

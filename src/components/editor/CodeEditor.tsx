@@ -3,6 +3,7 @@ import { useRef, useCallback, useEffect } from 'react';
 import type { editor } from 'monaco-editor';
 import { useProject } from '../../context/ProjectContext';
 import { useLspAutoStart } from '../../hooks/useLspAutoStart';
+import { useTheme } from '../../context/ThemeContext';
 
 interface CodeEditorProps {
   filePath: string;
@@ -55,7 +56,7 @@ export function detectLanguage(filePath: string): string {
   return EXTENSION_MAP[ext] || 'plaintext';
 }
 
-// Define the theme inline so beforeMount can register it synchronously
+// Define both themes inline so beforeMount can register them synchronously.
 const OPERON_DARK_THEME: editor.IStandaloneThemeData = {
   base: 'vs-dark',
   inherit: true,
@@ -110,6 +111,67 @@ const OPERON_DARK_THEME: editor.IStandaloneThemeData = {
   },
 };
 
+// Light counterpart — darker hues for syntax (better contrast against white),
+// neutral grays for chrome that match the app's --canvas/--panel/--surface vars.
+const OPERON_LIGHT_THEME: editor.IStandaloneThemeData = {
+  base: 'vs',
+  inherit: true,
+  rules: [
+    { token: '', foreground: '18181b', background: 'fafafa' },
+    { token: 'comment', foreground: '71717a', fontStyle: 'italic' },
+    { token: 'keyword', foreground: '7c3aed' },           // violet-600
+    { token: 'keyword.control', foreground: '7c3aed' },
+    { token: 'string', foreground: '15803d' },            // green-700
+    { token: 'string.escape', foreground: '0e7490' },     // cyan-700
+    { token: 'number', foreground: 'c2410c' },            // orange-700
+    { token: 'type', foreground: '0369a1' },              // sky-700
+    { token: 'type.identifier', foreground: '0369a1' },
+    { token: 'function', foreground: '1d4ed8' },          // blue-700
+    { token: 'function.declaration', foreground: '1d4ed8' },
+    { token: 'variable', foreground: '18181b' },
+    { token: 'variable.predefined', foreground: 'be185d' }, // pink-700
+    { token: 'constant', foreground: 'c2410c' },
+    { token: 'tag', foreground: 'b91c1c' },               // red-700
+    { token: 'attribute.name', foreground: 'a16207' },    // yellow-700
+    { token: 'attribute.value', foreground: '15803d' },
+    { token: 'delimiter', foreground: '52525b' },
+    { token: 'operator', foreground: '52525b' },
+  ],
+  colors: {
+    'editor.background': '#fafafa',
+    'editor.foreground': '#18181b',
+    'editor.lineHighlightBackground': '#f4f4f5',
+    'editor.selectionBackground': '#d4d4d880',
+    'editor.inactiveSelectionBackground': '#d4d4d840',
+    'editorLineNumber.foreground': '#a1a1aa',
+    'editorLineNumber.activeForeground': '#52525b',
+    'editorCursor.foreground': '#18181b',
+    'editorIndentGuide.background': '#e4e4e7',
+    'editorIndentGuide.activeBackground': '#d4d4d8',
+    'editorBracketMatch.background': '#d4d4d860',
+    'editorBracketMatch.border': '#71717a',
+    'editor.findMatchBackground': '#eab30840',
+    'editor.findMatchHighlightBackground': '#eab30820',
+    'editorWidget.background': '#ffffff',
+    'editorWidget.border': '#e4e4e7',
+    'editorSuggestWidget.background': '#ffffff',
+    'editorSuggestWidget.border': '#e4e4e7',
+    'editorSuggestWidget.selectedBackground': '#e4e4e7',
+    'editorHoverWidget.background': '#ffffff',
+    'editorHoverWidget.border': '#e4e4e7',
+    'minimap.background': '#fafafa',
+    'scrollbar.shadow': '#00000000',
+    'scrollbarSlider.background': '#d4d4d880',
+    'scrollbarSlider.hoverBackground': '#a1a1aa80',
+    'scrollbarSlider.activeBackground': '#71717a80',
+  },
+};
+
+/** Public name of the currently-active Monaco theme — used by DiffViewer too. */
+export function monacoThemeNameFor(resolved: 'dark' | 'light'): string {
+  return resolved === 'light' ? 'operon-light' : 'operon-dark';
+}
+
 export function CodeEditor({
   filePath,
   content,
@@ -118,11 +180,14 @@ export function CodeEditor({
   onSave,
 }: CodeEditorProps) {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
   const { projectPath } = useProject();
+  const { resolved: themeMode } = useTheme();
   const languageId = detectLanguage(filePath);
   const isMarkdown = languageId === 'markdown';
+  const activeTheme = monacoThemeNameFor(themeMode);
 
   // Auto-start LSP server for this file's language
   const { sendDidChange } = useLspAutoStart({
@@ -132,18 +197,19 @@ export function CodeEditor({
     workspacePath: projectPath,
   });
 
-  // Register theme BEFORE Monaco creates the editor — this is synchronous
-  // and guarantees the theme exists when the editor instance is created.
+  // Register BOTH themes BEFORE Monaco creates the editor — synchronous, and
+  // guarantees whichever the user toggles to is already defined.
   const handleBeforeMount: BeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme('operon-dark', OPERON_DARK_THEME);
+    monaco.editor.defineTheme('operon-light', OPERON_LIGHT_THEME);
   }, []);
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editorRef.current = editor;
+      monacoRef.current = monaco;
 
-      // Ensure theme is applied (belt-and-suspenders)
-      monaco.editor.setTheme('operon-dark');
+      monaco.editor.setTheme(activeTheme);
 
       // Register Cmd+S to save — uses ref so the handler always calls the latest onSave
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -153,8 +219,15 @@ export function CodeEditor({
 
       editor.focus();
     },
-    [],
+    [activeTheme],
   );
+
+  // Re-apply theme when the global app theme flips. Monaco's setTheme is a
+  // module-level switch (affects all editor instances), but we still call
+  // here on each mount/change so a freshly-opened editor picks it up.
+  useEffect(() => {
+    monacoRef.current?.editor.setTheme(activeTheme);
+  }, [activeTheme]);
 
   const handleChange: OnChange = useCallback(
     (value) => {
@@ -194,12 +267,12 @@ export function CodeEditor({
       path={filePath}
       value={content}
       language={detectLanguage(filePath)}
-      theme="operon-dark"
+      theme={activeTheme}
       beforeMount={handleBeforeMount}
       onMount={handleMount}
       onChange={handleChange}
       loading={
-        <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+        <div className="h-full flex items-center justify-center text-muted text-sm">
           Loading editor...
         </div>
       }

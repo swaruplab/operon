@@ -237,6 +237,7 @@ tailwindcss ^3.4, vite ^6
 - **Phase 10** ✅ Plan Mode — `implementation_plan.md` generation and auto-detection, context injection, progress tracking with `[x]` markers
 - **Phase 11** ✅ UX Polish — Collapsible thinking blocks, stream deduplication, FileViewer (zoom/download/expand), Go-to-folder path bar (local + remote), auto-copy on terminal selection, settings button in TopBar, first-time setup wizard with dependency checks
 - **Phase 12** ✅ Robustness — Symlink-aware file listing (local + remote), SSH stderr warning filters, `--dangerously-skip-permissions` for headless execution, Unicode fix for bullet characters in JSX
+- **Phase 13** 🔜 Native Multi-Provider Agent Loop (~1-2 weeks) — Today the chat path is Claude Code (Anthropic Messages format) ± the bundled `anthropic-proxy-rs` sidecar (Anthropic→OpenAI Chat-Completions). This locks us out of: (a) OpenAI reasoning models (GPT-5+, o-series) which require `/v1/responses`, (b) any future API surface Claude Code doesn't natively speak. Phase 13 implements tool-use orchestration directly in Operon's Rust backend (the Edit/Write/Bash/Grep tool handlers already exist in `commands/files.rs` + `commands/terminal.rs`), with provider-specific request/response shapers for OpenAI Responses, Anthropic Messages, and Google Gemini. Unblocks first-class GPT-5+/o-series support (currently hidden in the Portkey UI — see `SettingsPanel.tsx` `groupedModels` filter), removes the proxy-translation surface for non-Claude models, and enables model-mixing within a single session
 
 ## Running the App
 

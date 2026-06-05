@@ -534,10 +534,10 @@ export function GitPanel() {
 
   if (!projectPath) {
     return (
-      <div className="flex flex-col h-full bg-zinc-900">
+      <div className="flex flex-col h-full bg-panel">
         <Header />
         <div className="flex-1 flex items-center justify-center px-4">
-          <p className="text-zinc-500 text-sm text-center">Open a project folder to use Git</p>
+          <p className="text-muted text-sm text-center">Open a project folder to use Git</p>
         </div>
       </div>
     );
@@ -545,10 +545,10 @@ export function GitPanel() {
 
   if (loading) {
     return (
-      <div className="flex flex-col h-full bg-zinc-900">
+      <div className="flex flex-col h-full bg-panel">
         <Header />
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+          <Loader2 className="w-5 h-5 text-muted animate-spin" />
         </div>
       </div>
     );
@@ -557,11 +557,11 @@ export function GitPanel() {
   // ── Not a git repo yet → offer to init ──
   if (!gitStatus?.is_repo) {
     return (
-      <div className="flex flex-col h-full bg-zinc-900">
+      <div className="flex flex-col h-full bg-panel">
         <Header onRefresh={refresh} />
         <div className="flex-1 flex flex-col items-center justify-center px-4 gap-4">
-          <GitBranch className="w-10 h-10 text-zinc-600" />
-          <p className="text-zinc-400 text-sm text-center">
+          <GitBranch className="w-10 h-10 text-subtle" />
+          <p className="text-secondary text-sm text-center">
             This folder isn't a Git repository yet.
           </p>
           <button
@@ -581,26 +581,26 @@ export function GitPanel() {
   const needsGhSetup = !ghAuth?.installed || !ghAuth?.authenticated || !gitStatus?.has_remote || changingRemote;
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900">
+    <div className="flex flex-col h-full bg-panel">
       <Header onRefresh={refresh} />
 
       <div className="flex-1 overflow-y-auto">
         {/* Branch info + switcher */}
-        <div className="px-3 py-2 border-b border-zinc-800/50">
+        <div className="px-3 py-2 border-b border-border-default/50">
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
                 setShowBranchPicker(!showBranchPicker);
               }}
-              className="flex items-center gap-1.5 hover:bg-zinc-800 rounded px-1.5 py-0.5 transition-colors"
+              className="flex items-center gap-1.5 hover:bg-hover rounded px-1.5 py-0.5 transition-colors"
               title="Switch branch"
             >
-              <GitBranch className="w-3.5 h-3.5 text-blue-400" />
-              <span className="text-sm text-zinc-200 font-medium">{gitStatus.branch || 'main'}</span>
-              <ChevronDown className="w-3 h-3 text-zinc-500" />
+              <GitBranch className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span className="text-sm text-primary font-medium">{gitStatus.branch || 'main'}</span>
+              <ChevronDown className="w-3 h-3 text-muted" />
             </button>
             {gitStatus.ahead > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-300">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 text-blue-700 dark:text-blue-300">
                 ↑{gitStatus.ahead}
               </span>
             )}
@@ -608,7 +608,7 @@ export function GitPanel() {
               <button
                 onClick={pullChanges}
                 disabled={pulling}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-900/40 text-orange-300 hover:bg-orange-800/50 transition-colors"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-orange-900/40 text-orange-700 dark:text-orange-300 hover:bg-orange-800/50 transition-colors"
                 title="Pull changes"
               >
                 {pulling ? <Loader2 className="w-3 h-3 animate-spin inline" /> : `↓${gitStatus.behind}`}
@@ -618,7 +618,7 @@ export function GitPanel() {
               <button
                 onClick={pullChanges}
                 disabled={pulling}
-                className="ml-auto p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="ml-auto p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
                 title="Pull from remote"
               >
                 {pulling ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowDownToLine className="w-3 h-3" />}
@@ -626,55 +626,55 @@ export function GitPanel() {
             )}
           </div>
           {gitStatus.last_commit_message && (
-            <p className="text-[11px] text-zinc-500 mt-1 truncate">
+            <p className="text-[11px] text-muted mt-1 truncate">
               {gitStatus.last_commit_message} · {gitStatus.last_commit_time}
             </p>
           )}
 
           {/* Branch picker dropdown */}
           {showBranchPicker && branchInfo && (
-            <div className="mt-2 bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden">
+            <div className="mt-2 bg-surface border border-border-strong rounded-lg overflow-hidden">
               <div className="max-h-52 overflow-y-auto">
                 {/* Local branches */}
                 {branchInfo.branches.length > 0 && (
                   <div className="px-2.5 pt-1.5 pb-0.5">
-                    <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Local</span>
+                    <span className="text-[9px] text-muted uppercase tracking-wider font-semibold">Local</span>
                   </div>
                 )}
                 {branchInfo.branches.map((b) => (
                   <button
                     key={`local-${b}`}
                     onClick={() => switchBranch(b)}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-zinc-700 transition-colors text-left ${
-                      b === branchInfo.current ? 'text-blue-300 bg-blue-900/20' : 'text-zinc-300'
+                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-elevated transition-colors text-left ${
+                      b === branchInfo.current ? 'text-blue-700 dark:text-blue-300 bg-blue-900/20' : 'text-secondary'
                     }`}
                   >
                     <GitBranch className="w-3 h-3 shrink-0" />
                     {b}
-                    {b === branchInfo.current && <CheckCircle2 className="w-3 h-3 text-blue-400 ml-auto" />}
+                    {b === branchInfo.current && <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-auto" />}
                   </button>
                 ))}
 
                 {/* Remote-only branches */}
                 {branchInfo.remote_branches.length > 0 && (
                   <>
-                    <div className="px-2.5 pt-2 pb-0.5 border-t border-zinc-700/50">
-                      <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Remote</span>
+                    <div className="px-2.5 pt-2 pb-0.5 border-t border-border-strong/50">
+                      <span className="text-[9px] text-muted uppercase tracking-wider font-semibold">Remote</span>
                     </div>
                     {branchInfo.remote_branches.map((b) => (
                       <button
                         key={`remote-${b}`}
                         onClick={() => switchBranch(b)}
-                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors text-left"
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-secondary hover:bg-elevated hover:text-primary transition-colors text-left"
                       >
-                        <Globe className="w-3 h-3 shrink-0 text-zinc-600" />
+                        <Globe className="w-3 h-3 shrink-0 text-subtle" />
                         {b}
                       </button>
                     ))}
                   </>
                 )}
               </div>
-              <div className="border-t border-zinc-700 p-2">
+              <div className="border-t border-border-strong p-2">
                 <div className="flex gap-1.5">
                   <input
                     type="text"
@@ -682,7 +682,7 @@ export function GitPanel() {
                     onChange={(e) => setNewBranchName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') createBranch(); }}
                     placeholder="New branch name..."
-                    className="flex-1 bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                    className="flex-1 bg-panel border border-border-strong rounded px-2 py-1 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-blue-500"
                   />
                   <button
                     onClick={createBranch}
@@ -699,11 +699,11 @@ export function GitPanel() {
 
         {/* GitHub setup guide */}
         {needsGhSetup && (
-          <div className="px-3 py-3 border-b border-zinc-800/50">
-            <div className="bg-zinc-800/60 rounded-lg p-3 space-y-3">
+          <div className="px-3 py-3 border-b border-border-default/50">
+            <div className="bg-surface/60 rounded-lg p-3 space-y-3">
               <div className="flex items-center gap-2">
-                <Github className="w-4 h-4 text-zinc-300" />
-                <span className="text-xs font-semibold text-zinc-300">Connect to GitHub</span>
+                <Github className="w-4 h-4 text-secondary" />
+                <span className="text-xs font-semibold text-secondary">Connect to GitHub</span>
               </div>
 
               {/* Step 1: Install gh CLI */}
@@ -717,7 +717,7 @@ export function GitPanel() {
                   <button
                     onClick={installGh}
                     disabled={ghSetupStep !== 'idle'}
-                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 rounded text-xs text-zinc-200 transition-colors"
+                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-elevated hover:bg-elevated disabled:opacity-50 rounded text-xs text-primary transition-colors"
                   >
                     {ghSetupStep === 'installing' ? (
                       <><Loader2 className="w-3 h-3 animate-spin" /> Installing...</>
@@ -739,7 +739,7 @@ export function GitPanel() {
                   <button
                     onClick={loginGh}
                     disabled={ghSetupStep !== 'idle'}
-                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 rounded text-xs text-zinc-200 transition-colors"
+                    className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-elevated hover:bg-elevated disabled:opacity-50 rounded text-xs text-primary transition-colors"
                   >
                     {ghSetupStep === 'logging-in' ? (
                       <><Loader2 className="w-3 h-3 animate-spin" /> Starting...</>
@@ -750,9 +750,9 @@ export function GitPanel() {
                 )}
                 {loginCode && (
                   <div className="mt-2 space-y-2">
-                    <p className="text-[11px] text-zinc-400">Enter this code on GitHub:</p>
+                    <p className="text-[11px] text-secondary">Enter this code on GitHub:</p>
                     <div
-                      className="flex items-center justify-center gap-2 py-2.5 px-3 bg-zinc-800 border border-zinc-600 rounded-lg cursor-pointer hover:border-zinc-500 transition-colors"
+                      className="flex items-center justify-center gap-2 py-2.5 px-3 bg-surface border border-border-strong rounded-lg cursor-pointer hover:border-border-strong transition-colors"
                       onClick={() => {
                         navigator.clipboard.writeText(loginCode);
                         setStatusMessage({ type: 'success', text: 'Code copied to clipboard!' });
@@ -761,15 +761,15 @@ export function GitPanel() {
                     >
                       <span className="text-xl font-mono font-bold text-white tracking-[0.25em]">{loginCode}</span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 text-center">Click the code to copy · Complete sign-in in your browser</p>
-                    <div className="flex items-center justify-center gap-1.5 text-[11px] text-blue-400">
+                    <p className="text-[10px] text-muted text-center">Click the code to copy · Complete sign-in in your browser</p>
+                    <div className="flex items-center justify-center gap-1.5 text-[11px] text-blue-600 dark:text-blue-400">
                       <Loader2 className="w-3 h-3 animate-spin" />
                       Waiting for authorization...
                     </div>
                   </div>
                 )}
                 {ghAuth?.authenticated && ghAuth.username && (
-                  <p className="text-[11px] text-green-400 mt-1">Signed in as @{ghAuth.username}</p>
+                  <p className="text-[11px] text-green-600 dark:text-green-400 mt-1">Signed in as @{ghAuth.username}</p>
                 )}
               </SetupStep>
 
@@ -783,13 +783,13 @@ export function GitPanel() {
                 {ghAuth?.authenticated && (!gitStatus.has_remote || changingRemote) && (
                   <div className="mt-2 space-y-3">
                     {/* Mode toggle: New vs Existing */}
-                    <div className="flex border border-zinc-600 rounded-lg overflow-hidden">
+                    <div className="flex border border-border-strong rounded-lg overflow-hidden">
                       <button
                         onClick={() => setRepoMode('new')}
                         className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium transition-colors ${
                           repoMode === 'new'
                             ? 'bg-green-700 text-white'
-                            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                            : 'bg-surface text-secondary hover:text-primary'
                         }`}
                       >
                         <Plus className="w-3 h-3" />
@@ -803,7 +803,7 @@ export function GitPanel() {
                         className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] font-medium transition-colors ${
                           repoMode === 'existing'
                             ? 'bg-blue-700 text-white'
-                            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                            : 'bg-surface text-secondary hover:text-primary'
                         }`}
                       >
                         <Link2 className="w-3 h-3" />
@@ -819,14 +819,14 @@ export function GitPanel() {
                           value={newRepoName}
                           onChange={(e) => setNewRepoName(e.target.value)}
                           placeholder="Repository name"
-                          className="w-full bg-zinc-900 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-green-500"
+                          className="w-full bg-panel border border-border-strong rounded-lg px-2.5 py-1.5 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-green-500"
                         />
                         <input
                           type="text"
                           value={newRepoDescription}
                           onChange={(e) => setNewRepoDescription(e.target.value)}
                           placeholder="Description (optional)"
-                          className="w-full bg-zinc-900 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-green-500"
+                          className="w-full bg-panel border border-border-strong rounded-lg px-2.5 py-1.5 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-green-500"
                         />
 
                         {/* Visibility toggle */}
@@ -835,8 +835,8 @@ export function GitPanel() {
                             onClick={() => setNewRepoPrivate(true)}
                             className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
                               newRepoPrivate
-                                ? 'border-amber-600 bg-amber-900/30 text-amber-300'
-                                : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'
+                                ? 'border-amber-600 bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                : 'border-border-strong bg-surface text-secondary hover:border-border-strong'
                             }`}
                           >
                             <Lock className="w-3 h-3" />
@@ -846,8 +846,8 @@ export function GitPanel() {
                             onClick={() => setNewRepoPrivate(false)}
                             className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
                               !newRepoPrivate
-                                ? 'border-green-600 bg-green-900/30 text-green-300'
-                                : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'
+                                ? 'border-green-600 bg-green-900/30 text-green-700 dark:text-green-300'
+                                : 'border-border-strong bg-surface text-secondary hover:border-border-strong'
                             }`}
                           >
                             <Globe className="w-3 h-3" />
@@ -874,23 +874,23 @@ export function GitPanel() {
                       <div className="space-y-2">
                         {loadingRepos ? (
                           <div className="flex items-center justify-center py-4">
-                            <Loader2 className="w-4 h-4 text-zinc-500 animate-spin" />
+                            <Loader2 className="w-4 h-4 text-muted animate-spin" />
                           </div>
                         ) : (
                           <>
                             <div className="relative">
-                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-subtle" />
                               <input
                                 type="text"
                                 value={existingRepoSearch}
                                 onChange={(e) => setExistingRepoSearch(e.target.value)}
                                 placeholder="Search your repos..."
-                                className="w-full bg-zinc-900 border border-zinc-600 rounded-lg pl-7 pr-2.5 py-1.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                                className="w-full bg-panel border border-border-strong rounded-lg pl-7 pr-2.5 py-1.5 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-blue-500"
                               />
                             </div>
-                            <div className="max-h-40 overflow-y-auto border border-zinc-700 rounded-lg">
+                            <div className="max-h-40 overflow-y-auto border border-border-strong rounded-lg">
                               {filteredRepos.length === 0 ? (
-                                <p className="text-[11px] text-zinc-600 py-3 text-center">
+                                <p className="text-[11px] text-subtle py-3 text-center">
                                   {existingRepos.length === 0 ? 'No repos found' : 'No matches'}
                                 </p>
                               ) : (
@@ -898,27 +898,27 @@ export function GitPanel() {
                                   <button
                                     key={r.full_name}
                                     onClick={() => setSelectedRepo(r)}
-                                    className={`w-full flex items-start gap-2 px-2.5 py-1.5 text-left hover:bg-zinc-800 transition-colors border-b border-zinc-800/50 last:border-b-0 ${
+                                    className={`w-full flex items-start gap-2 px-2.5 py-1.5 text-left hover:bg-hover transition-colors border-b border-border-default/50 last:border-b-0 ${
                                       selectedRepo?.full_name === r.full_name ? 'bg-blue-900/30' : ''
                                     }`}
                                   >
                                     {r.private ? (
-                                      <Lock className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
+                                      <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                                     ) : (
-                                      <Globe className="w-3 h-3 text-green-400 mt-0.5 shrink-0" />
+                                      <Globe className="w-3 h-3 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
                                     )}
                                     <div className="min-w-0">
-                                      <span className="text-[11px] text-zinc-200 font-medium block truncate">
+                                      <span className="text-[11px] text-primary font-medium block truncate">
                                         {r.full_name}
                                       </span>
                                       {r.description && (
-                                        <span className="text-[10px] text-zinc-500 block truncate">
+                                        <span className="text-[10px] text-muted block truncate">
                                           {r.description}
                                         </span>
                                       )}
                                     </div>
                                     {selectedRepo?.full_name === r.full_name && (
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 ml-auto mt-0.5 shrink-0" />
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 ml-auto mt-0.5 shrink-0" />
                                     )}
                                   </button>
                                 ))
@@ -943,18 +943,18 @@ export function GitPanel() {
                   </div>
                 )}
                 {gitStatus.has_remote && !changingRemote && (
-                  <p className="text-[11px] text-zinc-500 mt-1 truncate" title={gitStatus.remote_url}>
+                  <p className="text-[11px] text-muted mt-1 truncate" title={gitStatus.remote_url}>
                     {gitStatus.remote_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}
                   </p>
                 )}
                 {changingRemote && (
                   <div className="mt-2 flex items-center gap-2">
-                    <p className="text-[10px] text-zinc-500 flex-1">
-                      Current: <span className="text-zinc-400">{gitStatus.remote_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}</span>
+                    <p className="text-[10px] text-muted flex-1">
+                      Current: <span className="text-secondary">{gitStatus.remote_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}</span>
                     </p>
                     <button
                       onClick={() => setChangingRemote(false)}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-300 underline"
+                      className="text-[10px] text-muted hover:text-secondary underline"
                     >
                       Cancel
                     </button>
@@ -967,13 +967,13 @@ export function GitPanel() {
 
         {/* Connected status */}
         {ghAuth?.authenticated && gitStatus.has_remote && !changingRemote && (
-          <div className="px-3 py-2 border-b border-zinc-800/50">
+          <div className="px-3 py-2 border-b border-border-default/50">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-              <span className="text-[11px] text-green-400 shrink-0">
+              <span className="text-[11px] text-green-600 dark:text-green-400 shrink-0">
                 Connected · @{ghAuth.username}
               </span>
-              <span className="text-[10px] text-zinc-600 truncate flex-1 text-right" title={gitStatus.remote_url}>
+              <span className="text-[10px] text-subtle truncate flex-1 text-right" title={gitStatus.remote_url}>
                 {gitStatus.remote_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}
               </span>
               <a
@@ -985,7 +985,7 @@ export function GitPanel() {
                     window.open(url, '_blank');
                   }
                 }}
-              className="text-zinc-500 hover:text-zinc-300 shrink-0"
+              className="text-muted hover:text-secondary shrink-0"
               title="Open on GitHub"
             >
               <ExternalLink className="w-3 h-3" />
@@ -996,7 +996,7 @@ export function GitPanel() {
                 setChangingRemote(true);
                 if (existingRepos.length === 0) loadExistingRepos();
               }}
-              className="mt-1.5 text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+              className="mt-1.5 text-[10px] text-muted hover:text-blue-700 dark:hover:text-blue-600 transition-colors"
             >
               Change repository...
             </button>
@@ -1004,21 +1004,21 @@ export function GitPanel() {
         )}
 
         {/* Changes list — file-level staging */}
-        <div className="border-b border-zinc-800/50">
+        <div className="border-b border-border-default/50">
           <button
             onClick={() => setChangesExpanded((v) => !v)}
-            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-zinc-800/40 transition-colors"
+            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-hover/40 transition-colors"
           >
             {changesExpanded ? (
-              <ChevronDown className="w-3 h-3 text-zinc-500" />
+              <ChevronDown className="w-3 h-3 text-muted" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-zinc-500" />
+              <ChevronRight className="w-3 h-3 text-muted" />
             )}
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+            <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
               Changes
             </span>
             {totalChanges > 0 && (
-              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-300 font-medium">
+              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium">
                 {totalChanges}
               </span>
             )}
@@ -1027,7 +1027,7 @@ export function GitPanel() {
           {changesExpanded && (
             <div className="pb-1">
               {changedFiles.length === 0 ? (
-                <p className="text-[11px] text-zinc-600 py-2 px-3">No changes</p>
+                <p className="text-[11px] text-subtle py-2 px-3">No changes</p>
               ) : (
                 <>
                   {/* Staged files */}
@@ -1037,7 +1037,7 @@ export function GitPanel() {
                         <span className="text-[9px] text-green-500 uppercase tracking-wider font-semibold">
                           Staged ({stagedFiles.length})
                         </span>
-                        <button onClick={unstageAll} className="text-[9px] text-zinc-500 hover:text-zinc-300" title="Unstage all">
+                        <button onClick={unstageAll} className="text-[9px] text-muted hover:text-secondary" title="Unstage all">
                           <MinusCircle className="w-3 h-3" />
                         </button>
                       </div>
@@ -1054,7 +1054,7 @@ export function GitPanel() {
                         <span className="text-[9px] text-yellow-500 uppercase tracking-wider font-semibold">
                           Changes ({unstagedFiles.length})
                         </span>
-                        <button onClick={stageAll} className="text-[9px] text-zinc-500 hover:text-zinc-300" title="Stage all">
+                        <button onClick={stageAll} className="text-[9px] text-muted hover:text-secondary" title="Stage all">
                           <PlusCircle className="w-3 h-3" />
                         </button>
                       </div>
@@ -1070,16 +1070,16 @@ export function GitPanel() {
         </div>
 
         {/* Stash section */}
-        <div className="border-b border-zinc-800/50">
+        <div className="border-b border-border-default/50">
           <button
             onClick={() => { setShowStash(!showStash); if (!showStash) loadStashes(); }}
-            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-zinc-800/40 transition-colors"
+            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-hover/40 transition-colors"
           >
-            {showStash ? <ChevronDown className="w-3 h-3 text-zinc-500" /> : <ChevronRight className="w-3 h-3 text-zinc-500" />}
-            <Archive className="w-3 h-3 text-zinc-500" />
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Stash</span>
+            {showStash ? <ChevronDown className="w-3 h-3 text-muted" /> : <ChevronRight className="w-3 h-3 text-muted" />}
+            <Archive className="w-3 h-3 text-muted" />
+            <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">Stash</span>
             {stashes.length > 0 && (
-              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-700 text-zinc-400 font-medium">{stashes.length}</span>
+              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-elevated text-secondary font-medium">{stashes.length}</span>
             )}
           </button>
           {showStash && (
@@ -1092,11 +1092,11 @@ export function GitPanel() {
                     onChange={(e) => setStashMessage(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveStash(); }}
                     placeholder="Stash message (optional)..."
-                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                    className="flex-1 bg-panel border border-border-strong rounded px-2 py-1 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-blue-500"
                   />
                   <button
                     onClick={saveStash}
-                    className="px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded text-[11px] text-zinc-200 transition-colors"
+                    className="px-2 py-1 bg-elevated hover:bg-elevated rounded text-[11px] text-primary transition-colors"
                     title="Stash changes"
                   >
                     <Archive className="w-3 h-3" />
@@ -1104,18 +1104,18 @@ export function GitPanel() {
                 </div>
               )}
               {stashes.length === 0 ? (
-                <p className="text-[10px] text-zinc-600">No stashed changes</p>
+                <p className="text-[10px] text-subtle">No stashed changes</p>
               ) : (
                 stashes.map((s) => (
                   <div key={s.index} className="flex items-center gap-2 py-1 group">
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-zinc-300 truncate">{s.message}</p>
-                      <p className="text-[9px] text-zinc-600">{s.date}</p>
+                      <p className="text-[11px] text-secondary truncate">{s.message}</p>
+                      <p className="text-[9px] text-subtle">{s.date}</p>
                     </div>
-                    <button onClick={() => popStash(s.index)} className="p-0.5 text-zinc-600 hover:text-green-400 opacity-0 group-hover:opacity-100 transition-all" title="Apply stash">
+                    <button onClick={() => popStash(s.index)} className="p-0.5 text-subtle hover:text-green-700 dark:hover:text-green-600 opacity-0 group-hover:opacity-100 transition-all" title="Apply stash">
                       <ArchiveRestore className="w-3 h-3" />
                     </button>
-                    <button onClick={() => dropStash(s.index)} className="p-0.5 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all" title="Drop stash">
+                    <button onClick={() => dropStash(s.index)} className="p-0.5 text-subtle hover:text-red-700 dark:hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all" title="Drop stash">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
@@ -1126,46 +1126,46 @@ export function GitPanel() {
         </div>
 
         {/* Commit history */}
-        <div className="border-b border-zinc-800/50">
+        <div className="border-b border-border-default/50">
           <button
             onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); }}
-            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-zinc-800/40 transition-colors"
+            className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-hover/40 transition-colors"
           >
-            {showHistory ? <ChevronDown className="w-3 h-3 text-zinc-500" /> : <ChevronRight className="w-3 h-3 text-zinc-500" />}
-            <History className="w-3 h-3 text-zinc-500" />
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">History</span>
+            {showHistory ? <ChevronDown className="w-3 h-3 text-muted" /> : <ChevronRight className="w-3 h-3 text-muted" />}
+            <History className="w-3 h-3 text-muted" />
+            <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">History</span>
           </button>
           {showHistory && (
             <div className="pb-1 max-h-60 overflow-y-auto">
               {commits.length === 0 ? (
-                <p className="text-[10px] text-zinc-600 px-3 py-2">No commits yet</p>
+                <p className="text-[10px] text-subtle px-3 py-2">No commits yet</p>
               ) : (
                 commits.map((c) => (
                   <div key={c.hash}>
                     <button
                       onClick={() => viewCommit(c.hash)}
-                      className={`w-full flex items-start gap-2 px-3 py-1.5 text-left hover:bg-zinc-800/40 transition-colors ${
-                        selectedCommit === c.hash ? 'bg-zinc-800/60' : ''
+                      className={`w-full flex items-start gap-2 px-3 py-1.5 text-left hover:bg-hover/40 transition-colors ${
+                        selectedCommit === c.hash ? 'bg-surface/60' : ''
                       }`}
                     >
-                      <GitCommitHorizontal className="w-3 h-3 text-zinc-600 mt-0.5 shrink-0" />
+                      <GitCommitHorizontal className="w-3 h-3 text-subtle mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[11px] text-zinc-300 truncate">{c.message}</p>
-                        <p className="text-[9px] text-zinc-600">
+                        <p className="text-[11px] text-secondary truncate">{c.message}</p>
+                        <p className="text-[9px] text-subtle">
                           {c.short_hash} · {c.author} · {c.date}
                           {c.files_changed > 0 && ` · ${c.files_changed} files`}
                         </p>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.hash); setStatusMessage({ type: 'success', text: 'Hash copied' }); }}
-                        className="p-0.5 text-zinc-700 hover:text-zinc-400 transition-colors shrink-0"
+                        className="p-0.5 text-subtle hover:text-secondary transition-colors shrink-0"
                         title="Copy hash"
                       >
                         <Copy className="w-2.5 h-2.5" />
                       </button>
                     </button>
                     {selectedCommit === c.hash && commitDetail && (
-                      <pre className="mx-3 mb-1 px-2 py-1.5 bg-zinc-950 rounded border border-zinc-800 text-[9px] text-zinc-500 whitespace-pre-wrap max-h-32 overflow-y-auto font-mono">
+                      <pre className="mx-3 mb-1 px-2 py-1.5 bg-canvas rounded border border-border-default text-[9px] text-muted whitespace-pre-wrap max-h-32 overflow-y-auto font-mono">
                         {commitDetail}
                       </pre>
                     )}
@@ -1178,13 +1178,13 @@ export function GitPanel() {
 
         {/* Version info */}
         {versionInfo && (
-          <div className="px-3 py-2 border-b border-zinc-800/50">
+          <div className="px-3 py-2 border-b border-border-default/50">
             <div className="flex items-center gap-2">
-              <Tag className="w-3.5 h-3.5 text-zinc-500" />
-              <span className="text-[11px] text-zinc-400">
-                Version: <span className="text-zinc-200 font-medium">{versionInfo.current}</span>
+              <Tag className="w-3.5 h-3.5 text-muted" />
+              <span className="text-[11px] text-secondary">
+                Version: <span className="text-primary font-medium">{versionInfo.current}</span>
               </span>
-              <span className="text-[10px] text-zinc-600 ml-auto">
+              <span className="text-[10px] text-subtle ml-auto">
                 {versionInfo.total_commits} commits
               </span>
             </div>
@@ -1204,7 +1204,7 @@ export function GitPanel() {
                   if (e.key === 'Enter' && !publishing && totalChanges > 0) publish();
                 }}
                 placeholder="Describe your changes..."
-                className="w-full px-2.5 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors"
+                className="w-full px-2.5 py-2 bg-surface border border-border-strong rounded-lg text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500 transition-colors"
               />
 
               {/* Version controls */}
@@ -1214,9 +1214,9 @@ export function GitPanel() {
                     type="checkbox"
                     checked={autoVersion}
                     onChange={(e) => setAutoVersion(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                    className="w-3.5 h-3.5 rounded border-border-strong bg-surface text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
                   />
-                  <span className="text-[11px] text-zinc-400">Tag version</span>
+                  <span className="text-[11px] text-secondary">Tag version</span>
                 </label>
                 {autoVersion && versionInfo && (
                   <div className="flex gap-1 flex-wrap">
@@ -1231,8 +1231,8 @@ export function GitPanel() {
                         onClick={() => setVersionBump(opt.key)}
                         className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
                           versionBump === opt.key
-                            ? 'border-blue-600 bg-blue-900/30 text-blue-300'
-                            : 'border-zinc-700 bg-zinc-800 text-zinc-500 hover:text-zinc-300'
+                            ? 'border-blue-600 bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'border-border-strong bg-surface text-muted hover:text-secondary'
                         }`}
                       >
                         {opt.label}
@@ -1244,7 +1244,7 @@ export function GitPanel() {
                         value={customVersion}
                         onChange={(e) => setCustomVersion(e.target.value)}
                         placeholder="v1.0.0"
-                        className="w-20 bg-zinc-900 border border-zinc-600 rounded px-1.5 py-0.5 text-[10px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                        className="w-20 bg-panel border border-border-strong rounded px-1.5 py-0.5 text-[10px] text-primary placeholder:text-subtle outline-none focus:border-blue-500"
                       />
                     )}
                   </div>
@@ -1254,65 +1254,65 @@ export function GitPanel() {
               {/* Push target: repo + branch */}
               {gitStatus.has_remote && totalChanges > 0 && (
                 <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-800/60 rounded text-[10px] text-zinc-500">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5 bg-surface/60 rounded text-[10px] text-muted">
                     <Upload className="w-3 h-3 shrink-0" />
                     <span>Push to</span>
-                    <span className="text-zinc-300 font-medium truncate">
+                    <span className="text-secondary font-medium truncate">
                       {gitStatus.remote_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')}
                     </span>
-                    <span className="text-zinc-600">·</span>
+                    <span className="text-subtle">·</span>
                     <button
                       onClick={() => setShowPushBranchPicker(!showPushBranchPicker)}
-                      className="text-blue-400 hover:text-blue-300 flex items-center gap-0.5 transition-colors"
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 flex items-center gap-0.5 transition-colors"
                     >
                       {pushTargetBranch || gitStatus.branch || 'main'}
                       <ChevronDown className="w-2.5 h-2.5" />
                     </button>
                   </div>
                   {showPushBranchPicker && branchInfo && (
-                    <div className="bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden max-h-36 overflow-y-auto">
+                    <div className="bg-surface border border-border-strong rounded-lg overflow-hidden max-h-36 overflow-y-auto">
                       {/* Current local branch (default) */}
                       <button
                         onClick={() => { setPushTargetBranch(null); setShowPushBranchPicker(false); }}
-                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-zinc-700 transition-colors text-left ${
-                          !pushTargetBranch ? 'text-blue-300 bg-blue-900/20' : 'text-zinc-300'
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-elevated transition-colors text-left ${
+                          !pushTargetBranch ? 'text-blue-700 dark:text-blue-300 bg-blue-900/20' : 'text-secondary'
                         }`}
                       >
                         <GitBranch className="w-3 h-3 shrink-0" />
-                        {gitStatus.branch} <span className="text-zinc-500">(current)</span>
-                        {!pushTargetBranch && <CheckCircle2 className="w-3 h-3 text-blue-400 ml-auto" />}
+                        {gitStatus.branch} <span className="text-muted">(current)</span>
+                        {!pushTargetBranch && <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-auto" />}
                       </button>
                       {/* Other local branches */}
                       {branchInfo.branches.filter(b => b !== gitStatus.branch).map(b => (
                         <button
                           key={`push-local-${b}`}
                           onClick={() => { setPushTargetBranch(b); setShowPushBranchPicker(false); }}
-                          className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-zinc-700 transition-colors text-left ${
-                            pushTargetBranch === b ? 'text-blue-300 bg-blue-900/20' : 'text-zinc-300'
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-elevated transition-colors text-left ${
+                            pushTargetBranch === b ? 'text-blue-700 dark:text-blue-300 bg-blue-900/20' : 'text-secondary'
                           }`}
                         >
                           <GitBranch className="w-3 h-3 shrink-0" />
                           {b}
-                          {pushTargetBranch === b && <CheckCircle2 className="w-3 h-3 text-blue-400 ml-auto" />}
+                          {pushTargetBranch === b && <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-auto" />}
                         </button>
                       ))}
                       {/* Remote branches */}
                       {branchInfo.remote_branches.length > 0 && (
-                        <div className="border-t border-zinc-700/50">
+                        <div className="border-t border-border-strong/50">
                           <div className="px-2.5 pt-1.5 pb-0.5">
-                            <span className="text-[9px] text-zinc-500 uppercase tracking-wider font-semibold">Remote</span>
+                            <span className="text-[9px] text-muted uppercase tracking-wider font-semibold">Remote</span>
                           </div>
                           {branchInfo.remote_branches.map(b => (
                             <button
                               key={`push-remote-${b}`}
                               onClick={() => { setPushTargetBranch(b); setShowPushBranchPicker(false); }}
-                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-zinc-700 transition-colors text-left ${
-                                pushTargetBranch === b ? 'text-blue-300 bg-blue-900/20' : 'text-zinc-400'
+                              className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-elevated transition-colors text-left ${
+                                pushTargetBranch === b ? 'text-blue-700 dark:text-blue-300 bg-blue-900/20' : 'text-secondary'
                               }`}
                             >
-                              <Globe className="w-3 h-3 shrink-0 text-zinc-600" />
+                              <Globe className="w-3 h-3 shrink-0 text-subtle" />
                               {b}
-                              {pushTargetBranch === b && <CheckCircle2 className="w-3 h-3 text-blue-400 ml-auto" />}
+                              {pushTargetBranch === b && <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400 ml-auto" />}
                             </button>
                           ))}
                         </div>
@@ -1329,7 +1329,7 @@ export function GitPanel() {
                 className={`w-full flex flex-col items-center justify-center gap-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   totalChanges > 0
                     ? 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-900/30'
-                    : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                    : 'bg-surface text-subtle cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -1348,7 +1348,7 @@ export function GitPanel() {
                 <div className="pt-1">
                   <button
                     onClick={() => { setShowAmend(!showAmend); if (!showAmend) setAmendMessage(gitStatus.last_commit_message); }}
-                    className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors flex items-center gap-1"
+                    className="text-[10px] text-subtle hover:text-secondary transition-colors flex items-center gap-1"
                   >
                     <GitCommitHorizontal className="w-3 h-3" />
                     Amend last commit
@@ -1361,7 +1361,7 @@ export function GitPanel() {
                         onChange={(e) => setAmendMessage(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') amendCommit(); }}
                         placeholder="New commit message..."
-                        className="w-full bg-zinc-900 border border-zinc-600 rounded px-2 py-1.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                        className="w-full bg-panel border border-border-strong rounded px-2 py-1.5 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-blue-500"
                       />
                       <div className="flex gap-1.5">
                         <button
@@ -1372,7 +1372,7 @@ export function GitPanel() {
                         </button>
                         <button
                           onClick={() => { setShowAmend(false); setAmendMessage(''); }}
-                          className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[11px] text-zinc-400 transition-colors"
+                          className="px-2 py-1 bg-surface hover:bg-elevated rounded text-[11px] text-secondary transition-colors"
                         >
                           Cancel
                         </button>
@@ -1395,14 +1395,14 @@ export function GitPanel() {
 
 function Header({ onRefresh }: { onRefresh?: () => void }) {
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-      <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+    <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+      <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
         Git & GitHub
       </span>
       {onRefresh && (
         <button
           onClick={onRefresh}
-          className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
           title="Refresh"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -1431,13 +1431,13 @@ function SetupStep({
         {done ? (
           <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
         ) : active ? (
-          <AlertCircle className="w-4 h-4 text-blue-400 shrink-0" />
+          <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
         ) : (
-          <div className="w-4 h-4 rounded-full border border-zinc-600 flex items-center justify-center shrink-0">
-            <span className="text-[9px] text-zinc-500">{number}</span>
+          <div className="w-4 h-4 rounded-full border border-border-strong flex items-center justify-center shrink-0">
+            <span className="text-[9px] text-muted">{number}</span>
           </div>
         )}
-        <span className={`text-xs ${done ? 'text-green-400' : active ? 'text-zinc-200' : 'text-zinc-500'}`}>
+        <span className={`text-xs ${done ? 'text-green-600 dark:text-green-400' : active ? 'text-primary' : 'text-muted'}`}>
           {label}
           {done && ' ✓'}
         </span>
@@ -1460,11 +1460,11 @@ function FileRow({
 }) {
   const statusIcon = () => {
     switch (file.status) {
-      case 'M': return <FileEdit className="w-3 h-3 text-yellow-400 shrink-0" />;
-      case 'A': case '?': return <FilePlus className="w-3 h-3 text-green-400 shrink-0" />;
-      case 'D': return <FileX className="w-3 h-3 text-red-400 shrink-0" />;
-      case 'R': return <FileEdit className="w-3 h-3 text-blue-400 shrink-0" />;
-      default: return <FileEdit className="w-3 h-3 text-zinc-500 shrink-0" />;
+      case 'M': return <FileEdit className="w-3 h-3 text-yellow-600 dark:text-yellow-400 shrink-0" />;
+      case 'A': case '?': return <FilePlus className="w-3 h-3 text-green-600 dark:text-green-400 shrink-0" />;
+      case 'D': return <FileX className="w-3 h-3 text-red-600 dark:text-red-400 shrink-0" />;
+      case 'R': return <FileEdit className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />;
+      default: return <FileEdit className="w-3 h-3 text-muted shrink-0" />;
     }
   };
 
@@ -1472,16 +1472,16 @@ function FileRow({
   const dirPath = file.path.includes('/') ? file.path.substring(0, file.path.lastIndexOf('/')) : '';
 
   return (
-    <div className="flex items-center gap-1.5 px-3 py-0.5 group hover:bg-zinc-800/40 transition-colors">
+    <div className="flex items-center gap-1.5 px-3 py-0.5 group hover:bg-hover/40 transition-colors">
       {statusIcon()}
-      <span className="text-[11px] text-zinc-300 truncate flex-1" title={file.path}>
+      <span className="text-[11px] text-secondary truncate flex-1" title={file.path}>
         {fileName}
-        {dirPath && <span className="text-zinc-600 ml-1">{dirPath}</span>}
+        {dirPath && <span className="text-subtle ml-1">{dirPath}</span>}
       </span>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={onStage}
-          className="p-0.5 text-zinc-600 hover:text-blue-400 transition-colors"
+          className="p-0.5 text-subtle hover:text-blue-700 dark:hover:text-blue-600 transition-colors"
           title={staged ? 'Unstage' : 'Stage'}
         >
           {staged ? <MinusCircle className="w-3 h-3" /> : <PlusCircle className="w-3 h-3" />}
@@ -1489,7 +1489,7 @@ function FileRow({
         {!staged && (
           <button
             onClick={onDiscard}
-            className="p-0.5 text-zinc-600 hover:text-red-400 transition-colors"
+            className="p-0.5 text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors"
             title="Discard changes"
           >
             <Undo2 className="w-3 h-3" />
@@ -1505,8 +1505,8 @@ function StatusToast({ message }: { message: { type: 'success' | 'error'; text: 
   return (
     <div className={`mx-3 mb-3 px-3 py-2 rounded-lg text-xs ${
       message.type === 'success'
-        ? 'bg-green-900/30 text-green-300 border border-green-800/50'
-        : 'bg-red-900/30 text-red-300 border border-red-800/50'
+        ? 'bg-green-900/30 text-green-700 dark:text-green-300 border border-green-800/50'
+        : 'bg-red-900/30 text-red-700 dark:text-red-300 border border-red-800/50'
     }`}>
       <div className="flex items-start gap-2">
         {message.type === 'success' ? (

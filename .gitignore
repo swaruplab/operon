@@ -69,3 +69,7 @@ memory/
 .bash_logout
 .bashrc
 .profile
+
+# Python bytecode caches inside bundled protocols
+__pycache__/
+*.pyc

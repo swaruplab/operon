@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-theme",
     "shell:allow-open",
     "updater:default",
     "process:allow-restart",
@@ -13,6 +15,11 @@
       "allow": [
         {
           "name": "binaries/rg",
+          "sidecar": true,
+          "args": true
+        },
+        {
+          "name": "binaries/anthropic-proxy",
           "sidecar": true,
           "args": true
         }

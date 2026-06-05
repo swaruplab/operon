@@ -44,7 +44,7 @@ function markdownToHtml(md: string): string {
       } else {
         const escaped = escapeHtml(codeBlockContent.join('\n'));
         htmlLines.push(
-          `<pre class="my-1.5 p-2.5 bg-zinc-950/80 rounded-lg border border-zinc-800/50 overflow-x-auto"><code class="text-[12px] font-mono text-emerald-300/90 leading-relaxed">${escaped}</code></pre>`
+          `<pre class="my-1.5 p-2.5 bg-canvas/80 rounded-lg border border-border-default/50 overflow-x-auto"><code class="text-[12px] font-mono text-emerald-700 dark:text-emerald-300/90 leading-relaxed">${escaped}</code></pre>`
         );
         inCodeBlock = false;
         codeBlockLang = '';
@@ -76,7 +76,7 @@ function markdownToHtml(md: string): string {
         3: 'text-[13px] font-semibold mt-2 mb-1',
         4: 'text-[13px] font-medium mt-1.5 mb-0.5',
         5: 'text-[12px] font-medium mt-1 mb-0.5',
-        6: 'text-[12px] font-medium mt-1 mb-0.5 text-zinc-400',
+        6: 'text-[12px] font-medium mt-1 mb-0.5 text-secondary',
       };
       htmlLines.push(`<div class="${sizes[level] || sizes[3]}">${text}</div>`);
       continue;
@@ -111,7 +111,7 @@ function markdownToHtml(md: string): string {
     // Horizontal rule
     if (/^[-*_]{3,}\s*$/.test(line.trim())) {
       closeList();
-      htmlLines.push('<hr class="my-2 border-zinc-700/50" />');
+      htmlLines.push('<hr class="my-2 border-border-strong/50" />');
       continue;
     }
 
@@ -125,7 +125,7 @@ function markdownToHtml(md: string): string {
   if (inCodeBlock) {
     const escaped = escapeHtml(codeBlockContent.join('\n'));
     htmlLines.push(
-      `<pre class="my-1.5 p-2.5 bg-zinc-950/80 rounded-lg border border-zinc-800/50 overflow-x-auto"><code class="text-[12px] font-mono text-emerald-300/90 leading-relaxed">${escaped}</code></pre>`
+      `<pre class="my-1.5 p-2.5 bg-canvas/80 rounded-lg border border-border-default/50 overflow-x-auto"><code class="text-[12px] font-mono text-emerald-700 dark:text-emerald-300/90 leading-relaxed">${escaped}</code></pre>`
     );
   }
 
@@ -137,32 +137,32 @@ function processInline(text: string): string {
   let result = escapeHtml(text);
 
   // Inline code (must come before bold/italic to avoid conflicts)
-  result = result.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-zinc-900/80 rounded text-[12px] font-mono text-amber-300/90">$1</code>');
+  result = result.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-panel/80 rounded text-[12px] font-mono text-amber-700 dark:text-amber-300/90">$1</code>');
 
   // Bold + italic
   result = result.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
 
   // Bold
-  result = result.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-zinc-100">$1</strong>');
-  result = result.replace(/__(.+?)__/g, '<strong class="font-semibold text-zinc-100">$1</strong>');
+  result = result.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-primary">$1</strong>');
+  result = result.replace(/__(.+?)__/g, '<strong class="font-semibold text-primary">$1</strong>');
 
   // Italic
   result = result.replace(/\*(.+?)\*/g, '<em>$1</em>');
   result = result.replace(/_(.+?)_/g, '<em>$1</em>');
 
   // Strikethrough
-  result = result.replace(/~~(.+?)~~/g, '<del class="text-zinc-500">$1</del>');
+  result = result.replace(/~~(.+?)~~/g, '<del class="text-muted">$1</del>');
 
   // Links [text](url)
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">$1</a>'
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline underline-offset-2">$1</a>'
   );
 
   // Bare URLs (simple pattern — only outside of already-processed tags)
   result = result.replace(
     /(?<!")(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">$1</a>'
+    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline underline-offset-2">$1</a>'
   );
 
   return result;

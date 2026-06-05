@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import numpy as np
 import scanpy as sc
 import matplotlib.pyplot as plt
 
@@ -83,32 +84,92 @@ def generate_qc_plots(adata, output_prefix='qc'):
     print(f"\nQC plots saved to figures/ directory with prefix '{output_prefix}'")
 
 
+def filter_data_quantile(adata, gene_q=(0.05, 0.99), count_q=(0.05, 0.99),
+                         mt_q=0.99, mt_ceiling=20.0, min_cells=3):
+    """
+    Filter cells and genes using quantile-based thresholds derived from the
+    dataset's own QC-metric distributions. This adapts to each dataset
+    instead of penalizing shallow libraries with a hardcoded 200-gene floor
+    or letting high-MT tissues through with a 5% MT cap.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix.
+    gene_q : (float, float)
+        Lower / upper percentile on `n_genes_by_counts`. Default (0.05, 0.99)
+        keeps the 95% interval below the 99th percentile (drops empty droplets
+        and likely doublets).
+    count_q : (float, float)
+        Lower / upper percentile on `total_counts`. Default (0.05, 0.99).
+    mt_q : float
+        Upper percentile on `pct_counts_mt`. Default 0.99.
+    mt_ceiling : float
+        Absolute MT% ceiling that's enforced even if the quantile is higher.
+        Prevents a uniformly bad dataset from passing high-MT cells through.
+    min_cells : int
+        Minimum cells per gene (constant noise floor, not dataset-quantile-
+        dependent).
+
+    Returns
+    -------
+    AnnData
+        Filtered annotated data matrix.
+    """
+    n_cells_before, n_genes_before = adata.n_obs, adata.n_vars
+
+    gene_lo = np.quantile(adata.obs['n_genes_by_counts'], gene_q[0])
+    gene_hi = np.quantile(adata.obs['n_genes_by_counts'], gene_q[1])
+    count_lo = np.quantile(adata.obs['total_counts'], count_q[0])
+    count_hi = np.quantile(adata.obs['total_counts'], count_q[1])
+    mt_hi = min(np.quantile(adata.obs['pct_counts_mt'], mt_q), mt_ceiling)
+
+    print(f"\n=== Quantile QC thresholds (derived from this dataset) ===")
+    print(f"  n_genes_by_counts ∈ [{gene_lo:.0f}, {gene_hi:.0f}]  ({gene_q[0]:.0%} – {gene_q[1]:.0%})")
+    print(f"  total_counts      ∈ [{count_lo:.0f}, {count_hi:.0f}]  ({count_q[0]:.0%} – {count_q[1]:.0%})")
+    print(f"  pct_counts_mt     < {mt_hi:.2f}  (min of {mt_q:.0%} percentile and {mt_ceiling}% ceiling)")
+
+    adata = adata[(adata.obs['n_genes_by_counts'] >= gene_lo) &
+                  (adata.obs['n_genes_by_counts'] <= gene_hi) &
+                  (adata.obs['total_counts'] >= count_lo) &
+                  (adata.obs['total_counts'] <= count_hi) &
+                  (adata.obs['pct_counts_mt'] < mt_hi), :].copy()
+    sc.pp.filter_genes(adata, min_cells=min_cells)
+
+    print(f"\n=== Filtering Results ===")
+    print(f"Cells: {n_cells_before} -> {adata.n_obs} ({adata.n_obs/n_cells_before*100:.1f}% retained)")
+    print(f"Genes: {n_genes_before} -> {adata.n_vars} ({adata.n_vars/n_genes_before*100:.1f}% retained)")
+    return adata
+
+
 def filter_data(adata, mt_threshold=5, min_genes=200, max_genes=None,
                 min_counts=None, max_counts=None, min_cells=3):
     """
-    Filter cells and genes based on QC thresholds.
+    Hard-threshold cell/gene filtering (legacy mode). Use `filter_data_quantile`
+    for the per-dataset adaptive default. Kept for cross-dataset reproducibility
+    workflows where every sample must be filtered against the same numbers.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     adata : AnnData
-        Annotated data matrix
+        Annotated data matrix.
     mt_threshold : float
-        Maximum percentage of mitochondrial genes
+        Maximum percentage of mitochondrial genes.
     min_genes : int
-        Minimum number of genes per cell
+        Minimum number of genes per cell.
     max_genes : int, optional
-        Maximum number of genes per cell
+        Maximum number of genes per cell.
     min_counts : int, optional
-        Minimum number of counts per cell
+        Minimum number of counts per cell.
     max_counts : int, optional
-        Maximum number of counts per cell
+        Maximum number of counts per cell.
     min_cells : int
-        Minimum number of cells per gene
+        Minimum number of cells per gene.
 
-    Returns:
-    --------
+    Returns
+    -------
     AnnData
-        Filtered annotated data matrix
+        Filtered annotated data matrix.
     """
     n_cells_before = adata.n_obs
     n_genes_before = adata.n_vars
@@ -128,7 +189,7 @@ def filter_data(adata, mt_threshold=5, min_genes=200, max_genes=None,
     # Filter genes
     sc.pp.filter_genes(adata, min_cells=min_cells)
 
-    print(f"\n=== Filtering Results ===")
+    print(f"\n=== Filtering Results (hard thresholds) ===")
     print(f"Cells: {n_cells_before} -> {adata.n_obs} ({adata.n_obs/n_cells_before*100:.1f}% retained)")
     print(f"Genes: {n_genes_before} -> {adata.n_vars} ({adata.n_vars/n_genes_before*100:.1f}% retained)")
 
@@ -140,10 +201,25 @@ def main():
     parser.add_argument('input', help='Input file (h5ad, 10X mtx, csv, etc.)')
     parser.add_argument('--output', default='qc_filtered.h5ad',
                         help='Output file name (default: qc_filtered.h5ad)')
+    parser.add_argument('--hard-thresholds', action='store_true',
+                        help='Use fixed hard thresholds instead of dataset-derived quantiles. '
+                             'Useful for cross-dataset reproducibility.')
     parser.add_argument('--mt-threshold', type=float, default=5,
-                        help='Max mitochondrial percentage (default: 5)')
+                        help='Max mitochondrial percentage (hard-thresholds mode only, default: 5)')
     parser.add_argument('--min-genes', type=int, default=200,
-                        help='Min genes per cell (default: 200)')
+                        help='Min genes per cell (hard-thresholds mode only, default: 200)')
+    parser.add_argument('--gene-q-lo', type=float, default=0.05,
+                        help='Lower quantile on n_genes_by_counts (default: 0.05)')
+    parser.add_argument('--gene-q-hi', type=float, default=0.99,
+                        help='Upper quantile on n_genes_by_counts (default: 0.99)')
+    parser.add_argument('--count-q-lo', type=float, default=0.05,
+                        help='Lower quantile on total_counts (default: 0.05)')
+    parser.add_argument('--count-q-hi', type=float, default=0.99,
+                        help='Upper quantile on total_counts (default: 0.99)')
+    parser.add_argument('--mt-q-hi', type=float, default=0.99,
+                        help='Upper quantile on pct_counts_mt (default: 0.99)')
+    parser.add_argument('--mt-ceiling', type=float, default=20.0,
+                        help='Absolute MT%% ceiling enforced regardless of quantile (default: 20)')
     parser.add_argument('--min-cells', type=int, default=3,
                         help='Min cells per gene (default: 3)')
     parser.add_argument('--skip-plots', action='store_true',
@@ -180,9 +256,19 @@ def main():
         print("\nGenerating QC plots (before filtering)...")
         generate_qc_plots(adata, output_prefix='qc_before')
 
-    # Filter data
-    adata = filter_data(adata, mt_threshold=args.mt_threshold,
-                        min_genes=args.min_genes, min_cells=args.min_cells)
+    # Filter data — quantile-based by default, hard thresholds on opt-in
+    if args.hard_thresholds:
+        adata = filter_data(adata, mt_threshold=args.mt_threshold,
+                            min_genes=args.min_genes, min_cells=args.min_cells)
+    else:
+        adata = filter_data_quantile(
+            adata,
+            gene_q=(args.gene_q_lo, args.gene_q_hi),
+            count_q=(args.count_q_lo, args.count_q_hi),
+            mt_q=args.mt_q_hi,
+            mt_ceiling=args.mt_ceiling,
+            min_cells=args.min_cells,
+        )
 
     # Generate QC plots (after filtering)
     if not args.skip_plots:

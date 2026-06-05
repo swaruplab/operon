@@ -76,7 +76,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
     if (lspStatus === 'running') {
       return (
         <Tooltip label="Language server is running" position="top">
-          <div className="flex items-center gap-1.5 text-green-400">
+          <div className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
             <span className="w-2 h-2 bg-green-400 rounded-full"></span>
             <span>{lspServerName} (LSP)</span>
           </div>
@@ -86,7 +86,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
     if (lspStatus === 'starting') {
       return (
         <Tooltip label="Language server is starting up" position="top">
-          <div className="flex items-center gap-1.5 text-yellow-400">
+          <div className="flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
             <Loader className="w-3 h-3 animate-spin" />
             <span>Starting LSP...</span>
           </div>
@@ -96,7 +96,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
     if (lspStatus === 'error') {
       return (
         <Tooltip label="Language server encountered an error" position="top">
-          <div className="flex items-center gap-1.5 text-red-400">
+          <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400">
             <AlertCircle className="w-3 h-3" />
             <span>LSP Error</span>
           </div>
@@ -111,7 +111,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
   };
 
   return (
-    <div className="h-6 flex items-center justify-between px-3 bg-zinc-900 border-t border-zinc-800 text-[11px] text-zinc-500 shrink-0">
+    <div className="h-6 flex items-center justify-between px-3 bg-panel border-t border-border-default text-[11px] text-muted shrink-0">
       {/* Left */}
       <div className="flex items-center gap-3">
         <Tooltip label="Current Git branch" position="top">
@@ -129,7 +129,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
       <div className="flex items-center gap-3">
         {remote && (
           <Tooltip label={`Connected to ${remote.profileName} — disconnect from the stop button (bottom-left)`} position="top">
-            <div className="flex items-center gap-1 px-1.5 rounded bg-green-500/10 text-green-400">
+            <div className="flex items-center gap-1 px-1.5 rounded bg-green-500/10 text-green-600 dark:text-green-400">
               <Server className="w-3 h-3" />
               <span>{remote.profileName}</span>
             </div>
@@ -143,10 +143,10 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
             <div
               className={`flex items-center gap-1 px-1.5 rounded ${
                 watchdog.failed > 0
-                  ? 'text-red-400'
+                  ? 'text-red-600 dark:text-red-400'
                   : watchdog.running > 0
-                    ? 'text-blue-400'
-                    : 'text-zinc-400'
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-secondary'
               }`}
             >
               <Activity className="w-3 h-3" />
@@ -162,13 +162,13 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
         {getLspIndicator()}
         <div className="flex items-center gap-1.5">
           <Tooltip label="Toggle sidebar" shortcut={"\u2318B"} position="top">
-            <span className={`cursor-default ${sidebarVisible ? "text-zinc-400" : ""}`}>Sidebar</span>
+            <span className={`cursor-default ${sidebarVisible ? "text-secondary" : ""}`}>Sidebar</span>
           </Tooltip>
           <Tooltip label="Toggle terminal" shortcut={"\u2318J"} position="top">
-            <span className={`cursor-default ${terminalVisible ? "text-zinc-400" : ""}`}>Terminal</span>
+            <span className={`cursor-default ${terminalVisible ? "text-secondary" : ""}`}>Terminal</span>
           </Tooltip>
           <Tooltip label="Toggle chat panel" shortcut={"\u2318L"} position="top">
-            <span className={`cursor-default ${chatVisible ? "text-zinc-400" : ""}`}>Chat</span>
+            <span className={`cursor-default ${chatVisible ? "text-secondary" : ""}`}>Chat</span>
           </Tooltip>
         </div>
       </div>

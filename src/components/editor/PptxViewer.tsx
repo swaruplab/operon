@@ -90,19 +90,19 @@ export function PptxViewer({ filePath, base64Content, mimeType }: PptxViewerProp
   }, [base64Content, mimeType, fileName]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-2 text-xs text-zinc-400 min-w-0">
-          <Presentation className="w-4 h-4 text-orange-400 shrink-0" />
+      <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default shrink-0">
+        <div className="flex items-center gap-2 text-xs text-secondary min-w-0">
+          <Presentation className="w-4 h-4 text-orange-600 dark:text-orange-400 shrink-0" />
           <span className="font-medium truncate">{fileName}</span>
-          <span className="text-[10px] text-zinc-600 ml-1">Preview (no animations)</span>
+          <span className="text-[10px] text-subtle ml-1">Preview (no animations)</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={handleDownload}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-hover transition-colors cursor-pointer"
             title="Download to open in PowerPoint/Keynote"
           >
             <Download className="w-3.5 h-3.5 pointer-events-none" />
@@ -113,10 +113,10 @@ export function PptxViewer({ filePath, base64Content, mimeType }: PptxViewerProp
       {/* Slide list */}
       <div className="flex-1 overflow-auto bg-zinc-200">
         {error ? (
-          <div className="flex flex-col items-center justify-center h-full text-zinc-700 text-sm p-6 gap-3">
+          <div className="flex flex-col items-center justify-center h-full text-subtle text-sm p-6 gap-3">
             <AlertTriangle className="w-8 h-8 text-orange-500" />
             <div className="font-medium">Could not render presentation</div>
-            <div className="text-xs text-zinc-600 max-w-md text-center">{error}</div>
+            <div className="text-xs text-subtle max-w-md text-center">{error}</div>
             <button
               type="button"
               onClick={handleDownload}
@@ -129,7 +129,7 @@ export function PptxViewer({ filePath, base64Content, mimeType }: PptxViewerProp
         ) : (
           <>
             {loading && (
-              <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+              <div className="flex items-center justify-center h-full text-muted text-sm">
                 Rendering slides…
               </div>
             )}

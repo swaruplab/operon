@@ -144,21 +144,21 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
 
   const getFileColor = (ext: string | null) => {
     const colorMap: Record<string, string> = {
-      tsx: 'text-blue-400',
-      ts: 'text-blue-400',
-      jsx: 'text-yellow-400',
-      js: 'text-yellow-400',
-      rs: 'text-orange-400',
-      py: 'text-green-400',
-      json: 'text-yellow-400',
-      css: 'text-purple-400',
-      html: 'text-red-400',
-      md: 'text-zinc-400',
-      toml: 'text-red-400',
-      yaml: 'text-pink-400',
-      yml: 'text-pink-400',
+      tsx: 'text-blue-600 dark:text-blue-400',
+      ts: 'text-blue-600 dark:text-blue-400',
+      jsx: 'text-yellow-600 dark:text-yellow-400',
+      js: 'text-yellow-600 dark:text-yellow-400',
+      rs: 'text-orange-600 dark:text-orange-400',
+      py: 'text-green-600 dark:text-green-400',
+      json: 'text-yellow-600 dark:text-yellow-400',
+      css: 'text-purple-600 dark:text-purple-400',
+      html: 'text-red-600 dark:text-red-400',
+      md: 'text-secondary',
+      toml: 'text-red-600 dark:text-red-400',
+      yaml: 'text-pink-600 dark:text-pink-400',
+      yml: 'text-pink-600 dark:text-pink-400',
     };
-    return colorMap[ext || ''] || 'text-zinc-400';
+    return colorMap[ext || ''] || 'text-secondary';
   };
 
   const formatSize = (bytes: number): string => {
@@ -179,7 +179,7 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
         onMouseLeave={() => setHovered(false)}
       >
         <button
-          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors group"
+          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -187,9 +187,9 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
         >
           {entry.is_dir ? (
             expanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
             )
           ) : (
             <span className="w-3.5 shrink-0" />
@@ -197,9 +197,9 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
 
           {entry.is_dir ? (
             expanded ? (
-              <FolderOpen className="w-4 h-4 text-blue-400 shrink-0" />
+              <FolderOpen className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             ) : (
-              <Folder className="w-4 h-4 text-zinc-500 shrink-0" />
+              <Folder className="w-4 h-4 text-muted shrink-0" />
             )
           ) : (
             <File className={`w-4 h-4 shrink-0 ${getFileColor(entry.extension)}`} />
@@ -207,14 +207,14 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
 
           <span className="truncate ml-1">{entry.name}</span>
           {isPinned && !hovered && (
-            <Star className="w-3 h-3 text-amber-400 ml-auto shrink-0 fill-amber-400" />
+            <Star className="w-3 h-3 text-amber-600 dark:text-amber-400 ml-auto shrink-0 fill-amber-400" />
           )}
           {!entry.is_dir && entry.size > 0 && !isPinned && !loading && (
-            <span className="ml-auto text-[10px] text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <span className="ml-auto text-[10px] text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               {formatSize(entry.size)}
             </span>
           )}
-          {loading && <span className="ml-auto text-[10px] text-zinc-600 animate-pulse">...</span>}
+          {loading && <span className="ml-auto text-[10px] text-subtle animate-pulse">...</span>}
         </button>
 
         {/* Pin button on hover */}
@@ -224,8 +224,8 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
               e.stopPropagation();
               onTogglePin(entry.path, entry.name, entry.is_dir);
             }}
-            className={`absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-zinc-700 transition-colors ${
-              isPinned ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-400'
+            className={`absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-elevated transition-colors ${
+              isPinned ? 'text-amber-600 dark:text-amber-400' : 'text-subtle hover:text-amber-700 dark:hover:text-amber-600'
             }`}
             title={isPinned ? 'Unpin' : 'Pin to favorites'}
           >
@@ -532,36 +532,36 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
   return (
     <>
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/50">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border-default/50">
+        <div className="flex items-center gap-1.5 text-xs text-secondary">
           <Folder className="w-3.5 h-3.5" />
           <span className="font-medium truncate">{folderName}</span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             onClick={navigateUp}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 text-xs"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary text-xs"
             title="Go Up"
           >
             ..
           </button>
           <button
             onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
             title="New Folder"
           >
             <FolderPlus className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={refresh}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
             title="Refresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={cdToTerminal}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors shrink-0"
             title="cd to this directory in terminal"
           >
             <CornerDownRight className="w-3.5 h-3.5" />
@@ -570,7 +570,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       </div>
 
       {/* Go-to-folder path bar — click to type a path, press Enter to navigate */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/30">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-border-default/30">
         {isEditingPath ? (
           <input
             ref={pathInputRef}
@@ -585,14 +585,14 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               }
             }}
             onBlur={commitPathInput}
-            className="flex-1 bg-zinc-900 border border-blue-700/50 rounded px-1.5 py-0.5 text-[11px] text-zinc-300 font-mono outline-none focus:border-blue-500 min-w-0"
+            className="flex-1 bg-panel border border-blue-700/50 rounded px-1.5 py-0.5 text-[11px] text-secondary font-mono outline-none focus:border-blue-500 min-w-0"
             placeholder="/path/to/folder"
             spellCheck={false}
           />
         ) : (
           <button
             onClick={() => setIsEditingPath(true)}
-            className="flex-1 text-left text-[11px] text-zinc-500 hover:text-zinc-300 truncate font-mono transition-colors rounded px-1.5 py-0.5 hover:bg-zinc-800/50 min-w-0"
+            className="flex-1 text-left text-[11px] text-muted hover:text-secondary truncate font-mono transition-colors rounded px-1.5 py-0.5 hover:bg-hover/50 min-w-0"
             title="Click to type a path"
           >
             {projectPath || '~'}
@@ -603,8 +603,8 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       <div className="flex-1 overflow-y-auto py-1">
         {/* Inline new folder input */}
         {creatingFolder && (
-          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-zinc-800/80 rounded border border-blue-600/40">
-            <FolderPlus className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-surface/80 rounded border border-blue-600/40">
+            <FolderPlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <input
               ref={newFolderRef}
               type="text"
@@ -615,7 +615,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
                 if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
               }}
               onBlur={handleCreateFolder}
-              className="flex-1 bg-transparent text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 min-w-0"
+              className="flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-subtle min-w-0"
               placeholder="folder name"
               spellCheck={false}
             />
@@ -624,22 +624,22 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
         {/* Pinned/Favorites section */}
         {pinnedItems.length > 0 && (
-          <div className="mb-2 border-b border-zinc-600/40 pb-2">
-            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-400/70 font-medium uppercase tracking-wider">
+          <div className="mb-2 border-b border-border-strong/40 pb-2">
+            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-600 dark:text-amber-400/70 font-medium uppercase tracking-wider">
               <Star className="w-3 h-3 fill-amber-400/50" />
               Favorites
             </div>
             {pinnedItems.map((item) => (
               <div key={item.path} className="relative group">
                 <button
-                  className="w-full flex items-center gap-1.5 h-[26px] px-3 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+                  className="w-full flex items-center gap-1.5 h-[26px] px-3 text-[13px] text-secondary hover:bg-hover/80 transition-colors"
                   onClick={() => openPinnedItem(item)}
                   title={item.path}
                 >
                   {item.isDir ? (
-                    <Folder className="w-4 h-4 text-amber-400/70 shrink-0" />
+                    <Folder className="w-4 h-4 text-amber-600 dark:text-amber-400/70 shrink-0" />
                   ) : (
-                    <File className="w-4 h-4 text-amber-400/70 shrink-0" />
+                    <File className="w-4 h-4 text-amber-600 dark:text-amber-400/70 shrink-0" />
                   )}
                   <span className="truncate">{item.name}</span>
                 </button>
@@ -648,7 +648,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
                     e.stopPropagation();
                     togglePin(item.path, item.name, item.isDir);
                   }}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-subtle hover:text-red-700 dark:hover:text-red-600 hover:bg-elevated transition-colors opacity-0 group-hover:opacity-100"
                   title="Unpin"
                 >
                   <PinOff className="w-3 h-3" />
@@ -660,9 +660,9 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
         {/* File tree */}
         {loading ? (
-          <div className="px-4 py-8 text-center text-zinc-600 text-sm">Loading...</div>
+          <div className="px-4 py-8 text-center text-subtle text-sm">Loading...</div>
         ) : entries.length === 0 ? (
-          <div className="px-4 py-8 text-center text-zinc-600 text-sm">Empty folder</div>
+          <div className="px-4 py-8 text-center text-subtle text-sm">Empty folder</div>
         ) : (
           entries.map((entry) => (
             <TreeNode
@@ -681,7 +681,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[180px]"
+          className="fixed z-[100] bg-surface border border-border-strong rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 200),
             top: Math.min(contextMenu.y, window.innerHeight - 240),
@@ -692,9 +692,9 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               addToChat(contextMenu.entry);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-700 dark:text-blue-300 hover:bg-elevated transition-colors text-left"
           >
-            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400 pointer-events-none" />
+            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 pointer-events-none" />
             Add {contextMenu.entry.is_dir ? 'folder' : 'file'} to chat
           </button>
           {contextMenu.entry.is_dir && (
@@ -703,13 +703,13 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
                 setRegexDialogRoot(contextMenu.entry);
                 setContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-300 hover:bg-zinc-700 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-700 dark:text-purple-300 hover:bg-elevated transition-colors text-left"
             >
-              <Filter className="w-3.5 h-3.5 text-purple-400 pointer-events-none" />
+              <Filter className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 pointer-events-none" />
               Add matching files to chat…
             </button>
           )}
-          <div className="border-t border-zinc-700 my-1" />
+          <div className="border-t border-border-strong my-1" />
           <button
             onClick={() => {
               setRenaming(contextMenu.entry);
@@ -717,9 +717,9 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               setContextMenu(null);
               setTimeout(() => renameRef.current?.select(), 50);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
-            <Pencil className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <Pencil className="w-3.5 h-3.5 text-muted pointer-events-none" />
             Rename
           </button>
           <button
@@ -727,18 +727,18 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               navigator.clipboard.writeText(contextMenu.entry.path);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
-            <Copy className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <Copy className="w-3.5 h-3.5 text-muted pointer-events-none" />
             Copy path
           </button>
-          <div className="border-t border-zinc-700 my-1" />
+          <div className="border-t border-border-strong my-1" />
           <button
             onClick={() => {
               setDeleteConfirm(contextMenu.entry);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-elevated transition-colors text-left"
           >
             <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
             Delete
@@ -758,9 +758,9 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
       {/* Rename inline input */}
       {renaming && (
-        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-zinc-800 border border-zinc-600 rounded-lg shadow-lg">
-          <p className="text-[11px] text-zinc-400 mb-1.5">
-            Rename <span className="font-medium text-zinc-200">{renaming.name}</span>
+        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-surface border border-border-strong rounded-lg shadow-lg">
+          <p className="text-[11px] text-secondary mb-1.5">
+            Rename <span className="font-medium text-primary">{renaming.name}</span>
           </p>
           <input
             ref={renameRef}
@@ -770,12 +770,12 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               if (e.key === 'Enter') handleRenameLocal();
               if (e.key === 'Escape') setRenaming(null);
             }}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-500"
+            className="w-full bg-panel border border-border-strong rounded px-2 py-1 text-xs text-primary outline-none focus:border-blue-500"
             autoFocus
           />
           <div className="flex items-center gap-2 mt-2">
             <button onClick={handleRenameLocal} className="px-2 py-0.5 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white">Rename</button>
-            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300">Cancel</button>
+            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-elevated hover:bg-elevated text-secondary">Cancel</button>
           </div>
         </div>
       )}
@@ -783,7 +783,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       {/* Delete confirmation */}
       {deleteConfirm && (
         <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
-          <p className="text-[11px] text-red-300 mb-2">
+          <p className="text-[11px] text-red-700 dark:text-red-300 mb-2">
             Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
           </p>
           <div className="flex items-center gap-2">
@@ -795,7 +795,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
             </button>
             <button
               onClick={() => setDeleteConfirm(null)}
-              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded transition-colors"
+              className="px-2.5 py-1 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
             >
               Cancel
             </button>
@@ -834,19 +834,19 @@ function FileExplorerView({ sshConnection, localTerminalId }: FileExplorerViewPr
   return (
     <div className="flex flex-col h-full">
       {/* Header with toggle */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           Explorer
         </span>
 
         {hasRemote && (
-          <div className="flex items-center bg-zinc-800 rounded-md p-0.5">
+          <div className="flex items-center bg-surface rounded-md p-0.5">
             <button
               onClick={() => setExplorerMode('local')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
                 explorerMode === 'local'
-                  ? 'bg-zinc-700 text-zinc-200'
-                  : 'text-zinc-500 hover:text-zinc-400'
+                  ? 'bg-elevated text-primary'
+                  : 'text-muted hover:text-secondary'
               }`}
               title="Local files"
             >
@@ -857,8 +857,8 @@ function FileExplorerView({ sshConnection, localTerminalId }: FileExplorerViewPr
               onClick={() => setExplorerMode('remote')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
                 explorerMode === 'remote'
-                  ? 'bg-green-900/60 text-green-300'
-                  : 'text-zinc-500 hover:text-zinc-400'
+                  ? 'bg-green-900/60 text-green-700 dark:text-green-300'
+                  : 'text-muted hover:text-secondary'
               }`}
               title={`Remote: ${sshConnection?.profileName}`}
             >
@@ -1012,8 +1012,8 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           Search
         </span>
         {sshConnection && (
@@ -1023,7 +1023,7 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
               className={`px-1.5 py-[1px] rounded ${
                 mode === 'local'
                   ? 'bg-blue-600 text-white'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  : 'text-muted hover:text-secondary'
               }`}
             >
               Local
@@ -1033,7 +1033,7 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
               className={`px-1.5 py-[1px] rounded ${
                 mode === 'remote'
                   ? 'bg-blue-600 text-white'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  : 'text-muted hover:text-secondary'
               }`}
             >
               Remote
@@ -1049,11 +1049,11 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder={mode === 'remote' ? 'Search remote files…' : 'Search files…'}
-          className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+          className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
         />
         <div className="flex items-center justify-between text-[10px]">
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1 text-zinc-500 cursor-pointer select-none">
+            <label className="flex items-center gap-1 text-muted cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={caseSensitive}
@@ -1062,7 +1062,7 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
               />
               Aa
             </label>
-            <label className="flex items-center gap-1 text-zinc-500 cursor-pointer select-none" title="Treat query as a regular expression">
+            <label className="flex items-center gap-1 text-muted cursor-pointer select-none" title="Treat query as a regular expression">
               <input
                 type="checkbox"
                 checked={useRegex}
@@ -1075,22 +1075,22 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
           <button
             onClick={handleSearch}
             disabled={!canSearch || searching}
-            className="px-2 py-[2px] bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded text-[10px]"
+            className="px-2 py-[2px] bg-blue-600 hover:bg-blue-500 disabled:bg-elevated disabled:text-muted text-white rounded text-[10px]"
           >
             {searching ? 'Searching…' : 'Search'}
           </button>
         </div>
-        <div className="text-[9px] text-zinc-600 truncate" title={rootLabel}>
+        <div className="text-[9px] text-subtle truncate" title={rootLabel}>
           in: {rootLabel}
         </div>
         {backend && ran && !error && (
-          <div className="flex items-center justify-between text-[9px] text-zinc-600">
+          <div className="flex items-center justify-between text-[9px] text-subtle">
             <span title="Search engine that handled this query">engine: {backend}</span>
             {backend === 'grep-remote' && sshConnection && (
               <button
                 onClick={handleInstallRemoteRg}
                 disabled={installingRg}
-                className="px-1.5 py-[1px] rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-[9px]"
+                className="px-1.5 py-[1px] rounded bg-surface hover:bg-elevated disabled:opacity-50 text-secondary text-[9px]"
                 title="Upload Operon's bundled ripgrep binary to ~/.operon/bin/rg on this server"
               >
                 {installingRg ? 'Installing…' : 'Install ripgrep on server'}
@@ -1099,28 +1099,28 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
           </div>
         )}
         {installMsg && (
-          <div className="text-[9px] text-zinc-500 break-words">{installMsg}</div>
+          <div className="text-[9px] text-muted break-words">{installMsg}</div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto border-t border-zinc-800/60">
+      <div className="flex-1 overflow-y-auto border-t border-border-default/60">
         {searching && results.length === 0 && (
-          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+          <div className="px-4 py-8 text-center text-subtle text-xs">
             Searching…
           </div>
         )}
         {!searching && error && (
-          <div className="px-4 py-3 text-[11px] text-red-400 break-all">
+          <div className="px-4 py-3 text-[11px] text-red-600 dark:text-red-400 break-all">
             {error}
           </div>
         )}
         {!searching && !error && results.length === 0 && ran && (
-          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+          <div className="px-4 py-8 text-center text-subtle text-xs">
             No results found
           </div>
         )}
         {!searching && !error && results.length === 0 && !ran && (
-          <div className="px-4 py-8 text-center text-zinc-600 text-xs">
+          <div className="px-4 py-8 text-center text-subtle text-xs">
             {mode === 'remote' && !remotePath
               ? 'Open a remote folder in the Files view first.'
               : 'Type a query and press Enter.'}
@@ -1128,23 +1128,23 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
         )}
         {results.length > 0 && (
           <>
-            <div className="px-3 py-1.5 text-[10px] text-zinc-500 sticky top-0 bg-zinc-900 border-b border-zinc-800/60">
+            <div className="px-3 py-1.5 text-[10px] text-muted sticky top-0 bg-panel border-b border-border-default/60">
               {results.length} match{results.length === 1 ? '' : 'es'}
               {results.length >= 200 ? ' (capped at 200)' : ''}
             </div>
             {results.map((r, i) => (
               <button
                 key={`${r.path}:${r.line}:${i}`}
-                className="w-full text-left px-3 py-1 hover:bg-zinc-800 text-xs border-b border-zinc-800/30"
+                className="w-full text-left px-3 py-1 hover:bg-hover text-xs border-b border-border-default/30"
                 onClick={() => openHit(r)}
                 title={r.path}
               >
-                <div className="text-zinc-300 truncate">
+                <div className="text-secondary truncate">
                   {r.path.split('/').pop()}
-                  <span className="text-zinc-600"> · {r.path}</span>
+                  <span className="text-subtle"> · {r.path}</span>
                 </div>
-                <div className="text-zinc-500 truncate font-mono text-[11px]">
-                  <span className="text-zinc-600">L{r.line}:</span> {r.text}
+                <div className="text-muted truncate font-mono text-[11px]">
+                  <span className="text-subtle">L{r.line}:</span> {r.text}
                 </div>
               </button>
             ))}
@@ -1230,7 +1230,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   }, [onViewChange]);
 
   return (
-    <div className="h-full bg-zinc-900 overflow-hidden">
+    <div className="h-full bg-panel overflow-hidden">
       {/* FileExplorerView is always mounted but hidden when inactive.
           This preserves directory listing, scroll position, and expanded state
           across sidebar tab switches (prevents reset to home directory). */}
@@ -1261,12 +1261,12 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
       {activeView === 'singularity' && <singularityExtension.SidebarPanel />}
       {activeView === 'settings' && (
         <div className="flex flex-col h-full">
-          <div className="flex items-center px-3 py-2 border-b border-zinc-800">
-            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+          <div className="flex items-center px-3 py-2 border-b border-border-default">
+            <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
               Settings
             </span>
           </div>
-          <div className="flex-1 flex items-center justify-center text-zinc-600 text-sm">
+          <div className="flex-1 flex items-center justify-center text-subtle text-sm">
             Settings panel (Phase 7)
           </div>
         </div>
@@ -1376,17 +1376,17 @@ export function RegexAddDialog({
       onClick={onClose}
     >
       <div
-        className="w-[520px] max-w-[90vw] max-h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl"
+        className="w-[520px] max-w-[90vw] max-h-[80vh] flex flex-col bg-panel border border-border-strong rounded-lg shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 py-3 border-b border-zinc-800">
+        <div className="px-4 py-3 border-b border-border-default">
           <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-purple-400" />
-            <h3 className="text-sm font-semibold text-zinc-200">
+            <Filter className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <h3 className="text-sm font-semibold text-primary">
               Add matching files to chat
             </h3>
           </div>
-          <div className="mt-1 text-[11px] text-zinc-500 truncate" title={rootPath}>
+          <div className="mt-1 text-[11px] text-muted truncate" title={rootPath}>
             under: {rootPath}
           </div>
         </div>
@@ -1399,10 +1399,10 @@ export function RegexAddDialog({
             placeholder={isRemote
               ? 'Regex (ERE) — e.g. \\.csv$ or sample_0[0-9]+'
               : 'Regex (RE2) — e.g. \\.csv$ or sample_0[0-9]+'}
-            className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500 font-mono"
+            className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500 font-mono"
             autoFocus
           />
-          <div className="flex items-center gap-4 text-[11px] text-zinc-400">
+          <div className="flex items-center gap-4 text-[11px] text-secondary">
             <label className="flex items-center gap-1 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -1431,28 +1431,28 @@ export function RegexAddDialog({
               Match full path
             </label>
           </div>
-          <div className="text-[10px] text-zinc-600">
+          <div className="text-[10px] text-subtle">
             {isRemote
               ? 'Remote uses GNU grep -E (ERE). No lookaround.'
               : 'Local uses Rust RE2. No lookaround / backrefs.'}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto border-t border-zinc-800 bg-zinc-950/40">
+        <div className="flex-1 overflow-y-auto border-t border-border-default bg-canvas/40">
           {loading && (
-            <div className="px-4 py-6 text-center text-zinc-600 text-xs">Matching…</div>
+            <div className="px-4 py-6 text-center text-subtle text-xs">Matching…</div>
           )}
           {error && !loading && (
-            <div className="px-4 py-3 text-[11px] text-red-400 break-all">{error}</div>
+            <div className="px-4 py-3 text-[11px] text-red-600 dark:text-red-400 break-all">{error}</div>
           )}
           {!loading && !error && preview && (
             <>
-              <div className="px-3 py-1.5 text-[10px] text-zinc-500 sticky top-0 bg-zinc-900/80 border-b border-zinc-800/60">
+              <div className="px-3 py-1.5 text-[10px] text-muted sticky top-0 bg-panel/80 border-b border-border-default/60">
                 {preview.total_matched} match{preview.total_matched === 1 ? '' : 'es'}
                 {preview.truncated ? ` (showing first ${preview.paths.length})` : ''}
               </div>
               {preview.paths.length === 0 ? (
-                <div className="px-4 py-4 text-center text-zinc-600 text-xs">
+                <div className="px-4 py-4 text-center text-subtle text-xs">
                   No files match this regex
                 </div>
               ) : (
@@ -1460,14 +1460,14 @@ export function RegexAddDialog({
                   {preview.paths.slice(0, 200).map((p, i) => (
                     <li
                       key={`${p}-${i}`}
-                      className="px-3 py-0.5 text-[11px] text-zinc-400 font-mono truncate"
+                      className="px-3 py-0.5 text-[11px] text-secondary font-mono truncate"
                       title={p}
                     >
                       {p}
                     </li>
                   ))}
                   {preview.paths.length > 200 && (
-                    <li className="px-3 py-1 text-[10px] text-zinc-600">
+                    <li className="px-3 py-1 text-[10px] text-subtle">
                       … and {preview.paths.length - 200} more
                     </li>
                   )}
@@ -1476,23 +1476,23 @@ export function RegexAddDialog({
             </>
           )}
           {!loading && !error && !preview && (
-            <div className="px-4 py-6 text-center text-zinc-600 text-xs">
+            <div className="px-4 py-6 text-center text-subtle text-xs">
               Type a regex above to preview matching files.
             </div>
           )}
         </div>
 
-        <div className="px-4 py-3 border-t border-zinc-800 flex items-center justify-end gap-2">
+        <div className="px-4 py-3 border-t border-border-default flex items-center justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-3 py-1 text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+            className="px-3 py-1 text-[11px] rounded bg-surface hover:bg-elevated text-secondary"
           >
             Cancel
           </button>
           <button
             onClick={handleAdd}
             disabled={!preview || preview.paths.length === 0}
-            className="px-3 py-1 text-[11px] rounded bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white"
+            className="px-3 py-1 text-[11px] rounded bg-purple-600 hover:bg-purple-500 disabled:bg-surface disabled:text-subtle text-white"
           >
             {preview && preview.paths.length > 0
               ? `Add ${preview.paths.length} file${preview.paths.length === 1 ? '' : 's'} to chat`

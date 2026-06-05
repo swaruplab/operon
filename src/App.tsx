@@ -4,6 +4,7 @@ import { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { AppShell } from './components/layout/AppShell';
 import { ProjectProvider } from './context/ProjectContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { SetupWizard } from './components/setup/SetupWizard';
 import { getApiKey } from './lib/claude';
 import { refreshModelsIfStale } from './lib/models';
@@ -41,22 +42,22 @@ function App() {
   // Loading state — checking settings
   if (setupComplete === null) {
     return (
-      <div className="h-screen w-screen bg-zinc-950 flex items-center justify-center">
+      <div className="h-screen w-screen bg-canvas flex items-center justify-center">
         <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  // First-time setup
-  if (!setupComplete) {
-    return <SetupWizard onComplete={() => setSetupComplete(true)} />;
-  }
-
-  // Normal app
   return (
-    <ProjectProvider>
-      <AppShell />
-    </ProjectProvider>
+    <ThemeProvider>
+      {!setupComplete ? (
+        <SetupWizard onComplete={() => setSetupComplete(true)} />
+      ) : (
+        <ProjectProvider>
+          <AppShell />
+        </ProjectProvider>
+      )}
+    </ThemeProvider>
   );
 }
 

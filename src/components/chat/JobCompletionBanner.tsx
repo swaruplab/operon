@@ -23,18 +23,18 @@ export function JobCompletionBanner({ completion, onResume, onViewLog, onDismiss
         ? 'border-l-red-500 bg-red-950/20'
         : variant === 'timeout'
           ? 'border-l-yellow-500 bg-yellow-950/20'
-          : 'border-l-zinc-500 bg-zinc-900/40';
+          : 'border-l-zinc-500 bg-panel/40';
 
   const Icon =
     variant === 'success' ? CheckCircle2 : variant === 'failure' ? XCircle : AlertTriangle;
   const iconColor =
     variant === 'success'
-      ? 'text-green-400'
+      ? 'text-green-600 dark:text-green-400'
       : variant === 'failure'
-        ? 'text-red-400'
+        ? 'text-red-600 dark:text-red-400'
         : variant === 'timeout'
-          ? 'text-yellow-400'
-          : 'text-zinc-400';
+          ? 'text-yellow-600 dark:text-yellow-400'
+          : 'text-secondary';
 
   const jobLabel = completion.job_name ? `${completion.job_name} (${completion.job_id})` : `job ${completion.job_id}`;
 
@@ -82,17 +82,17 @@ export function JobCompletionBanner({ completion, onResume, onViewLog, onDismiss
 
   return (
     <div
-      className={`mx-3 my-1.5 px-3 py-2 rounded-md border border-l-4 border-zinc-800 ${accent} text-xs`}
+      className={`mx-3 my-1.5 px-3 py-2 rounded-md border border-l-4 border-border-default ${accent} text-xs`}
     >
       <div className="flex items-start gap-2">
         <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${iconColor}`} />
         <div className="flex-1 min-w-0">
-          <div className="text-zinc-100 font-medium truncate">{headline}</div>
-          <div className="text-zinc-400 truncate">{subline}</div>
+          <div className="text-primary font-medium truncate">{headline}</div>
+          <div className="text-secondary truncate">{subline}</div>
         </div>
         <button
           onClick={handleDismiss}
-          className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+          className="p-0.5 text-muted hover:text-secondary transition-colors shrink-0"
           title="Dismiss"
         >
           <X className="w-3 h-3 pointer-events-none" />
@@ -109,7 +109,7 @@ export function JobCompletionBanner({ completion, onResume, onViewLog, onDismiss
         {completion.log_path && (
           <button
             onClick={() => onViewLog(completion)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-medium transition-colors"
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface hover:bg-elevated text-secondary text-[11px] font-medium transition-colors"
           >
             <FileText className="w-3 h-3 pointer-events-none" />
             View log

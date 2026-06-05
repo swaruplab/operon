@@ -64,7 +64,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'getting-started',
       title: 'Getting Started',
       icon: Sparkles,
-      iconColor: 'text-blue-400',
+      iconColor: 'text-blue-600 dark:text-blue-400',
       items: [
         {
           title: 'Opening a project',
@@ -94,7 +94,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'ai-modes',
       title: 'AI Modes',
       icon: Bot,
-      iconColor: 'text-purple-400',
+      iconColor: 'text-purple-600 dark:text-purple-400',
       items: [
         {
           title: 'Agent Mode',
@@ -122,7 +122,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'pubmed',
       title: 'PubMed Literature',
       icon: BookMarked,
-      iconColor: 'text-emerald-400',
+      iconColor: 'text-emerald-600 dark:text-emerald-400',
       items: [
         {
           title: 'What is PubMed grounding?',
@@ -152,7 +152,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'voice',
       title: 'Voice Dictation',
       icon: Mic,
-      iconColor: 'text-red-400',
+      iconColor: 'text-red-600 dark:text-red-400',
       items: [
         {
           title: 'Using voice input',
@@ -177,7 +177,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'github',
       title: 'GitHub Integration',
       icon: GitBranch,
-      iconColor: 'text-orange-400',
+      iconColor: 'text-orange-600 dark:text-orange-400',
       items: [
         {
           title: 'Overview',
@@ -215,7 +215,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'editor',
       title: 'Code Editor',
       icon: Code2,
-      iconColor: 'text-green-400',
+      iconColor: 'text-green-600 dark:text-green-400',
       items: [
         {
           title: 'Opening files',
@@ -240,7 +240,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'terminal',
       title: 'Terminal',
       icon: Terminal,
-      iconColor: 'text-amber-400',
+      iconColor: 'text-amber-600 dark:text-amber-400',
       items: [
         {
           title: 'Using the terminal',
@@ -260,7 +260,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'remote-ssh',
       title: 'Remote SSH & HPC',
       icon: Server,
-      iconColor: 'text-teal-400',
+      iconColor: 'text-teal-600 dark:text-teal-400',
       items: [
         {
           title: 'Adding a server',
@@ -295,7 +295,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'server-config',
       title: 'Server Configuration',
       icon: Settings2,
-      iconColor: 'text-cyan-400',
+      iconColor: 'text-cyan-600 dark:text-cyan-400',
       items: [
         {
           title: 'What is Server Configuration?',
@@ -324,7 +324,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'protocols',
       title: 'Protocols',
       icon: BookOpen,
-      iconColor: 'text-indigo-400',
+      iconColor: 'text-indigo-600 dark:text-indigo-400',
       items: [
         {
           title: 'What are protocols?',
@@ -345,7 +345,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'mcp-servers',
       title: 'MCP Servers',
       icon: Plug,
-      iconColor: 'text-rose-400',
+      iconColor: 'text-rose-600 dark:text-rose-400',
       items: [
         {
           title: 'What are MCP servers?',
@@ -384,7 +384,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'extensions',
       title: 'Extensions',
       icon: Puzzle,
-      iconColor: 'text-violet-400',
+      iconColor: 'text-violet-600 dark:text-violet-400',
       items: [
         {
           title: 'What are extensions?',
@@ -426,7 +426,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'shortcuts',
       title: 'Keyboard Shortcuts',
       icon: Keyboard,
-      iconColor: 'text-zinc-400',
+      iconColor: 'text-secondary',
       items: [
         {
           title: 'Chat shortcuts',
@@ -446,7 +446,7 @@ export function HelpView({ onViewChange }: HelpViewProps) {
       id: 'tips',
       title: 'Tips & Best Practices',
       icon: Zap,
-      iconColor: 'text-yellow-400',
+      iconColor: 'text-yellow-600 dark:text-yellow-400',
       items: [
         {
           title: 'Be specific with Claude',
@@ -486,23 +486,23 @@ export function HelpView({ onViewChange }: HelpViewProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 shrink-0">
-        <HelpCircle className="w-3.5 h-3.5 text-zinc-500" />
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border-default shrink-0">
+        <HelpCircle className="w-3.5 h-3.5 text-muted" />
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           Help
         </span>
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2 border-b border-zinc-800 shrink-0">
+      <div className="px-3 py-2 border-b border-border-default shrink-0">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-subtle" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search help topics..."
-            className="w-full bg-zinc-800 border border-zinc-700 rounded pl-7 pr-3 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-600 placeholder:text-zinc-600"
+            className="w-full bg-surface border border-border-strong rounded pl-7 pr-3 py-1 text-xs text-primary outline-none focus:border-border-strong placeholder:text-subtle"
             spellCheck={false}
           />
         </div>
@@ -515,16 +515,16 @@ export function HelpView({ onViewChange }: HelpViewProps) {
             {/* Section header */}
             <button
               onClick={() => toggleSection(section.id)}
-              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/50 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-hover/50 transition-colors text-left"
             >
               {expandedSection === section.id ? (
-                <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />
+                <ChevronDown className="w-3 h-3 text-muted shrink-0" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                <ChevronRight className="w-3 h-3 text-muted shrink-0" />
               )}
               <section.icon className={`w-3.5 h-3.5 ${section.iconColor} shrink-0`} />
-              <span className="text-xs font-medium text-zinc-300">{section.title}</span>
-              <span className="text-[10px] text-zinc-600 ml-auto">{section.items.length}</span>
+              <span className="text-xs font-medium text-secondary">{section.title}</span>
+              <span className="text-[10px] text-subtle ml-auto">{section.items.length}</span>
             </button>
 
             {/* Section items */}
@@ -538,15 +538,15 @@ export function HelpView({ onViewChange }: HelpViewProps) {
                     <div key={itemId}>
                       <button
                         onClick={() => toggleItem(itemId)}
-                        className={`w-full flex items-center gap-2 px-3 pl-9 py-1.5 hover:bg-zinc-800/30 transition-colors text-left ${
-                          isExpanded ? 'bg-zinc-800/20' : ''
+                        className={`w-full flex items-center gap-2 px-3 pl-9 py-1.5 hover:bg-hover/30 transition-colors text-left ${
+                          isExpanded ? 'bg-surface/20' : ''
                         }`}
                       >
-                        <span className={`text-[11px] ${isExpanded ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                        <span className={`text-[11px] ${isExpanded ? 'text-primary' : 'text-secondary'}`}>
                           {item.title}
                         </span>
                         {item.shortcut && (
-                          <kbd className="text-[9px] bg-zinc-800 px-1 py-0.5 rounded text-zinc-500 font-mono ml-auto shrink-0">
+                          <kbd className="text-[9px] bg-surface px-1 py-0.5 rounded text-muted font-mono ml-auto shrink-0">
                             {adaptShortcut(item.shortcut)}
                           </kbd>
                         )}
@@ -554,23 +554,23 @@ export function HelpView({ onViewChange }: HelpViewProps) {
 
                       {isExpanded && (
                         <div className="px-3 pl-9 pr-4 pb-2 space-y-2">
-                          <p className="text-[11px] text-zinc-500 leading-relaxed whitespace-pre-line">
+                          <p className="text-[11px] text-muted leading-relaxed whitespace-pre-line">
                             {adaptShortcut(item.content)}
                           </p>
 
                           {item.tip && (
                             <div className="flex gap-2 p-2 bg-blue-950/20 rounded border border-blue-900/20">
-                              <Zap className="w-3 h-3 text-blue-400 shrink-0 mt-0.5" />
-                              <p className="text-[10px] text-blue-300/80 leading-relaxed">{item.tip}</p>
+                              <Zap className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                              <p className="text-[10px] text-blue-700 dark:text-blue-300/80 leading-relaxed">{item.tip}</p>
                             </div>
                           )}
 
                           {item.action && (
                             <button
                               onClick={item.action.handler}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-300 rounded transition-colors"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface hover:bg-elevated text-[10px] text-secondary rounded transition-colors"
                             >
-                              <PlayCircle className="w-3 h-3 text-blue-400" />
+                              <PlayCircle className="w-3 h-3 text-blue-600 dark:text-blue-400" />
                               {item.action.label}
                             </button>
                           )}
@@ -586,11 +586,11 @@ export function HelpView({ onViewChange }: HelpViewProps) {
 
         {filteredSections.length === 0 && searchQuery && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <Search className="w-5 h-5 text-zinc-700 mb-2" />
-            <p className="text-xs text-zinc-600">No results for "{searchQuery}"</p>
+            <Search className="w-5 h-5 text-subtle mb-2" />
+            <p className="text-xs text-subtle">No results for "{searchQuery}"</p>
             <button
               onClick={() => setSearchQuery('')}
-              className="text-[10px] text-blue-400 hover:text-blue-300 mt-1"
+              className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 mt-1"
             >
               Clear search
             </button>
@@ -598,15 +598,15 @@ export function HelpView({ onViewChange }: HelpViewProps) {
         )}
 
         {/* Footer */}
-        <div className="px-3 py-3 mt-2 border-t border-zinc-800/50">
-          <p className="text-[10px] text-zinc-600 leading-relaxed">
+        <div className="px-3 py-3 mt-2 border-t border-border-default/50">
+          <p className="text-[10px] text-subtle leading-relaxed">
             Operon is powered by Claude Code from Anthropic.
             For more about Claude Code, visit{' '}
             <a
               href="https://docs.anthropic.com/en/docs/claude-code"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-500 hover:text-blue-400"
+              className="text-blue-500 hover:text-blue-700 dark:hover:text-blue-600"
             >
               docs.anthropic.com
             </a>

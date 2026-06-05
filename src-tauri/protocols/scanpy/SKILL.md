@@ -85,10 +85,27 @@ sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], inplace=True)
 sc.pl.violin(adata, ['n_genes_by_counts', 'total_counts', 'pct_counts_mt'],
              jitter=0.4, multi_panel=True)
 
-# Filter cells and genes
-sc.pp.filter_cells(adata, min_genes=200)
-sc.pp.filter_genes(adata, min_cells=3)
-adata = adata[adata.obs.pct_counts_mt < 5, :]  # Remove high MT% cells
+# Quantile-based filtering: thresholds adapt to each dataset's distribution
+# instead of using fixed cut-offs (a 200-gene floor or 5% MT cap is wrong for
+# many datasets — too strict on shallow libraries, too loose on high-MT
+# tissue like heart/kidney).
+import numpy as np
+
+gene_lo = np.quantile(adata.obs['n_genes_by_counts'], 0.05)   # drop bottom 5% (low-quality / empty)
+gene_hi = np.quantile(adata.obs['n_genes_by_counts'], 0.99)   # drop top 1% (likely doublets)
+count_lo = np.quantile(adata.obs['total_counts'], 0.05)
+count_hi = np.quantile(adata.obs['total_counts'], 0.99)
+mt_hi = min(np.quantile(adata.obs['pct_counts_mt'], 0.99), 20.0)  # 20% sanity ceiling
+
+print(f"Auto QC: n_genes ∈ [{gene_lo:.0f}, {gene_hi:.0f}], "
+      f"total_counts ∈ [{count_lo:.0f}, {count_hi:.0f}], pct_counts_mt < {mt_hi:.2f}")
+
+adata = adata[(adata.obs['n_genes_by_counts'] >= gene_lo) &
+              (adata.obs['n_genes_by_counts'] <= gene_hi) &
+              (adata.obs['total_counts'] >= count_lo) &
+              (adata.obs['total_counts'] <= count_hi) &
+              (adata.obs['pct_counts_mt'] < mt_hi), :].copy()
+sc.pp.filter_genes(adata, min_cells=3)  # gene-level floor (not dataset-quantile)
 ```
 
 **Use the QC script for automated analysis:**
@@ -275,9 +292,14 @@ sc.pp.combat(adata, key='batch')
 ## Key Parameters to Adjust
 
 ### Quality Control
-- `min_genes`: Minimum genes per cell (typically 200-500)
-- `min_cells`: Minimum cells per gene (typically 3-10)
-- `pct_counts_mt`: Mitochondrial threshold (typically 5-20%)
+Default thresholds are **quantile-based** — derived from the dataset's own distribution
+of QC metrics, so a shallow-library or high-MT tissue isn't penalized by hardcoded numbers.
+- `gene_lo / gene_hi`: 5th / 99th percentile of `n_genes_by_counts` (per-cell floor + doublet ceiling)
+- `count_lo / count_hi`: 5th / 99th percentile of `total_counts`
+- `mt_hi`: `min(99th percentile of pct_counts_mt, 20%)` — quantile-based with a 20% absolute sanity ceiling
+- `min_cells=3`: Minimum cells per gene (this is a fixed noise floor, not a quantile)
+
+Override with fixed thresholds via `scripts/qc_analysis.py --hard-thresholds` if you need reproducibility across datasets with very different distributions.
 
 ### Normalization
 - `target_sum`: Target counts per cell (default 1e4)

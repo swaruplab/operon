@@ -55,7 +55,7 @@ const sections: HelpSection[] = [
     id: 'getting-started',
     title: 'Getting Started',
     icon: Sparkles,
-    iconColor: 'text-blue-400',
+    iconColor: 'text-blue-600 dark:text-blue-400',
     items: [
       {
         title: 'Opening a project',
@@ -72,6 +72,11 @@ const sections: HelpSection[] = [
         content: 'Operon has four main areas: the Activity Bar (far left icons), the Sidebar (file explorer, SSH, etc.), the Editor (center, for code), and the Chat Panel (right side). The Terminal lives in a bottom panel you can toggle. All panels are resizable by dragging their borders.',
       },
       {
+        title: 'Light and dark theme',
+        content: 'Click the sun/moon icon in the top bar to switch between dark (default) and light themes. The whole interface — top bar, sidebars, Monaco editor syntax highlighting, terminal palette, even the macOS title bar — swaps in place without losing your work. Your choice is remembered across restarts.\n\nIf you want Operon to follow your macOS appearance automatically, set theme to "system" via your app settings file (~/.operon/settings.json → "theme": "system"). System mode reacts live to OS-level appearance changes.',
+        tip: 'The terminal\'s xterm palette swaps live too — colors are tuned darker in light mode so ANSI red/green/blue stay readable on white.',
+      },
+      {
         title: 'Quick start suggestions',
         content: 'When you start a new conversation, the empty chat shows clickable suggestion cards like "Analyze data", "Write a pipeline", "Search PubMed", and "Debug an error". Click any suggestion to pre-fill the chat input with a relevant prompt — a fast way to get going without typing from scratch.',
       },
@@ -86,7 +91,7 @@ const sections: HelpSection[] = [
     id: 'ai-modes',
     title: 'AI Modes',
     icon: Bot,
-    iconColor: 'text-purple-400',
+    iconColor: 'text-purple-600 dark:text-purple-400',
     items: [
       {
         title: 'Agent Mode',
@@ -119,12 +124,18 @@ const sections: HelpSection[] = [
     id: 'ai-providers',
     title: 'AI Providers',
     icon: Cloud,
-    iconColor: 'text-fuchsia-400',
+    iconColor: 'text-fuchsia-600 dark:text-fuchsia-400',
     items: [
       {
         title: 'Overview — using other models (OpenAI, Gemini, …)',
-        content: 'Operon runs the Claude Code agent, which speaks one wire format — the Anthropic Messages API. To use other models — OpenAI GPT, Google Gemini, open-weights models, or local runtimes — Operon points the agent at a different endpoint. There are two routes:\n\n1. Anthropic-compatible gateway (recommended). A gateway such as OpenRouter or LiteLLM exposes an Anthropic-shaped /v1/messages endpoint while fronting hundreds of models behind it — GPT, Gemini, Llama, DeepSeek, and Claude itself. Claude Code calls the gateway directly, with no proxy. This route works on every platform, including Windows and remote/HPC sessions.\n\n2. Translation proxy (fallback). For endpoints that only speak the OpenAI Chat Completions format — local runtimes like Ollama, vLLM, and older LM Studio — Operon can run a small bundled sidecar that translates between the two formats. This route is local-only.\n\nConfigure it in Settings → AI Provider → Custom provider. The default is the gateway route with the translation proxy off.',
-        tip: 'To reach OpenAI and Gemini, the simplest path is OpenRouter: one API key, one bill, and models picked by name (openai/gpt-4o, google/gemini-2.5-pro, and many more). Choose the Custom provider, click the OpenRouter preset, paste your key, and leave the translation proxy off.',
+        content: 'Operon runs the Claude Code agent, which speaks one wire format — the Anthropic Messages API. To use other models — OpenAI GPT, Google Gemini, open-weights models, or local runtimes — Operon points the agent at a different endpoint. There are three provider options:\n\n1. Anthropic (default). Direct to api.anthropic.com with your Claude API key. Best fidelity, full feature support.\n\n2. Portkey gateway. A managed gateway like UCI ZotGPT (institutional) or Portkey Cloud (public). Anthropic-compatible passthrough for Claude; non-Anthropic models (Gemini, Moonshot Kimi, etc.) are auto-routed through the bundled translation proxy.\n\n3. Custom OpenAI-compatible. Point at any endpoint that speaks OpenAI Chat Completions (Ollama, vLLM, LM Studio, LiteLLM, OpenRouter). Optional translation proxy for endpoints that don\'t expose /v1/messages.\n\nConfigure in Settings → AI Provider.',
+        tip: 'To reach OpenAI and Gemini, the simplest path is OpenRouter (Custom provider): one API key, one bill, models picked by name. For UCI users with ZotGPT access, the Portkey provider is the institutional path.',
+        action: { label: 'Open Settings', view: 'settings' },
+      },
+      {
+        title: 'Portkey gateway (UCI ZotGPT and others)',
+        content: 'Portkey gateways are managed AI gateways that route requests to many model backends (Bedrock Claude, Vertex Gemini, Moonshot Kimi, and more) behind one virtual API key. Operon ships with two presets:\n\n• UCI ZotGPT Gateway — UC Irvine\'s institutional gateway. Eligible to UCI faculty, staff, grad students, and PI-sponsored undergrads. P3-compliant (12-month retention, no training), IRB-friendly audit trail.\n\n• Portkey Cloud — public pay-as-you-go.\n\nSetup: Settings → AI Provider → Portkey → pick a gateway preset → paste your virtual API key. The model catalog auto-loads and groups by family (Anthropic / Google / Moonshot / Meta / Mistral). Operon auto-picks the best Claude model on first connect.\n\nRouting is automatic: Claude models go direct to Portkey\'s Anthropic passthrough; non-Anthropic models (Kimi, Gemini, etc.) are routed through the bundled translation proxy so Claude Code can speak to them. A purple badge under the model dropdown confirms when the proxy is active.\n\nOpenAI models (GPT-5+, o-series) are temporarily hidden in the Portkey UI — they require OpenAI\'s newer Responses API which our current proxy doesn\'t translate to yet. Coming back in Phase 13.',
+        tip: 'On HPC: the Portkey provider\'s direct-Anthropic path works on remote sessions (no local proxy needed). For non-Anthropic Portkey models, currently only local sessions work — remote routing is on the Phase 13 roadmap.',
         action: { label: 'Open Settings', view: 'settings' },
       },
       {
@@ -180,7 +191,7 @@ const sections: HelpSection[] = [
     id: 'ai-providers-remote',
     title: 'AI Providers (Remote)',
     icon: Cloud,
-    iconColor: 'text-cyan-400',
+    iconColor: 'text-cyan-600 dark:text-cyan-400',
     items: [
       {
         title: 'Overview — three topologies',
@@ -220,7 +231,7 @@ const sections: HelpSection[] = [
     id: 'report',
     title: 'Report Generation',
     icon: FileText,
-    iconColor: 'text-pink-400',
+    iconColor: 'text-pink-600 dark:text-pink-400',
     items: [
       {
         title: 'What is Report mode?',
@@ -254,7 +265,7 @@ const sections: HelpSection[] = [
     id: 'pubmed',
     title: 'PubMed Literature',
     icon: BookMarked,
-    iconColor: 'text-emerald-400',
+    iconColor: 'text-emerald-600 dark:text-emerald-400',
     items: [
       {
         title: 'What is PubMed grounding?',
@@ -284,7 +295,7 @@ const sections: HelpSection[] = [
     id: 'voice',
     title: 'Voice Dictation',
     icon: Mic,
-    iconColor: 'text-red-400',
+    iconColor: 'text-red-600 dark:text-red-400',
     items: [
       {
         title: 'Using voice input',
@@ -309,7 +320,7 @@ const sections: HelpSection[] = [
     id: 'github',
     title: 'GitHub Integration',
     icon: GitBranch,
-    iconColor: 'text-orange-400',
+    iconColor: 'text-orange-600 dark:text-orange-400',
     items: [
       {
         title: 'Overview',
@@ -360,7 +371,7 @@ const sections: HelpSection[] = [
     id: 'chat-features',
     title: 'Chat Features',
     icon: Paperclip,
-    iconColor: 'text-sky-400',
+    iconColor: 'text-sky-600 dark:text-sky-400',
     items: [
       {
         title: 'File attachments',
@@ -387,7 +398,7 @@ const sections: HelpSection[] = [
     id: 'file-explorer',
     title: 'File Explorer',
     icon: FolderOpen,
-    iconColor: 'text-yellow-400',
+    iconColor: 'text-yellow-600 dark:text-yellow-400',
     items: [
       {
         title: 'Navigating folders',
@@ -425,7 +436,7 @@ const sections: HelpSection[] = [
     id: 'editor',
     title: 'Code Editor',
     icon: Code2,
-    iconColor: 'text-green-400',
+    iconColor: 'text-green-600 dark:text-green-400',
     items: [
       {
         title: 'Opening files',
@@ -450,7 +461,7 @@ const sections: HelpSection[] = [
     id: 'terminal',
     title: 'Terminal',
     icon: Terminal,
-    iconColor: 'text-amber-400',
+    iconColor: 'text-amber-600 dark:text-amber-400',
     items: [
       {
         title: 'Using the terminal',
@@ -470,7 +481,7 @@ const sections: HelpSection[] = [
     id: 'remote-ssh',
     title: 'Remote SSH & HPC',
     icon: Server,
-    iconColor: 'text-teal-400',
+    iconColor: 'text-teal-600 dark:text-teal-400',
     items: [
       {
         title: 'Adding a server',
@@ -505,7 +516,7 @@ const sections: HelpSection[] = [
     id: 'server-config',
     title: 'Server Configuration',
     icon: Settings2,
-    iconColor: 'text-cyan-400',
+    iconColor: 'text-cyan-600 dark:text-cyan-400',
     items: [
       {
         title: 'What is Server Configuration?',
@@ -536,12 +547,17 @@ const sections: HelpSection[] = [
     id: 'protocols',
     title: 'Protocols',
     icon: BookOpen,
-    iconColor: 'text-indigo-400',
+    iconColor: 'text-indigo-600 dark:text-indigo-400',
     items: [
       {
         title: 'What are protocols?',
-        content: 'Protocols are reusable prompt templates for common workflows. Each protocol is a folder with a PROTOCOL.md entry point plus optional reference files, scripts, and templates. When activated, the protocol context is included with every message to Claude.',
+        content: 'Protocols are reusable prompt templates for common workflows. Each protocol is a folder with a SKILL.md entry point plus optional reference files, scripts, and templates. When activated, the protocol context is included with every message to Claude.',
         action: { label: 'View Protocols', view: 'protocols' },
+      },
+      {
+        title: 'Bundled single-cell protocols',
+        content: 'Operon ships 192 protocols out of the box, including a comprehensive single-cell suite added in v0.7.x:\n\n• Scanpy, Seurat, SingleCellExperiment — core RNA-seq analysis frameworks\n• snapATAC2, ArchR — single-cell ATAC-seq\n• CellBender — ambient RNA removal\n• kallisto-bustools — pseudoalignment quantification\n• scVelo — RNA velocity (with dynamical model + differential kinetics references)\n• MRVI, ResolVI — multi-resolution variational inference\n• hdWGCNA, CellChat — co-expression and cell-cell communication\n• Spatial Transcriptomics, STELLAR Atlas — spatial / multi-omic atlasing\n\nEnable in Settings → Protocols. Pick up to 4 simultaneously — Operon will stack their context for the conversation.',
+        action: { label: 'Open Settings', view: 'settings' },
       },
       {
         title: 'Creating a protocol',
@@ -557,7 +573,7 @@ const sections: HelpSection[] = [
     id: 'mcp-servers',
     title: 'MCP Servers',
     icon: Plug,
-    iconColor: 'text-rose-400',
+    iconColor: 'text-rose-600 dark:text-rose-400',
     items: [
       {
         title: 'What are MCP servers?',
@@ -596,7 +612,7 @@ const sections: HelpSection[] = [
     id: 'extensions',
     title: 'Extensions',
     icon: Puzzle,
-    iconColor: 'text-violet-400',
+    iconColor: 'text-violet-600 dark:text-violet-400',
     items: [
       {
         title: 'What are extensions?',
@@ -638,7 +654,7 @@ const sections: HelpSection[] = [
     id: 'shortcuts',
     title: 'Keyboard Shortcuts',
     icon: Keyboard,
-    iconColor: 'text-zinc-400',
+    iconColor: 'text-secondary',
     items: [
       {
         title: 'Chat shortcuts',
@@ -658,7 +674,7 @@ const sections: HelpSection[] = [
     id: 'tips',
     title: 'Tips & Best Practices',
     icon: Zap,
-    iconColor: 'text-yellow-400',
+    iconColor: 'text-yellow-600 dark:text-yellow-400',
     items: [
       {
         title: 'Be specific with Claude',
@@ -715,24 +731,24 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[750px] max-h-[80vh] bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl flex overflow-hidden">
+      <div className="relative w-[750px] max-h-[80vh] bg-panel rounded-xl border border-border-strong shadow-2xl flex overflow-hidden">
         {/* Left nav */}
-        <div className="w-[200px] border-r border-zinc-800 flex flex-col shrink-0">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
-            <HelpCircle className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-medium text-zinc-300">Help</span>
+        <div className="w-[200px] border-r border-border-default flex flex-col shrink-0">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border-default">
+            <HelpCircle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span className="text-sm font-medium text-secondary">Help</span>
           </div>
 
           {/* Search */}
-          <div className="px-3 py-2 border-b border-zinc-800">
+          <div className="px-3 py-2 border-b border-border-default">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-subtle" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded pl-7 pr-2 py-1 text-xs text-zinc-200 outline-none focus:border-zinc-600 placeholder:text-zinc-600"
+                className="w-full bg-surface border border-border-strong rounded pl-7 pr-2 py-1 text-xs text-primary outline-none focus:border-border-strong placeholder:text-subtle"
                 spellCheck={false}
               />
             </div>
@@ -758,14 +774,14 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
                   }}
                   className={`w-full text-left flex items-center gap-2 px-4 py-2 text-sm transition-colors ${
                     isActive
-                      ? 'bg-zinc-800 text-zinc-100'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                      ? 'bg-surface text-primary'
+                      : 'text-secondary hover:text-primary hover:bg-hover/50'
                   }`}
                 >
                   <Icon className={`w-3.5 h-3.5 ${section.iconColor} shrink-0`} />
                   <span className="truncate">{section.title}</span>
                   {matchCount !== undefined && (
-                    <span className="text-[10px] text-blue-400 ml-auto">{matchCount}</span>
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 ml-auto">{matchCount}</span>
                   )}
                 </button>
               );
@@ -773,8 +789,8 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
           </div>
 
           {/* Footer */}
-          <div className="px-4 py-2 border-t border-zinc-800">
-            <p className="text-[10px] text-zinc-600 leading-relaxed">
+          <div className="px-4 py-2 border-t border-border-default">
+            <p className="text-[10px] text-subtle leading-relaxed">
               Powered by Claude Code
             </p>
           </div>
@@ -784,7 +800,7 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
         <div className="flex-1 overflow-y-auto p-5">
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="absolute top-3 right-3 p-1 rounded hover:bg-hover text-muted hover:text-secondary"
           >
             <X className="w-4 h-4" />
           </button>
@@ -792,16 +808,16 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
           {/* If searching, show flat results */}
           {filteredSections ? (
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-zinc-300 mb-3">
+              <h3 className="text-sm font-medium text-secondary mb-3">
                 Search results for "{searchQuery}"
               </h3>
               {filteredSections.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Search className="w-6 h-6 text-zinc-700 mb-2" />
-                  <p className="text-sm text-zinc-500">No results found</p>
+                  <Search className="w-6 h-6 text-subtle mb-2" />
+                  <p className="text-sm text-muted">No results found</p>
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="text-xs text-blue-400 hover:text-blue-300 mt-2"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 mt-2"
                   >
                     Clear search
                   </button>
@@ -823,7 +839,7 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <currentSection.icon className={`w-5 h-5 ${currentSection.iconColor}`} />
-                <h3 className="text-base font-medium text-zinc-200">{currentSection.title}</h3>
+                <h3 className="text-base font-medium text-primary">{currentSection.title}</h3>
               </div>
 
               <div className="space-y-1">
@@ -832,23 +848,23 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
                   const isExpanded = expandedItem === itemId;
 
                   return (
-                    <div key={itemId} className="border border-zinc-800 rounded-lg overflow-hidden">
+                    <div key={itemId} className="border border-border-default rounded-lg overflow-hidden">
                       <button
                         onClick={() => setExpandedItem(isExpanded ? null : itemId)}
                         className={`w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors ${
-                          isExpanded ? 'bg-zinc-800/60' : 'hover:bg-zinc-800/30'
+                          isExpanded ? 'bg-surface/60' : 'hover:bg-hover/30'
                         }`}
                       >
                         {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
                         ) : (
-                          <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
                         )}
-                        <span className={`text-sm ${isExpanded ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                        <span className={`text-sm ${isExpanded ? 'text-primary' : 'text-secondary'}`}>
                           {item.title}
                         </span>
                         {item.shortcut && (
-                          <kbd className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-500 font-mono ml-auto shrink-0">
+                          <kbd className="text-[10px] bg-surface px-1.5 py-0.5 rounded text-muted font-mono ml-auto shrink-0">
                             {adaptShortcut(item.shortcut)}
                           </kbd>
                         )}
@@ -856,23 +872,23 @@ export function HelpPanel({ isOpen, onClose, onNavigate }: HelpPanelProps) {
 
                       {isExpanded && (
                         <div className="px-4 pb-3 pt-1 ml-5 space-y-2.5">
-                          <p className="text-[12px] text-zinc-400 leading-relaxed whitespace-pre-line">
+                          <p className="text-[12px] text-secondary leading-relaxed whitespace-pre-line">
                             {adaptShortcut(item.content)}
                           </p>
 
                           {item.tip && (
                             <div className="flex gap-2 p-2.5 bg-blue-950/20 rounded-lg border border-blue-900/20">
-                              <Zap className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-                              <p className="text-[11px] text-blue-300/80 leading-relaxed">{item.tip}</p>
+                              <Zap className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                              <p className="text-[11px] text-blue-700 dark:text-blue-300/80 leading-relaxed">{item.tip}</p>
                             </div>
                           )}
 
                           {item.action && (
                             <button
                               onClick={() => handleAction(item.action!.view)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-300 rounded-md transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-elevated text-[11px] text-secondary rounded-md transition-colors"
                             >
-                              <PlayCircle className="w-3.5 h-3.5 text-blue-400" />
+                              <PlayCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                               {item.action.label}
                             </button>
                           )}
@@ -903,31 +919,31 @@ function ItemCard({
   const [expanded, setExpanded] = useState(false);
   return (
     <div
-      className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-800 cursor-pointer hover:bg-zinc-800/70 transition-colors"
+      className="p-3 bg-surface/50 rounded-lg border border-border-default cursor-pointer hover:bg-hover/70 transition-colors"
       onClick={() => setExpanded(!expanded)}
     >
       <div className="flex items-center gap-2 mb-1">
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+          <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+          <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
         )}
-        <span className="text-sm text-zinc-200">{item.title}</span>
-        <span className="text-[10px] text-zinc-600 ml-auto shrink-0">{sectionTitle}</span>
+        <span className="text-sm text-primary">{item.title}</span>
+        <span className="text-[10px] text-subtle ml-auto shrink-0">{sectionTitle}</span>
       </div>
-      <p className={`text-[11px] text-zinc-500 leading-relaxed ml-5 ${expanded ? '' : 'line-clamp-2'}`}>
+      <p className={`text-[11px] text-muted leading-relaxed ml-5 ${expanded ? '' : 'line-clamp-2'}`}>
         {adaptShortcut(item.content)}
       </p>
       {expanded && item.tip && (
         <div className="flex gap-2 p-2.5 mt-2 ml-5 bg-blue-950/20 rounded-lg border border-blue-900/20">
-          <Zap className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-blue-300/80 leading-relaxed">{item.tip}</p>
+          <Zap className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-blue-700 dark:text-blue-300/80 leading-relaxed">{item.tip}</p>
         </div>
       )}
       {item.action && (
         <button
           onClick={(e) => { e.stopPropagation(); onAction(item.action!.view); }}
-          className="inline-flex items-center gap-1 mt-2 ml-5 text-[10px] text-blue-400 hover:text-blue-300"
+          className="inline-flex items-center gap-1 mt-2 ml-5 text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700"
         >
           <PlayCircle className="w-3 h-3" />
           {item.action.label}

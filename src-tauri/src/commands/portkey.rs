@@ -94,7 +94,11 @@ fn bundled_presets() -> Vec<PortkeyPreset> {
         PortkeyPreset {
             id: "uci-zotgpt".to_string(),
             label: "UCI ZotGPT Gateway".to_string(),
-            base_url: "https://api.zotgpt.uci.edu/v1".to_string(),
+            // UCI's ZotGPT Gateway is hosted on Portkey's standard endpoint.
+            // Virtual keys are issued at portal.azureapi.zotgpt.uci.edu but
+            // the API requests go to api.portkey.ai. The UCI-domain endpoint
+            // (api.zotgpt.uci.edu) is the legacy Azure API, now deprecated.
+            base_url: "https://api.portkey.ai/v1".to_string(),
             description: "UC Irvine's institutional AI gateway (powered by Portkey).".to_string(),
             eligibility:
                 "UCI faculty, staff, graduate students; PI-sponsored undergraduates.".to_string(),
@@ -104,9 +108,14 @@ fn bundled_presets() -> Vec<PortkeyPreset> {
                 "12-month retention, no training, P3 compliant, IRB-relevant audit trail."
                     .to_string(),
             suggested_models: vec![
+                "@zotgpt-api-bedrock/us.anthropic.claude-opus-4-8".to_string(),
                 "@zotgpt-api-bedrock/us.anthropic.claude-opus-4-7".to_string(),
-                "@zotgpt-api-bedrock/us.anthropic.claude-sonnet-4-5".to_string(),
-                "@openai-prod/gpt-5.5".to_string(),
+                "@zotgpt-api-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    .to_string(),
+                "@zotgpt-api-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    .to_string(),
+                "@zotgpt-api-gemini/gemini-3.1-flash-lite".to_string(),
+                "@zotgpt-api-azure/gpt-5.5".to_string(),
             ],
         },
         PortkeyPreset {

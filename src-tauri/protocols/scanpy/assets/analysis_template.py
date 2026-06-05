@@ -22,10 +22,24 @@ INPUT_FILE = 'data/raw_counts.h5ad'  # Change to your input file
 OUTPUT_DIR = 'results/'
 FIGURES_DIR = 'figures/'
 
-# QC parameters
-MIN_GENES = 200          # Minimum genes per cell
+# QC parameters — quantile-based by default (thresholds derived from the
+# dataset itself). Switch USE_QUANTILE_QC = False to use the fallback
+# hard-coded thresholds below (HARD_*), which is sometimes preferred for
+# cross-dataset reproducibility.
+USE_QUANTILE_QC = True
+GENE_Q_LO = 0.05         # n_genes_by_counts lower percentile (low-quality cells)
+GENE_Q_HI = 0.99         # n_genes_by_counts upper percentile (likely doublets)
+COUNT_Q_LO = 0.05        # total_counts lower percentile
+COUNT_Q_HI = 0.99        # total_counts upper percentile
+MT_Q_HI = 0.99           # pct_counts_mt upper percentile
+MT_HARD_CEILING = 20.0   # Absolute MT% ceiling — never exceed this even if quantile is higher
+
+# Fallback hard thresholds (used only when USE_QUANTILE_QC = False)
+HARD_MIN_GENES = 200     # Minimum genes per cell
+HARD_MT_THRESHOLD = 5    # Maximum mitochondrial percentage
+
+# Gene-level floor (not dataset-quantile-dependent — this is noise filtering)
 MIN_CELLS = 3            # Minimum cells per gene
-MT_THRESHOLD = 5         # Maximum mitochondrial percentage
 
 # Analysis parameters
 N_TOP_GENES = 2000       # Number of highly variable genes
@@ -78,11 +92,29 @@ sc.pl.scatter(adata, x='total_counts', y='n_genes_by_counts', save='_qc_genes')
 # Filter cells and genes
 print(f"\nBefore filtering: {adata.n_obs} cells, {adata.n_vars} genes")
 
-sc.pp.filter_cells(adata, min_genes=MIN_GENES)
-sc.pp.filter_genes(adata, min_cells=MIN_CELLS)
-adata = adata[adata.obs.pct_counts_mt < MT_THRESHOLD, :]
+if USE_QUANTILE_QC:
+    gene_lo = np.quantile(adata.obs['n_genes_by_counts'], GENE_Q_LO)
+    gene_hi = np.quantile(adata.obs['n_genes_by_counts'], GENE_Q_HI)
+    count_lo = np.quantile(adata.obs['total_counts'], COUNT_Q_LO)
+    count_hi = np.quantile(adata.obs['total_counts'], COUNT_Q_HI)
+    mt_hi = min(np.quantile(adata.obs['pct_counts_mt'], MT_Q_HI), MT_HARD_CEILING)
+    print(f"Quantile QC thresholds:")
+    print(f"  n_genes_by_counts ∈ [{gene_lo:.0f}, {gene_hi:.0f}]")
+    print(f"  total_counts      ∈ [{count_lo:.0f}, {count_hi:.0f}]")
+    print(f"  pct_counts_mt     < {mt_hi:.2f}")
+    adata = adata[(adata.obs['n_genes_by_counts'] >= gene_lo) &
+                  (adata.obs['n_genes_by_counts'] <= gene_hi) &
+                  (adata.obs['total_counts'] >= count_lo) &
+                  (adata.obs['total_counts'] <= count_hi) &
+                  (adata.obs['pct_counts_mt'] < mt_hi), :].copy()
+else:
+    sc.pp.filter_cells(adata, min_genes=HARD_MIN_GENES)
+    adata = adata[adata.obs.pct_counts_mt < HARD_MT_THRESHOLD, :].copy()
 
-print(f"After filtering: {adata.n_obs} cells, {adata.n_vars} genes")
+# Gene-level filter (constant across both QC modes)
+sc.pp.filter_genes(adata, min_cells=MIN_CELLS)
+
+print(f"After filtering:  {adata.n_obs} cells, {adata.n_vars} genes")
 
 # ============================================================================
 # 3. NORMALIZATION

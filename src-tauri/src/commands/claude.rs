@@ -27,6 +27,23 @@ fn hide_window_async(cmd: &mut AsyncCommand) -> &mut AsyncCommand {
     cmd
 }
 
+/// Detect whether a Portkey model slug refers to an Anthropic-family model.
+/// Slugs look like `@workspace/model-id` (e.g.
+/// `@zotgpt-api-bedrock/us.anthropic.claude-opus-4-8`). Anthropic models have
+/// `claude` or `anthropic` in the model-id; everything else (Moonshot Kimi,
+/// GPT, Gemini, …) must be routed via the OpenAI-format translation proxy.
+///
+/// Empty / unknown slugs default to `true` so the safe (current) direct path
+/// is used until the user explicitly picks a non-Anthropic model.
+fn is_anthropic_portkey_model(slug: &str) -> bool {
+    let trimmed = slug.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    let model_id = trimmed.rsplit('/').next().unwrap_or(trimmed).to_lowercase();
+    model_id.contains("claude") || model_id.contains("anthropic")
+}
+
 /// Build the env vars to pass to Claude Code based on the AI provider setting.
 ///
 /// - "anthropic" (default): sets `ANTHROPIC_API_KEY` from the in-memory key (if any).
@@ -52,10 +69,60 @@ fn ai_provider_env(
         let base = settings.portkey_base_url.trim();
         let key = settings.portkey_api_key.trim();
         if !base.is_empty() && !key.is_empty() {
-            return vec![
-                ("ANTHROPIC_BASE_URL".to_string(), base.to_string()),
+            let model = settings.portkey_model.trim();
+
+            // Non-Anthropic models (Moonshot Kimi, GPT, Gemini, …) only work
+            // via Portkey's OpenAI Chat-Completions surface, not Anthropic's
+            // /v1/messages. Route them through the bundled `anthropic-proxy`
+            // sidecar, which translates Claude-Code's Anthropic requests into
+            // OpenAI format. The frontend starts the proxy with
+            // UPSTREAM_BASE_URL=<portkey base> and UPSTREAM_API_KEY=<virtual
+            // key> when the user picks a non-Anthropic model.
+            if !is_anthropic_portkey_model(model) {
+                if let Some(proxy_url) = proxy_state.proxy_base_url() {
+                    return vec![
+                        ("ANTHROPIC_BASE_URL".to_string(), proxy_url),
+                        // Proxy auths upstream itself via UPSTREAM_API_KEY;
+                        // this token is only here so Claude Code thinks it
+                        // has credentials and proceeds.
+                        ("ANTHROPIC_AUTH_TOKEN".to_string(), "portkey".to_string()),
+                    ];
+                }
+                // Proxy isn't running yet — fall through to the direct path,
+                // which Portkey will reject for non-Anthropic models with a
+                // clear error. The frontend should have started the proxy
+                // already; if it didn't, the error tells the user to re-open
+                // settings.
+            }
+
+            // Anthropic-family models: direct passthrough to Portkey's
+            // Anthropic-compatible /v1/messages endpoint.
+            //
+            // Claude Code's Anthropic SDK appends "/v1/messages" to
+            // ANTHROPIC_BASE_URL. If the user-stored URL already has "/v1"
+            // (the convention for OpenAI-style SDK config — what we ask users
+            // to enter), strip it to avoid the SDK constructing
+            // "/v1/v1/messages", which Portkey accepts with a 200 + malformed
+            // body and causes Claude Code to emit "empty or malformed response".
+            let base_for_sdk = base
+                .trim_end_matches('/')
+                .trim_end_matches("/v1")
+                .trim_end_matches('/')
+                .to_string();
+            // Disable Claude Code's beta features that add `anthropic-beta`
+            // headers Bedrock-backed Portkey routes reject ("invalid beta
+            // flag" 400). We do NOT set CLAUDE_CODE_USE_BEDROCK=1 because
+            // that flips auth to AWS SigV4 and overrides the Bearer token
+            // we want Portkey to receive via ANTHROPIC_AUTH_TOKEN.
+            let env = vec![
+                ("ANTHROPIC_BASE_URL".to_string(), base_for_sdk),
                 ("ANTHROPIC_AUTH_TOKEN".to_string(), key.to_string()),
+                ("DISABLE_PROMPT_CACHING".to_string(), "1".to_string()),
+                ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(), "1".to_string()),
+                ("MAX_THINKING_TOKENS".to_string(), "0".to_string()),
+                ("ANTHROPIC_BETAS".to_string(), String::new()),
             ];
+            return env;
         }
         // Misconfigured Portkey — fall through to direct Anthropic key so the
         // session can at least start with an obvious error rather than a

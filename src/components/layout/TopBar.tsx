@@ -1,6 +1,7 @@
-import { Hammer, Settings, Wifi, HelpCircle } from "lucide-react";
+import { Hammer, Settings, Wifi, HelpCircle, Sun, Moon } from "lucide-react";
 import { isMac } from "../../lib/platform";
 import { UpdateChecker } from "./UpdateChecker";
+import { useTheme } from "../../context/ThemeContext";
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -10,27 +11,28 @@ interface TopBarProps {
 }
 
 export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHelp }: TopBarProps) {
+  const { resolved, toggle } = useTheme();
   return (
-    <div className="h-10 flex items-center bg-zinc-900 border-b border-zinc-800 shrink-0">
+    <div className="h-10 flex items-center bg-panel border-b border-border-default shrink-0">
       {/* macOS traffic light spacer (when using transparent titlebar) */}
       {isMac && <div className="w-[78px] shrink-0" />}
 
       {/* App branding */}
       <div className="flex items-center gap-2 px-3">
-        <Hammer className="w-4 h-4 text-blue-400" />
-        <span className="text-sm font-semibold text-zinc-200 tracking-tight">Operon</span>
+        <Hammer className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <span className="text-sm font-semibold text-secondary tracking-tight">Operon</span>
         {__APP_VERSION__ === 'dev' ? (
-          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">DEV</span>
+          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-600 dark:text-orange-400 border border-orange-500/30">DEV</span>
         ) : (
-          <span className="text-[10px] text-zinc-500 font-mono">v{__APP_VERSION__}</span>
+          <span className="text-[10px] text-muted font-mono">v{__APP_VERSION__}</span>
         )}
       </div>
 
       {/* Center: project name */}
       <div className="flex-1 flex justify-center">
-        <button className="flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-zinc-800 transition-colors text-xs text-zinc-400">
+        <button className="flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-hover transition-colors text-xs text-secondary">
           <span>~/projects/my-app</span>
-          <span className="text-zinc-600">▼</span>
+          <span className="text-subtle">▼</span>
         </button>
       </div>
 
@@ -42,12 +44,22 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
         {/* Connection status */}
         <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs">
           <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-          <span className="text-zinc-400">Connected</span>
+          <span className="text-secondary">Connected</span>
         </div>
 
         <button
+          onClick={toggle}
+          className="p-1.5 rounded hover:bg-hover transition-colors text-secondary hover:text-primary"
+          title={resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {resolved === 'dark'
+            ? <Sun className="w-4 h-4 pointer-events-none" />
+            : <Moon className="w-4 h-4 pointer-events-none" />}
+        </button>
+
+        <button
           onClick={onToggleChat}
-          className="p-1.5 rounded hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-200"
+          className="p-1.5 rounded hover:bg-hover transition-colors text-secondary hover:text-primary"
           title="Toggle Chat"
         >
           <Wifi className="w-4 h-4" />
@@ -55,7 +67,7 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
 
         <button
           onClick={onOpenHelp}
-          className="p-1.5 rounded hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-200"
+          className="p-1.5 rounded hover:bg-hover transition-colors text-secondary hover:text-primary"
           title="Help"
         >
           <HelpCircle className="w-4 h-4" />
@@ -63,7 +75,7 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
 
         <button
           onClick={onOpenSettings}
-          className="p-1.5 rounded hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-zinc-200"
+          className="p-1.5 rounded hover:bg-hover transition-colors text-secondary hover:text-primary"
           title="Settings"
         >
           <Settings className="w-4 h-4" />

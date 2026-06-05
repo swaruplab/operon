@@ -99,7 +99,7 @@ export function UpdateChecker() {
   // Up to date — brief toast
   if (state === 'up-to-date') {
     return (
-      <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-green-400">
+      <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-green-600 dark:text-green-400">
         <CheckCircle className="w-3.5 h-3.5 pointer-events-none" />
         <span>Up to date</span>
       </div>
@@ -111,8 +111,8 @@ export function UpdateChecker() {
   if (state === 'available' && updateInfo) {
     return (
       <div className="flex items-center gap-2 px-2 py-1 rounded bg-blue-900/30 border border-blue-800/40 text-xs">
-        <Download className="w-3.5 h-3.5 text-blue-400 pointer-events-none shrink-0" />
-        <span className="text-blue-300">v{updateInfo.version} available</span>
+        <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 pointer-events-none shrink-0" />
+        <span className="text-blue-700 dark:text-blue-300">v{updateInfo.version} available</span>
         <button
           onClick={downloadAndInstall}
           className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-medium transition-colors"
@@ -121,7 +121,7 @@ export function UpdateChecker() {
         </button>
         <button
           onClick={() => { setDismissed(true); }}
-          className="p-0.5 rounded hover:bg-zinc-700 text-zinc-400"
+          className="p-0.5 rounded hover:bg-elevated text-secondary"
         >
           <X className="w-3 h-3 pointer-events-none" />
         </button>
@@ -133,9 +133,9 @@ export function UpdateChecker() {
   if (state === 'downloading') {
     return (
       <div className="flex items-center gap-2 px-2 py-1 rounded bg-blue-900/30 border border-blue-800/40 text-xs">
-        <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin pointer-events-none" />
-        <span className="text-blue-300">Downloading... {progress}%</span>
-        <div className="w-16 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+        <Loader2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-spin pointer-events-none" />
+        <span className="text-blue-700 dark:text-blue-300">Downloading... {progress}%</span>
+        <div className="w-16 h-1.5 bg-elevated rounded-full overflow-hidden">
           <div
             className="h-full bg-blue-500 rounded-full transition-all duration-300"
             style={{ width: `${progress}%` }}
@@ -149,8 +149,8 @@ export function UpdateChecker() {
   if (state === 'ready') {
     return (
       <div className="flex items-center gap-2 px-2 py-1 rounded bg-green-900/30 border border-green-800/40 text-xs">
-        <CheckCircle className="w-3.5 h-3.5 text-green-400 pointer-events-none" />
-        <span className="text-green-300">Update ready</span>
+        <CheckCircle className="w-3.5 h-3.5 text-green-600 dark:text-green-400 pointer-events-none" />
+        <span className="text-green-700 dark:text-green-300">Update ready</span>
         <button
           onClick={handleRelaunch}
           className="px-2 py-0.5 rounded bg-green-600 hover:bg-green-500 text-white text-[11px] font-medium transition-colors flex items-center gap-1"

@@ -99,53 +99,53 @@ function ResearchToolsStep({ onContinue }: { onContinue: () => void }) {
     <div className="space-y-5">
       <div className="text-center">
         <div className="w-12 h-12 rounded-xl bg-teal-900/30 flex items-center justify-center mx-auto mb-3">
-          <Server className="w-6 h-6 text-teal-400" />
+          <Server className="w-6 h-6 text-teal-600 dark:text-teal-400" />
         </div>
-        <h2 className="text-lg font-semibold text-zinc-100">Research Tools</h2>
-        <p className="text-zinc-500 text-sm mt-1">
+        <h2 className="text-lg font-semibold text-primary">Research Tools</h2>
+        <p className="text-muted text-sm mt-1">
           Enable MCP servers to give Claude access to scientific databases. This is optional — you can change it later in Settings.
         </p>
       </div>
 
       {error && (
         <div className="flex items-center gap-2 p-2.5 bg-yellow-950/20 border border-yellow-800/30 rounded-lg">
-          <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
-          <span className="text-[11px] text-yellow-300">{error}</span>
+          <AlertTriangle className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
+          <span className="text-[11px] text-yellow-700 dark:text-yellow-300">{error}</span>
         </div>
       )}
 
       <div className="space-y-2.5">
         {catalog.map((entry) => (
-          <div key={entry.id} className="p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
+          <div key={entry.id} className="p-3.5 bg-panel rounded-lg border border-border-default">
             <div className="flex items-start gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
                 entry.runtime === 'node' ? 'bg-violet-900/30' : 'bg-teal-900/30'
               }`}>
-                <Server className={`w-4 h-4 ${entry.runtime === 'node' ? 'text-violet-400' : 'text-teal-400'}`} />
+                <Server className={`w-4 h-4 ${entry.runtime === 'node' ? 'text-violet-600 dark:text-violet-400' : 'text-teal-600 dark:text-teal-400'}`} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-zinc-200">{entry.name}</span>
-                  <span className="text-[10px] text-zinc-600 bg-zinc-800 px-1.5 py-0.5 rounded">
+                  <span className="text-sm font-medium text-primary">{entry.name}</span>
+                  <span className="text-[10px] text-subtle bg-surface px-1.5 py-0.5 rounded">
                     {entry.runtime === 'node' ? 'Node.js' : 'Python'}
                   </span>
-                  <span className="text-[10px] text-zinc-600">{entry.tools_count} tools</span>
+                  <span className="text-[10px] text-subtle">{entry.tools_count} tools</span>
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">{entry.description}</p>
+                <p className="text-[11px] text-muted mt-1 leading-relaxed">{entry.description}</p>
                 {entry.databases.length > 0 && (
-                  <p className="text-[10px] text-zinc-600 mt-1">
+                  <p className="text-[10px] text-subtle mt-1">
                     Databases: {entry.databases.slice(0, 5).join(', ')}{entry.databases.length > 5 ? ` +${entry.databases.length - 5} more` : ''}
                   </p>
                 )}
               </div>
               <div className="shrink-0">
                 {installing === entry.id ? (
-                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                  <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
                 ) : (
                   <button
                     onClick={() => handleToggle(entry)}
                     className={`relative w-9 h-5 rounded-full transition-colors ${
-                      enabled[entry.id] ? 'bg-blue-600' : 'bg-zinc-700'
+                      enabled[entry.id] ? 'bg-blue-600' : 'bg-elevated'
                     }`}
                   >
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
@@ -496,12 +496,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             <div
               className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap ${
                 hasFailed
-                  ? 'bg-red-900/30 text-red-400'
+                  ? 'bg-red-900/30 text-red-600 dark:text-red-400'
                   : isPast
-                  ? 'bg-green-900/30 text-green-400'
+                  ? 'bg-green-900/30 text-green-600 dark:text-green-400'
                   : isCurrent
-                  ? 'bg-blue-900/40 text-blue-400 ring-1 ring-blue-500/30'
-                  : 'bg-zinc-800/50 text-zinc-600'
+                  ? 'bg-blue-900/40 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/30'
+                  : 'bg-surface/50 text-subtle'
               }`}
             >
               {hasFailed ? (
@@ -515,7 +515,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             </div>
             {i < allSteps.length - 1 && (
               <div className={`w-3 h-px shrink-0 ${
-                hasFailed ? 'bg-red-800' : isPast ? 'bg-green-800' : 'bg-zinc-800'
+                hasFailed ? 'bg-red-800' : isPast ? 'bg-green-800' : 'bg-surface'
               }`} />
             )}
           </div>
@@ -537,33 +537,33 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           ? 'bg-red-950/10 border border-red-900/20'
           : status && status !== 'complete' && status !== 'skipped' && status !== 'error'
           ? 'bg-blue-950/10 border border-blue-800/30'
-          : 'bg-zinc-900/50 border border-zinc-800/30'
+          : 'bg-panel/50 border border-border-default/30'
       }`}>
         <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
           status === 'complete' || status === 'skipped' ? 'bg-green-900/30' :
           status === 'error' ? 'bg-red-900/30' :
-          status ? 'bg-blue-900/30' : 'bg-zinc-800/50'
+          status ? 'bg-blue-900/30' : 'bg-surface/50'
         }`}>
           {status === 'complete' || status === 'skipped' ? (
-            <CheckCircle className="w-4 h-4 text-green-400" />
+            <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
           ) : status === 'error' ? (
-            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
           ) : status ? (
-            <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+            <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
           ) : (
-            <Icon className="w-4 h-4 text-zinc-600" />
+            <Icon className="w-4 h-4 text-subtle" />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <p className={`text-sm font-medium ${
-            status === 'complete' || status === 'skipped' ? 'text-green-300' :
-            status === 'error' ? 'text-red-300' :
-            status ? 'text-blue-300' : 'text-zinc-500'
+            status === 'complete' || status === 'skipped' ? 'text-green-700 dark:text-green-300' :
+            status === 'error' ? 'text-red-700 dark:text-red-300' :
+            status ? 'text-blue-700 dark:text-blue-300' : 'text-muted'
           }`}>
             {label}
           </p>
           {info?.message && (
-            <p className="text-[10px] text-zinc-500 truncate mt-0.5">
+            <p className="text-[10px] text-muted truncate mt-0.5">
               {info.message}
             </p>
           )}
@@ -575,16 +575,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   return (
     <div className={mode === 'modal'
       ? 'fixed inset-0 z-[60] flex items-center justify-center'
-      : 'h-screen w-screen bg-zinc-950 flex items-center justify-center'
+      : 'h-screen w-screen bg-canvas flex items-center justify-center'
     }>
       {mode === 'modal' && (
         <div className="absolute inset-0 bg-black/60" onClick={onComplete} />
       )}
-      <div className={`w-full max-w-2xl mx-auto p-8 ${mode === 'modal' ? 'relative bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl max-h-[85vh] overflow-y-auto' : ''}`}>
+      <div className={`w-full max-w-2xl mx-auto p-8 ${mode === 'modal' ? 'relative bg-panel rounded-xl border border-border-strong shadow-2xl max-h-[85vh] overflow-y-auto' : ''}`}>
         {mode === 'modal' && (
           <button
             onClick={onComplete}
-            className="absolute top-3 right-3 p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="absolute top-3 right-3 p-1 rounded hover:bg-hover text-muted hover:text-secondary"
           >
             <XCircle className="w-5 h-5" />
           </button>
@@ -602,17 +602,17 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-zinc-100">Welcome to Operon</h1>
-              <p className="text-zinc-400 mt-2 text-sm leading-relaxed">
+              <h1 className="text-2xl font-bold text-primary">Welcome to Operon</h1>
+              <p className="text-secondary mt-2 text-sm leading-relaxed">
                 A desktop IDE for bioinformatics — run Claude AI agents on your local machine
                 and HPC compute nodes. We'll get you set up in a few steps.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-6 text-[11px] text-zinc-500">
-              <span className="flex items-center gap-1.5"><Code2 className="w-3.5 h-3.5 text-blue-400" /> Code editor</span>
-              <span className="flex items-center gap-1.5"><Terminal className="w-3.5 h-3.5 text-green-400" /> Terminal</span>
-              <span className="flex items-center gap-1.5"><Bot className="w-3.5 h-3.5 text-purple-400" /> AI agent</span>
-              <span className="flex items-center gap-1.5"><Server className="w-3.5 h-3.5 text-amber-400" /> SSH/HPC</span>
+            <div className="flex items-center justify-center gap-6 text-[11px] text-muted">
+              <span className="flex items-center gap-1.5"><Code2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> Code editor</span>
+              <span className="flex items-center gap-1.5"><Terminal className="w-3.5 h-3.5 text-green-600 dark:text-green-400" /> Terminal</span>
+              <span className="flex items-center gap-1.5"><Bot className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" /> AI agent</span>
+              <span className="flex items-center gap-1.5"><Server className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" /> SSH/HPC</span>
             </div>
             <button
               onClick={checkDeps}
@@ -627,8 +627,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
         {/* ========== CHECKING ========== */}
         {step === 'checking' && (
           <div className="text-center space-y-4">
-            <Loader2 className="w-8 h-8 text-blue-400 animate-spin mx-auto" />
-            <p className="text-zinc-400">Checking your system...</p>
+            <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin mx-auto" />
+            <p className="text-secondary">Checking your system...</p>
           </div>
         )}
 
@@ -637,10 +637,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
-                <Terminal className="w-6 h-6 text-blue-400" />
+                <Terminal className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Xcode Command Line Tools</h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <h2 className="text-lg font-semibold text-primary">Xcode Command Line Tools</h2>
+              <p className="text-muted text-sm mt-1">
                 Required for compiling software on macOS. This can take 20–30 minutes on slower connections.
               </p>
             </div>
@@ -649,17 +649,17 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {phaseRunning && (
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-blue-950/10 border border-blue-800/30 rounded-lg">
-                  <Loader2 className="w-5 h-5 text-blue-400 animate-spin shrink-0" />
+                  <Loader2 className="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-blue-300">Installing Xcode CLI tools...</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">{installMessage}</p>
+                    <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Installing Xcode CLI tools...</p>
+                    <p className="text-[10px] text-muted mt-0.5">{installMessage}</p>
                   </div>
                 </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                   <div className="h-full bg-blue-500 rounded-full transition-all duration-700" style={{ width: `${installPercent}%` }} />
                 </div>
                 <div className="p-2.5 bg-amber-950/20 border border-amber-800/20 rounded-lg">
-                  <p className="text-[10px] text-amber-300/80 leading-relaxed">
+                  <p className="text-[10px] text-amber-700 dark:text-amber-300/80 leading-relaxed">
                     A macOS dialog will appear asking you to install. Click "Install" and wait for it to finish.
                     This window will update automatically.
                   </p>
@@ -669,31 +669,31 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {phaseDone && !phaseError && (
               <div className="flex items-center gap-3 p-3 bg-green-950/10 border border-green-900/20 rounded-lg">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <p className="text-sm font-medium text-green-300">Xcode CLI tools installed!</p>
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">Xcode CLI tools installed!</p>
               </div>
             )}
 
             {phaseError && (
               <div className="flex items-start gap-3 p-3 bg-red-950/10 border border-red-900/20 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-red-300">Auto-install failed</p>
-                  <p className="text-[10px] text-zinc-500 mt-0.5">{phaseError}</p>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Auto-install failed</p>
+                  <p className="text-[10px] text-muted mt-0.5">{phaseError}</p>
                 </div>
               </div>
             )}
 
             {/* Always show fallback command */}
             {phaseDone && (
-              <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-lg space-y-2">
-                <p className="text-[11px] text-zinc-400 font-medium">
+              <div className="p-3 bg-panel border border-border-strong rounded-lg space-y-2">
+                <p className="text-[11px] text-secondary font-medium">
                   {phaseError ? 'Run this in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
-                <code className="block text-[11px] text-green-300 bg-zinc-950 px-3 py-2 rounded font-mono select-all">
+                <code className="block text-[11px] text-green-700 dark:text-green-300 bg-canvas px-3 py-2 rounded font-mono select-all">
                   xcode-select --install
                 </code>
-                <p className="text-[9px] text-zinc-600">Click the command to select it, then paste into Terminal.app.</p>
+                <p className="text-[9px] text-subtle">Click the command to select it, then paste into Terminal.app.</p>
               </div>
             )}
 
@@ -728,7 +728,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   </button>
                   <button
                     onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-tools'); }}
-                    className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
+                    className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
                   >
                     I installed it manually →
                   </button>
@@ -740,7 +740,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               <div className="text-center">
                 <button
                   onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-tools'); }}
-                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   Already installed? Skip →
                 </button>
@@ -754,10 +754,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
-                <Package className="w-6 h-6 text-amber-400" />
+                <Package className="w-6 h-6 text-amber-600 dark:text-amber-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Developer Tools</h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <h2 className="text-lg font-semibold text-primary">Developer Tools</h2>
+              <p className="text-muted text-sm mt-1">
                 {isMac
                   ? 'Installing Homebrew, Node.js, and GitHub CLI. This usually takes a couple of minutes.'
                   : isWindows
@@ -775,9 +775,9 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {!gitDownloading ? (
                     <>
                       <div className="p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg text-center space-y-2">
-                        <XCircle className="w-8 h-8 text-red-400 mx-auto" />
+                        <XCircle className="w-8 h-8 text-red-600 dark:text-red-400 mx-auto" />
                         <p className="text-sm font-semibold text-red-200">Git for Windows is required</p>
-                        <p className="text-xs text-zinc-400">Claude Code needs Git to work. Click below to download the installer.</p>
+                        <p className="text-xs text-secondary">Claude Code needs Git to work. Click below to download the installer.</p>
                       </div>
                       <button
                         onClick={() => {
@@ -794,16 +794,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <>
                       <div className="p-4 bg-blue-950/20 border-2 border-blue-700/30 rounded-lg space-y-3">
                         <div className="flex items-start gap-3">
-                          <Download className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                          <Download className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                           <div className="space-y-2">
                             <p className="text-sm font-semibold text-blue-200">Git installer is downloading</p>
-                            <p className="text-xs text-zinc-300 leading-relaxed">
+                            <p className="text-xs text-secondary leading-relaxed">
                               Check your browser's download bar at the bottom of the screen. When the download finishes:
                             </p>
-                            <ol className="text-xs text-zinc-400 space-y-1 list-decimal list-inside">
-                              <li><span className="text-zinc-300 font-medium">Open</span> the downloaded <code className="text-blue-300 bg-zinc-900 px-1 rounded text-[11px]">Git-2.47.1.2-64-bit.exe</code></li>
-                              <li><span className="text-zinc-300 font-medium">Click Next</span> through the setup wizard (defaults are fine)</li>
-                              <li><span className="text-zinc-300 font-medium">Click Install</span> and wait for it to finish</li>
+                            <ol className="text-xs text-secondary space-y-1 list-decimal list-inside">
+                              <li><span className="text-secondary font-medium">Open</span> the downloaded <code className="text-blue-700 dark:text-blue-300 bg-panel px-1 rounded text-[11px]">Git-2.47.1.2-64-bit.exe</code></li>
+                              <li><span className="text-secondary font-medium">Click Next</span> through the setup wizard (defaults are fine)</li>
+                              <li><span className="text-secondary font-medium">Click Install</span> and wait for it to finish</li>
                               <li>Come back here and click the green button below</li>
                             </ol>
                           </div>
@@ -833,7 +833,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                         onClick={() => {
                           invoke('open_url', { url: GIT_INSTALLER_URL });
                         }}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg text-xs transition-colors"
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-surface hover:bg-elevated text-secondary rounded-lg text-xs transition-colors"
                       >
                         Download again
                       </button>
@@ -859,16 +859,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {phaseRunning && (
               <div className="space-y-1.5">
-                <div className="flex justify-between text-[10px] text-zinc-500">
+                <div className="flex justify-between text-[10px] text-muted">
                   <span>{installMessage}</span>
                   <span>{installPercent}%</span>
                 </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                   <div className="h-full bg-amber-500 rounded-full transition-all duration-700" style={{ width: `${installPercent}%` }} />
                 </div>
                 {isMac && (
                   <div className="p-2.5 bg-amber-950/20 border border-amber-800/20 rounded-lg">
-                    <p className="text-[10px] text-amber-300/80 leading-relaxed">
+                    <p className="text-[10px] text-amber-700 dark:text-amber-300/80 leading-relaxed">
                       macOS may ask for your password once to create the Homebrew directory. This is normal.
                     </p>
                   </div>
@@ -878,26 +878,26 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {phaseDone && !phaseError && (
               <div className="flex items-center gap-3 p-3 bg-green-950/10 border border-green-900/20 rounded-lg">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <p className="text-sm font-medium text-green-300">All tools installed!</p>
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">All tools installed!</p>
               </div>
             )}
 
             {phaseError && installSteps['git']?.status === 'error' && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 p-4 bg-amber-950/20 border-2 border-amber-700/40 rounded-lg">
-                  <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                  <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-semibold text-amber-200">Action Required: Install Git for Windows</p>
-                    <p className="text-xs text-zinc-300 mt-2 leading-relaxed">
+                    <p className="text-xs text-secondary mt-2 leading-relaxed">
                       {installSteps['git']?.message?.includes('installer launched')
                         ? 'The Git installer should have appeared on your screen. Complete the setup wizard (just click Next → Next → Install) and wait for it to finish.'
                         : 'A download page should have opened in your browser. Download and run the Git installer — accept the defaults and click Next through the wizard.'}
                     </p>
-                    <div className="mt-3 p-2 bg-zinc-900/80 rounded border border-zinc-700">
-                      <p className="text-[10px] text-zinc-400 font-medium mb-1">If you don't see the installer:</p>
-                      <p className="text-[10px] text-zinc-500">Open PowerShell and run:</p>
-                      <code className="block text-[11px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all mt-1">
+                    <div className="mt-3 p-2 bg-panel/80 rounded border border-border-strong">
+                      <p className="text-[10px] text-secondary font-medium mb-1">If you don't see the installer:</p>
+                      <p className="text-[10px] text-muted">Open PowerShell and run:</p>
+                      <code className="block text-[11px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all mt-1">
                         winget install Git.Git
                       </code>
                     </div>
@@ -931,40 +931,40 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {phaseError && installSteps['git']?.status !== 'error' && (
               <div className="flex items-start gap-3 p-3 bg-red-950/10 border border-red-900/20 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-red-300">Some tools failed to install</p>
-                  <p className="text-[10px] text-zinc-500 mt-0.5">{phaseError}</p>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Some tools failed to install</p>
+                  <p className="text-[10px] text-muted mt-0.5">{phaseError}</p>
                 </div>
               </div>
             )}
 
             {/* Always show fallback terminal commands when done (whether success or failure) */}
             {phaseDone && (
-              <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-lg space-y-2">
-                <p className="text-[11px] text-zinc-400 font-medium">
+              <div className="p-3 bg-panel border border-border-strong rounded-lg space-y-2">
+                <p className="text-[11px] text-secondary font-medium">
                   {phaseError ? 'Run these in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
                 <div className="space-y-1.5">
                   {isWindows && (
                     <div>
-                      <p className="text-[9px] text-zinc-500 mb-0.5">Git for Windows (required by Claude Code):</p>
-                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                      <p className="text-[9px] text-muted mb-0.5">Git for Windows (required by Claude Code):</p>
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                         winget install Git.Git
                       </code>
                     </div>
                   )}
                   {isMac && (
                     <div>
-                      <p className="text-[9px] text-zinc-500 mb-0.5">Homebrew:</p>
-                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                      <p className="text-[9px] text-muted mb-0.5">Homebrew:</p>
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                         /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
                       </code>
                     </div>
                   )}
                   <div>
-                    <p className="text-[9px] text-zinc-500 mb-0.5">Node.js{!isMac && ' & GitHub CLI'}:</p>
-                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                    <p className="text-[9px] text-muted mb-0.5">Node.js{!isMac && ' & GitHub CLI'}:</p>
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                       {isMac
                         ? 'brew install node gh'
                         : isWindows
@@ -974,8 +974,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   </div>
                   {isMac && (
                     <div>
-                      <p className="text-[9px] text-zinc-500 mb-0.5">GitHub CLI:</p>
-                      <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                      <p className="text-[9px] text-muted mb-0.5">GitHub CLI:</p>
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                         (included in brew install above)
                       </code>
                     </div>
@@ -983,33 +983,33 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {isWindows && (
                     <>
                       <div>
-                        <p className="text-[9px] text-zinc-500 mb-0.5">Python:</p>
-                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        <p className="text-[9px] text-muted mb-0.5">Python:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                           winget install Python.Python.3.12
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-zinc-500 mb-0.5">OpenSSH Client:</p>
-                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        <p className="text-[9px] text-muted mb-0.5">OpenSSH Client:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                           winget install Microsoft.OpenSSH.Beta
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-zinc-500 mb-0.5">uv (Python package manager):</p>
-                        <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                           winget install astral-sh.uv
                         </code>
                       </div>
                     </>
                   )}
                   <div>
-                    <p className="text-[9px] text-zinc-500 mb-0.5">PDF Report Library:</p>
-                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                    <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                       {isWindows ? 'pip install reportlab' : 'pip3 install reportlab'}
                     </code>
                   </div>
                 </div>
-                <p className="text-[9px] text-zinc-600">
+                <p className="text-[9px] text-subtle">
                   Click a command to select it, paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}. Hit Retry after.
                 </p>
               </div>
@@ -1061,7 +1061,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                         );
                       }
                     }}
-                    className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
+                    className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
                   >
                     I installed manually →
                   </button>
@@ -1073,7 +1073,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               <div className="flex items-center justify-center gap-4">
                 <button
                   onClick={() => { setPhaseDone(false); setPhaseError(null); setStep(isMac ? 'install-xcode' : 'welcome'); }}
-                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   ← Back
                 </button>
@@ -1100,7 +1100,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       }
                     }
                   }}
-                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   Already installed? Skip →
                 </button>
@@ -1119,10 +1119,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-purple-900/30 flex items-center justify-center mx-auto mb-3">
-                <Bot className="w-6 h-6 text-purple-400" />
+                <Bot className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Claude Code</h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <h2 className="text-lg font-semibold text-primary">Claude Code</h2>
+              <p className="text-muted text-sm mt-1">
                 The AI coding agent that powers Operon.
               </p>
             </div>
@@ -1131,12 +1131,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {hasPrereqIssue && !phaseRunning && (
               <div className="space-y-4">
                 <div className="flex items-start gap-3 p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg">
-                  <XCircle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
+                  <XCircle className="w-6 h-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm font-semibold text-red-200">
                       {gitBashMissing ? 'Git for Windows must be installed first' : 'Node.js must be installed first'}
                     </p>
-                    <p className="text-xs text-zinc-400 mt-1.5">
+                    <p className="text-xs text-secondary mt-1.5">
                       {gitBashMissing
                         ? 'Claude Code requires Git Bash to run on Windows. Go back to the Tools step to install it.'
                         : 'Claude Code requires Node.js. Go back to the Tools step to install it.'}
@@ -1156,13 +1156,13 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {phaseRunning && (
               <div className="space-y-2">
                 <div className="flex items-center gap-3 p-3 bg-purple-950/10 border border-purple-800/30 rounded-lg">
-                  <Loader2 className="w-5 h-5 text-purple-400 animate-spin shrink-0" />
+                  <Loader2 className="w-5 h-5 text-purple-600 dark:text-purple-400 animate-spin shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-purple-300">Installing Claude Code...</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">{installMessage}</p>
+                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">Installing Claude Code...</p>
+                    <p className="text-[10px] text-muted mt-0.5">{installMessage}</p>
                   </div>
                 </div>
-                <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                   <div className="h-full bg-purple-500 rounded-full transition-all duration-700" style={{ width: `${installPercent}%` }} />
                 </div>
               </div>
@@ -1170,44 +1170,44 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {phaseDone && !phaseError && (
               <div className="flex items-center gap-3 p-3 bg-green-950/10 border border-green-900/20 rounded-lg">
-                <CheckCircle className="w-5 h-5 text-green-400" />
-                <p className="text-sm font-medium text-green-300">Claude Code installed!</p>
+                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">Claude Code installed!</p>
               </div>
             )}
 
             {phaseError && (
               <div className="flex items-start gap-3 p-3 bg-red-950/10 border border-red-900/20 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-red-300">Installation failed</p>
-                  <p className="text-[10px] text-zinc-500 mt-0.5">{phaseError}</p>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">Installation failed</p>
+                  <p className="text-[10px] text-muted mt-0.5">{phaseError}</p>
                 </div>
               </div>
             )}
 
             {/* Always show fallback command */}
             {phaseDone && (
-              <div className="p-3 bg-zinc-900 border border-zinc-700 rounded-lg space-y-2">
-                <p className="text-[11px] text-zinc-400 font-medium">
+              <div className="p-3 bg-panel border border-border-strong rounded-lg space-y-2">
+                <p className="text-[11px] text-secondary font-medium">
                   {phaseError ? 'Run this in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
                 {isWindows && (
                   <div className="mb-1.5">
-                    <p className="text-[9px] text-zinc-500 mb-0.5">1. Install Git Bash (if not done):</p>
-                    <code className="block text-[10px] text-green-300 bg-zinc-950 px-2 py-1.5 rounded font-mono select-all">
+                    <p className="text-[9px] text-muted mb-0.5">1. Install Git Bash (if not done):</p>
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
                       winget install Git.Git
                     </code>
                   </div>
                 )}
                 <div>
-                  <p className="text-[9px] text-zinc-500 mb-0.5">{isWindows ? '2. ' : ''}Install Claude Code:</p>
-                  <code className="block text-[11px] text-green-300 bg-zinc-950 px-3 py-2 rounded font-mono select-all">
+                  <p className="text-[9px] text-muted mb-0.5">{isWindows ? '2. ' : ''}Install Claude Code:</p>
+                  <code className="block text-[11px] text-green-700 dark:text-green-300 bg-canvas px-3 py-2 rounded font-mono select-all">
                     {isWindows
                       ? 'npm install -g @anthropic-ai/claude-code'
                       : 'curl -fsSL https://claude.ai/install.sh | bash'}
                   </code>
                 </div>
-                <p className="text-[9px] text-zinc-600">Click a command to select it, then paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}.</p>
+                <p className="text-[9px] text-subtle">Click a command to select it, then paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}.</p>
               </div>
             )}
 
@@ -1242,7 +1242,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   </button>
                   <button
                     onClick={() => setStep('auth')}
-                    className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
+                    className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
                   >
                     Skip
                   </button>
@@ -1254,13 +1254,13 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               <div className="flex items-center justify-center gap-4">
                 <button
                   onClick={() => { setPhaseDone(false); setPhaseError(null); setStep('install-tools'); }}
-                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   ← Back
                 </button>
                 <button
                   onClick={() => setStep('auth')}
-                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   Already installed? Skip →
                 </button>
@@ -1276,18 +1276,18 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
                 {installDone && !installHadErrors
-                  ? <CheckCircle className="w-6 h-6 text-green-400" />
-                  : <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                  ? <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+                  : <Loader2 className="w-6 h-6 text-blue-600 dark:text-blue-400 animate-spin" />
                 }
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">
+              <h2 className="text-lg font-semibold text-primary">
                 {installDone && !installHadErrors
                   ? 'All set!'
                   : installDone && installHadErrors
                   ? 'Almost there'
                   : 'Setting up your system'}
               </h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <p className="text-muted text-sm mt-1">
                 {installDone && !installHadErrors
                   ? 'Everything is installed and ready to go.'
                   : installDone && installHadErrors
@@ -1296,11 +1296,11 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </p>
             </div>
             <div className="space-y-1.5">
-              <div className="flex justify-between text-[10px] text-zinc-500">
+              <div className="flex justify-between text-[10px] text-muted">
                 <span>{installMessage}</span>
                 <span>{installPercent}%</span>
               </div>
-              <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+              <div className="h-2 bg-surface rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-700 ease-out ${
                     installDone && !installHadErrors ? 'bg-green-500' :
@@ -1335,18 +1335,18 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-red-900/30 flex items-center justify-center mx-auto mb-3">
-                <AlertTriangle className="w-6 h-6 text-red-400" />
+                <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">System Check</h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <h2 className="text-lg font-semibold text-primary">System Check</h2>
+              <p className="text-muted text-sm mt-1">
                 We couldn't automatically detect your system configuration.
               </p>
             </div>
             {error && (
               <div className="p-3 bg-red-950/20 border border-red-900/40 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-300">{error}</p>
+                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
                 </div>
               </div>
             )}
@@ -1360,7 +1360,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </button>
               <button
                 onClick={() => setStep('auth')}
-                className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
+                className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
               >
                 Skip
               </button>
@@ -1373,10 +1373,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
-                <Key className="w-6 h-6 text-blue-400" />
+                <Key className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Authentication</h2>
-              <p className="text-zinc-500 text-sm mt-1">
+              <h2 className="text-lg font-semibold text-primary">Authentication</h2>
+              <p className="text-muted text-sm mt-1">
                 Choose how to authenticate with Claude. You can change this later in settings.
               </p>
             </div>
@@ -1386,34 +1386,34 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               <div className="space-y-2.5">
                 <button
                   onClick={() => setAuthMethod('api')}
-                  className="w-full flex items-start gap-3.5 p-4 bg-zinc-900 rounded-lg border border-zinc-800 hover:border-blue-700/50 hover:bg-zinc-900/80 transition-colors text-left group"
+                  className="w-full flex items-start gap-3.5 p-4 bg-panel rounded-lg border border-border-default hover:border-blue-700/50 hover:bg-panel/80 transition-colors text-left group"
                 >
                   <div className="w-9 h-9 rounded-lg bg-amber-900/30 flex items-center justify-center shrink-0 mt-0.5">
-                    <Key className="w-4 h-4 text-amber-400" />
+                    <Key className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100">Anthropic API Key</p>
-                    <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-sm font-medium text-primary group-hover:text-primary">Anthropic API Key</p>
+                    <p className="text-xs text-muted mt-0.5 leading-relaxed">
                       Use your own API key from console.anthropic.com. Pay per token — best for heavy or automated usage.
                     </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 mt-2.5 ml-auto shrink-0" />
+                  <ArrowRight className="w-4 h-4 text-subtle group-hover:text-secondary mt-2.5 ml-auto shrink-0" />
                 </button>
 
                 <button
                   onClick={() => setAuthMethod('oauth')}
-                  className="w-full flex items-start gap-3.5 p-4 bg-zinc-900 rounded-lg border border-zinc-800 hover:border-purple-700/50 hover:bg-zinc-900/80 transition-colors text-left group"
+                  className="w-full flex items-start gap-3.5 p-4 bg-panel rounded-lg border border-border-default hover:border-purple-700/50 hover:bg-panel/80 transition-colors text-left group"
                 >
                   <div className="w-9 h-9 rounded-lg bg-purple-900/30 flex items-center justify-center shrink-0 mt-0.5">
-                    <LogIn className="w-4 h-4 text-purple-400" />
+                    <LogIn className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-zinc-200 group-hover:text-zinc-100">Claude Pro / Team / Enterprise</p>
-                    <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
+                    <p className="text-sm font-medium text-primary group-hover:text-primary">Claude Pro / Team / Enterprise</p>
+                    <p className="text-xs text-muted mt-0.5 leading-relaxed">
                       Sign in with your Claude subscription. Uses OAuth — Claude Code will open a browser window to log you in.
                     </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400 mt-2.5 ml-auto shrink-0" />
+                  <ArrowRight className="w-4 h-4 text-subtle group-hover:text-secondary mt-2.5 ml-auto shrink-0" />
                 </button>
               </div>
             )}
@@ -1422,11 +1422,11 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {authMethod === 'api' && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <Key className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-xs text-zinc-400 font-medium">Anthropic API Key</span>
+                  <Key className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span className="text-xs text-secondary font-medium">Anthropic API Key</span>
                   <button
                     onClick={() => setAuthMethod(null)}
-                    className="text-[10px] text-zinc-600 hover:text-zinc-400 ml-auto"
+                    className="text-[10px] text-subtle hover:text-secondary ml-auto"
                   >
                     Change method
                   </button>
@@ -1436,16 +1436,16 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="sk-ant-..."
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2.5 text-sm text-zinc-200 font-mono outline-none focus:border-blue-600 placeholder:text-zinc-600"
+                  className="w-full bg-panel border border-border-default rounded-lg px-4 py-2.5 text-sm text-primary font-mono outline-none focus:border-blue-600 placeholder:text-subtle"
                   spellCheck={false}
                   autoFocus
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && apiKey.trim()) completeAuth();
                   }}
                 />
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-subtle">
                   Get your API key from{' '}
-                  <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                  <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700">
                     console.anthropic.com
                   </a>
                 </p>
@@ -1456,22 +1456,22 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {authMethod === 'oauth' && (
               <div className="space-y-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <LogIn className="w-3.5 h-3.5 text-purple-400" />
-                  <span className="text-xs text-zinc-400 font-medium">Claude Subscription (OAuth)</span>
+                  <LogIn className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                  <span className="text-xs text-secondary font-medium">Claude Subscription (OAuth)</span>
                   <button
                     onClick={() => { setAuthMethod(null); setOauthState('idle'); setOauthMessage(null); setError(null); }}
-                    className="text-[10px] text-zinc-600 hover:text-zinc-400 ml-auto"
+                    className="text-[10px] text-subtle hover:text-secondary ml-auto"
                   >
                     Change method
                   </button>
                 </div>
 
                 {oauthState === 'idle' && (
-                  <div className="p-4 bg-zinc-900 rounded-lg border border-zinc-800 space-y-3">
-                    <p className="text-sm text-zinc-300 leading-relaxed">
+                  <div className="p-4 bg-panel rounded-lg border border-border-default space-y-3">
+                    <p className="text-sm text-secondary leading-relaxed">
                       Click below to sign in. A browser window will open for you to log into your Claude account.
                     </p>
-                    <p className="text-xs text-zinc-500 leading-relaxed">
+                    <p className="text-xs text-muted leading-relaxed">
                       Works with Claude Pro ($20/mo), Team, and Enterprise subscriptions.
                     </p>
                   </div>
@@ -1480,40 +1480,40 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 {oauthState === 'launched' && (
                   <div className="p-4 bg-purple-950/20 rounded-lg border border-purple-900/30 space-y-3">
                     <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-                      <p className="text-sm text-purple-300 font-medium">Waiting for you to sign in...</p>
+                      <Loader2 className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-spin" />
+                      <p className="text-sm text-purple-700 dark:text-purple-300 font-medium">Waiting for you to sign in...</p>
                     </div>
-                    <p className="text-xs text-zinc-400 leading-relaxed">
+                    <p className="text-xs text-secondary leading-relaxed">
                       A browser window should have opened. Sign in with your Claude account there.
                       This page will update automatically once you're logged in.
                     </p>
-                    {oauthMessage && <p className="text-[10px] text-zinc-500">{oauthMessage}</p>}
+                    {oauthMessage && <p className="text-[10px] text-muted">{oauthMessage}</p>}
                   </div>
                 )}
 
                 {oauthState === 'checking' && (
-                  <div className="p-4 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center gap-3">
-                    <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-                    <p className="text-sm text-zinc-300">Checking authentication...</p>
+                  <div className="p-4 bg-panel rounded-lg border border-border-default flex items-center gap-3">
+                    <Loader2 className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-spin" />
+                    <p className="text-sm text-secondary">Checking authentication...</p>
                   </div>
                 )}
 
                 {oauthState === 'success' && (
                   <div className="p-4 bg-green-950/20 rounded-lg border border-green-900/30 flex items-center gap-3">
-                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
                     <div>
-                      <p className="text-sm text-green-300 font-medium">Logged in successfully!</p>
-                      <p className="text-xs text-zinc-500">Credentials verified. Continuing...</p>
+                      <p className="text-sm text-green-700 dark:text-green-300 font-medium">Logged in successfully!</p>
+                      <p className="text-xs text-muted">Credentials verified. Continuing...</p>
                     </div>
                   </div>
                 )}
 
                 {oauthState === 'failed' && (
                   <div className="p-4 bg-amber-950/20 rounded-lg border border-amber-800/30 space-y-2">
-                    <p className="text-xs text-zinc-300 leading-relaxed">
+                    <p className="text-xs text-secondary leading-relaxed">
                       Login not detected yet. Make sure you completed the sign-in in the browser window.
                     </p>
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-[10px] text-muted">
                       If the browser didn't open, try clicking "Relaunch Login" below.
                     </p>
                   </div>
@@ -1523,8 +1523,8 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {error && (
               <div className="flex items-start gap-2 p-3 bg-red-950/30 border border-red-900/50 rounded-lg">
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-red-300">{error}</p>
+                <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 dark:text-red-300">{error}</p>
               </div>
             )}
 
@@ -1557,7 +1557,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 {oauthState === 'launched' && (
                   <button
                     onClick={verifyOAuth}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-lg font-medium transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-elevated hover:bg-elevated text-primary rounded-lg font-medium transition-colors"
                   >
                     <CheckCircle className="w-4 h-4" />
                     Check Now
@@ -1569,7 +1569,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     oauthPollRef.current = null;
                     completeAuth(true);
                   }}
-                  className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"
+                  className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
                 >
                   Skip
                 </button>
@@ -1579,7 +1579,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
             {!authMethod && (
               <button
                 onClick={() => completeAuth(true)}
-                className="w-full text-center text-xs text-zinc-600 hover:text-zinc-400 transition-colors py-1"
+                className="w-full text-center text-xs text-subtle hover:text-secondary transition-colors py-1"
               >
                 Skip authentication for now
               </button>
@@ -1597,38 +1597,38 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
-                <MonitorSmartphone className="w-6 h-6 text-blue-400" />
+                <MonitorSmartphone className="w-6 h-6 text-blue-600 dark:text-blue-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Your Workspace</h2>
-              <p className="text-zinc-500 text-sm mt-1">Here's what you'll find in Operon.</p>
+              <h2 className="text-lg font-semibold text-primary">Your Workspace</h2>
+              <p className="text-muted text-sm mt-1">Here's what you'll find in Operon.</p>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <FolderTree className="w-4 h-4 text-blue-400 mb-2" />
-                <p className="text-xs font-medium text-zinc-200">File Explorer</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Browse your project tree in the left sidebar. Click any file to open it in the editor.</p>
+              <div className="p-3 bg-panel rounded-lg border border-border-default">
+                <FolderTree className="w-4 h-4 text-blue-600 dark:text-blue-400 mb-2" />
+                <p className="text-xs font-medium text-primary">File Explorer</p>
+                <p className="text-[10px] text-muted mt-0.5 leading-relaxed">Browse your project tree in the left sidebar. Click any file to open it in the editor.</p>
               </div>
-              <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Code2 className="w-4 h-4 text-green-400 mb-2" />
-                <p className="text-xs font-medium text-zinc-200">Code Editor</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Full Monaco editor with syntax highlighting, diff view, and multi-tab support.</p>
+              <div className="p-3 bg-panel rounded-lg border border-border-default">
+                <Code2 className="w-4 h-4 text-green-600 dark:text-green-400 mb-2" />
+                <p className="text-xs font-medium text-primary">Code Editor</p>
+                <p className="text-[10px] text-muted mt-0.5 leading-relaxed">Full Monaco editor with syntax highlighting, diff view, and multi-tab support.</p>
               </div>
-              <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Terminal className="w-4 h-4 text-amber-400 mb-2" />
-                <p className="text-xs font-medium text-zinc-200">Integrated Terminal</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Run shell commands directly. The terminal lives in the bottom panel.</p>
+              <div className="p-3 bg-panel rounded-lg border border-border-default">
+                <Terminal className="w-4 h-4 text-amber-600 dark:text-amber-400 mb-2" />
+                <p className="text-xs font-medium text-primary">Integrated Terminal</p>
+                <p className="text-[10px] text-muted mt-0.5 leading-relaxed">Run shell commands directly. The terminal lives in the bottom panel.</p>
               </div>
-              <div className="p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <MessageSquare className="w-4 h-4 text-purple-400 mb-2" />
-                <p className="text-xs font-medium text-zinc-200">AI Chat</p>
-                <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">Chat with Claude in the right panel. It can read, edit, and run code in your project.</p>
+              <div className="p-3 bg-panel rounded-lg border border-border-default">
+                <MessageSquare className="w-4 h-4 text-purple-600 dark:text-purple-400 mb-2" />
+                <p className="text-xs font-medium text-primary">AI Chat</p>
+                <p className="text-[10px] text-muted mt-0.5 leading-relaxed">Chat with Claude in the right panel. It can read, edit, and run code in your project.</p>
               </div>
             </div>
             <div className="flex gap-3">
               <button onClick={() => setStep('tour-modes')} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors">
                 Next: AI Modes <ArrowRight className="w-4 h-4" />
               </button>
-              <button onClick={finishSetup} className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm">Skip tour</button>
+              <button onClick={finishSetup} className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm">Skip tour</button>
             </div>
           </div>
         )}
@@ -1638,43 +1638,43 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-purple-900/30 flex items-center justify-center mx-auto mb-3">
-                <Bot className="w-6 h-6 text-purple-400" />
+                <Bot className="w-6 h-6 text-purple-600 dark:text-purple-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Four Ways to Work with Claude</h2>
-              <p className="text-zinc-500 text-sm mt-1">Switch between modes using the selector above the chat input.</p>
+              <h2 className="text-lg font-semibold text-primary">Four Ways to Work with Claude</h2>
+              <p className="text-muted text-sm mt-1">Switch between modes using the selector above the chat input.</p>
             </div>
             <div className="space-y-2.5">
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-blue-900/30 flex items-center justify-center shrink-0"><Bot className="w-4 h-4 text-blue-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-blue-900/30 flex items-center justify-center shrink-0"><Bot className="w-4 h-4 text-blue-600 dark:text-blue-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Agent Mode</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude reads files, writes code, runs commands, and makes changes autonomously. Best for: implementing features, fixing bugs, running pipelines.</p>
+                  <p className="text-sm font-medium text-primary">Agent Mode</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Claude reads files, writes code, runs commands, and makes changes autonomously. Best for: implementing features, fixing bugs, running pipelines.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-amber-900/30 flex items-center justify-center shrink-0"><ClipboardList className="w-4 h-4 text-amber-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-amber-900/30 flex items-center justify-center shrink-0"><ClipboardList className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Plan Mode</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude creates an implementation plan before writing code. Review, give feedback, then approve. Best for: complex tasks where you want control.</p>
+                  <p className="text-sm font-medium text-primary">Plan Mode</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Claude creates an implementation plan before writing code. Review, give feedback, then approve. Best for: complex tasks where you want control.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-green-900/30 flex items-center justify-center shrink-0"><MessageSquare className="w-4 h-4 text-green-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-green-900/30 flex items-center justify-center shrink-0"><MessageSquare className="w-4 h-4 text-green-600 dark:text-green-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Ask Mode</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude answers questions with optional PubMed-grounded citations. No file changes. Best for: understanding code, scientific Q&A.</p>
+                  <p className="text-sm font-medium text-primary">Ask Mode</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Claude answers questions with optional PubMed-grounded citations. No file changes. Best for: understanding code, scientific Q&A.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-purple-900/30 flex items-center justify-center shrink-0"><FlaskConical className="w-4 h-4 text-purple-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-purple-900/30 flex items-center justify-center shrink-0"><FlaskConical className="w-4 h-4 text-purple-600 dark:text-purple-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Report Mode</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Claude generates a publication-ready PDF report from your analysis files with PubMed citations and formatted figures. Best for: summarizing results, drafting manuscripts.</p>
+                  <p className="text-sm font-medium text-primary">Report Mode</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Claude generates a publication-ready PDF report from your analysis files with PubMed citations and formatted figures. Best for: summarizing results, drafting manuscripts.</p>
                 </div>
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setStep('tour-overview')} className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+              <button onClick={() => setStep('tour-overview')} className="flex items-center gap-1.5 px-3 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
               <button onClick={() => setStep('tour-remote')} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors">Next: Remote SSH <ArrowRight className="w-4 h-4" /></button>
             </div>
           </div>
@@ -1685,28 +1685,28 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-teal-900/30 flex items-center justify-center mx-auto mb-3">
-                <Server className="w-6 h-6 text-teal-400" />
+                <Server className="w-6 h-6 text-teal-600 dark:text-teal-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Run on HPC & Remote Servers</h2>
-              <p className="text-zinc-500 text-sm mt-1">Operon can run Claude agents on remote compute nodes via SSH.</p>
+              <h2 className="text-lg font-semibold text-primary">Run on HPC & Remote Servers</h2>
+              <p className="text-muted text-sm mt-1">Operon can run Claude agents on remote compute nodes via SSH.</p>
             </div>
             <div className="space-y-3">
-              <div className="p-4 bg-zinc-900 rounded-lg border border-zinc-800 space-y-3">
-                <div className="flex items-center gap-2"><Server className="w-4 h-4 text-teal-400" /><span className="text-sm font-medium text-zinc-200">How it works</span></div>
-                <div className="space-y-2 text-xs text-zinc-400 leading-relaxed">
-                  <p><span className="text-zinc-300 font-medium">1.</span> Add your SSH server in the sidebar (host, username, key).</p>
-                  <p><span className="text-zinc-300 font-medium">2.</span> Connect — Operon auto-detects SLURM accounts, partitions, conda envs and saves them to your profile.</p>
-                  <p><span className="text-zinc-300 font-medium">3.</span> Claude runs inside a tmux session on the remote machine. Your server config is injected into every generated script.</p>
+              <div className="p-4 bg-panel rounded-lg border border-border-default space-y-3">
+                <div className="flex items-center gap-2"><Server className="w-4 h-4 text-teal-600 dark:text-teal-400" /><span className="text-sm font-medium text-primary">How it works</span></div>
+                <div className="space-y-2 text-xs text-secondary leading-relaxed">
+                  <p><span className="text-secondary font-medium">1.</span> Add your SSH server in the sidebar (host, username, key).</p>
+                  <p><span className="text-secondary font-medium">2.</span> Connect — Operon auto-detects SLURM accounts, partitions, conda envs and saves them to your profile.</p>
+                  <p><span className="text-secondary font-medium">3.</span> Claude runs inside a tmux session on the remote machine. Your server config is injected into every generated script.</p>
                 </div>
               </div>
               <div className="p-3 bg-teal-950/20 rounded-lg border border-teal-900/30">
-                <p className="text-xs text-teal-300/80 leading-relaxed">
+                <p className="text-xs text-teal-700 dark:text-teal-300/80 leading-relaxed">
                   <span className="font-medium">For HPC users:</span> Supports Duo MFA, SSH key setup, and persistent sessions. Authenticate once — Operon keeps the connection alive across app restarts.
                 </p>
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setStep('tour-modes')} className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+              <button onClick={() => setStep('tour-modes')} className="flex items-center gap-1.5 px-3 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
               <button onClick={() => setStep('tour-features')} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors">Next: Key Features <ArrowRight className="w-4 h-4" /></button>
             </div>
           </div>
@@ -1717,50 +1717,50 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-green-900/30 flex items-center justify-center mx-auto mb-3">
-                <FlaskConical className="w-6 h-6 text-green-400" />
+                <FlaskConical className="w-6 h-6 text-green-600 dark:text-green-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Built for Researchers</h2>
-              <p className="text-zinc-500 text-sm mt-1">Tools designed specifically for bioinformatics and scientific computing.</p>
+              <h2 className="text-lg font-semibold text-primary">Built for Researchers</h2>
+              <p className="text-muted text-sm mt-1">Tools designed specifically for bioinformatics and scientific computing.</p>
             </div>
             <div className="space-y-2.5">
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-teal-900/30 flex items-center justify-center shrink-0"><BookOpen className="w-4 h-4 text-teal-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-teal-900/30 flex items-center justify-center shrink-0"><BookOpen className="w-4 h-4 text-teal-600 dark:text-teal-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">181+ Protocols</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Pre-built analysis protocols for genomics, ML, visualization, and more. Activate one to guide Claude with domain-specific instructions. Create your own or generate them with AI.</p>
+                  <p className="text-sm font-medium text-primary">181+ Protocols</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Pre-built analysis protocols for genomics, ML, visualization, and more. Activate one to guide Claude with domain-specific instructions. Create your own or generate them with AI.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-blue-900/30 flex items-center justify-center shrink-0"><AtSign className="w-4 h-4 text-blue-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-blue-900/30 flex items-center justify-center shrink-0"><AtSign className="w-4 h-4 text-blue-600 dark:text-blue-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">File Mentions</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Type <code className="text-[10px] bg-zinc-800 px-1 rounded">@</code> in the chat to reference files by name. Claude will know exactly which files you're talking about.</p>
+                  <p className="text-sm font-medium text-primary">File Mentions</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Type <code className="text-[10px] bg-surface px-1 rounded">@</code> in the chat to reference files by name. Claude will know exactly which files you're talking about.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-emerald-900/30 flex items-center justify-center shrink-0"><BookMarked className="w-4 h-4 text-emerald-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-emerald-900/30 flex items-center justify-center shrink-0"><BookMarked className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">PubMed Literature</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Toggle PubMed search in Ask or Report mode to ground answers in peer-reviewed articles with inline citations and references.</p>
+                  <p className="text-sm font-medium text-primary">PubMed Literature</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Toggle PubMed search in Ask or Report mode to ground answers in peer-reviewed articles with inline citations and references.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-zinc-700/30 flex items-center justify-center shrink-0"><Pencil className="w-4 h-4 text-zinc-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-elevated/30 flex items-center justify-center shrink-0"><Pencil className="w-4 h-4 text-secondary" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Edit & Save Files</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Click any file to preview it, then click <span className="font-medium text-zinc-300">Edit</span> to modify and <span className="font-medium text-zinc-300">Save</span> to write changes — works for both local and remote files.</p>
+                  <p className="text-sm font-medium text-primary">Edit & Save Files</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Click any file to preview it, then click <span className="font-medium text-secondary">Edit</span> to modify and <span className="font-medium text-secondary">Save</span> to write changes — works for both local and remote files.</p>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3.5 bg-zinc-900 rounded-lg border border-zinc-800">
-                <div className="w-8 h-8 rounded-lg bg-orange-900/30 flex items-center justify-center shrink-0"><GitBranch className="w-4 h-4 text-orange-400" /></div>
+              <div className="flex items-start gap-3 p-3.5 bg-panel rounded-lg border border-border-default">
+                <div className="w-8 h-8 rounded-lg bg-orange-900/30 flex items-center justify-center shrink-0"><GitBranch className="w-4 h-4 text-orange-600 dark:text-orange-400" /></div>
                 <div>
-                  <p className="text-sm font-medium text-zinc-200">Git & GitHub</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">Built-in Git panel for staging, committing, branching, stash, and one-click GitHub publishing.</p>
+                  <p className="text-sm font-medium text-primary">Git & GitHub</p>
+                  <p className="text-xs text-muted mt-0.5 leading-relaxed">Built-in Git panel for staging, committing, branching, stash, and one-click GitHub publishing.</p>
                 </div>
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setStep('tour-remote')} className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+              <button onClick={() => setStep('tour-remote')} className="flex items-center gap-1.5 px-3 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
               <button onClick={() => setStep('tour-shortcuts')} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors">Next: Tips <ArrowRight className="w-4 h-4" /></button>
             </div>
           </div>
@@ -1771,35 +1771,35 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="space-y-5">
             <div className="text-center">
               <div className="w-12 h-12 rounded-xl bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
-                <Keyboard className="w-6 h-6 text-amber-400" />
+                <Keyboard className="w-6 h-6 text-amber-600 dark:text-amber-400" />
               </div>
-              <h2 className="text-lg font-semibold text-zinc-100">Tips & Shortcuts</h2>
-              <p className="text-zinc-500 text-sm mt-1">A few things to help you get the most out of Operon.</p>
+              <h2 className="text-lg font-semibold text-primary">Tips & Shortcuts</h2>
+              <p className="text-muted text-sm mt-1">A few things to help you get the most out of Operon.</p>
             </div>
             <div className="space-y-2">
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Keyboard className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+K</kbd> to start a new chat, <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-[10px] text-zinc-300 font-mono">{modKey}+S</kbd> to save files</p>
+              <div className="flex items-start gap-3 p-3 bg-panel rounded-lg border border-border-default">
+                <Keyboard className="w-4 h-4 text-secondary shrink-0 mt-0.5" />
+                <p className="text-xs text-secondary"><kbd className="px-1.5 py-0.5 bg-surface rounded text-[10px] text-secondary font-mono">{modKey}+K</kbd> to start a new chat, <kbd className="px-1.5 py-0.5 bg-surface rounded text-[10px] text-secondary font-mono">{modKey}+S</kbd> to save files</p>
               </div>
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Zap className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300">Use <span className="font-medium text-amber-300">Plan</span> first, then switch to <span className="font-medium text-blue-300">Agent</span> to execute — Claude auto-tracks progress in the plan file.</p>
+              <div className="flex items-start gap-3 p-3 bg-panel rounded-lg border border-border-default">
+                <Zap className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-secondary">Use <span className="font-medium text-amber-700 dark:text-amber-300">Plan</span> first, then switch to <span className="font-medium text-blue-700 dark:text-blue-300">Agent</span> to execute — Claude auto-tracks progress in the plan file.</p>
               </div>
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <FlaskConical className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300"><span className="font-medium text-purple-300">Report mode</span> reads your analysis files and generates a formatted PDF report with methods, results, and PubMed references.</p>
+              <div className="flex items-start gap-3 p-3 bg-panel rounded-lg border border-border-default">
+                <FlaskConical className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-secondary"><span className="font-medium text-purple-700 dark:text-purple-300">Report mode</span> reads your analysis files and generates a formatted PDF report with methods, results, and PubMed references.</p>
               </div>
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <Mic className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300">Click the <span className="font-medium text-red-300">microphone</span> button to dictate prompts. Right-click files to delete or download them.</p>
+              <div className="flex items-start gap-3 p-3 bg-panel rounded-lg border border-border-default">
+                <Mic className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-secondary">Click the <span className="font-medium text-red-700 dark:text-red-300">microphone</span> button to dictate prompts. Right-click files to delete or download them.</p>
               </div>
-              <div className="flex items-start gap-3 p-3 bg-zinc-900 rounded-lg border border-zinc-800">
-                <MonitorSmartphone className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-300">Drag panel borders to resize. Operon auto-updates — you'll always have the latest version.</p>
+              <div className="flex items-start gap-3 p-3 bg-panel rounded-lg border border-border-default">
+                <MonitorSmartphone className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-secondary">Drag panel borders to resize. Operon auto-updates — you'll always have the latest version.</p>
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setStep('tour-features')} className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+              <button onClick={() => setStep('tour-features')} className="flex items-center gap-1.5 px-3 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
               <button onClick={finishSetup} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors"><CheckCircle className="w-4 h-4" /> Start Using Operon</button>
             </div>
           </div>
@@ -1810,12 +1810,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
           <div className="text-center space-y-4">
             <div className="flex justify-center">
               <div className="w-14 h-14 rounded-full bg-green-900/30 flex items-center justify-center">
-                <CheckCircle className="w-8 h-8 text-green-400" />
+                <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
               </div>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-zinc-100">You're all set!</h2>
-              <p className="text-zinc-400 text-sm mt-1">Operon is ready. Open a folder to get started.</p>
+              <h2 className="text-lg font-semibold text-primary">You're all set!</h2>
+              <p className="text-secondary text-sm mt-1">Operon is ready. Open a folder to get started.</p>
             </div>
           </div>
         )}

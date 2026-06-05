@@ -52,9 +52,9 @@ function PhaseIndicator({ currentPhase }: { currentPhase: ReportPhase }) {
         return (
           <div key={phase.id} className="flex items-center gap-0.5">
             <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] ${
-              isActive ? 'bg-purple-900/30 text-purple-300 border border-purple-700/30' :
-              isDone ? 'text-green-400' :
-              'text-zinc-600'
+              isActive ? 'bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-700/30' :
+              isDone ? 'text-green-600 dark:text-green-400' :
+              'text-subtle'
             }`}>
               {isDone ? (
                 <CheckCircle className="w-3 h-3" />
@@ -66,7 +66,7 @@ function PhaseIndicator({ currentPhase }: { currentPhase: ReportPhase }) {
               <span className={isFuture ? 'hidden sm:inline' : ''}>{phase.label}</span>
             </div>
             {i < PHASES.length - 1 && (
-              <ArrowRight className={`w-2.5 h-2.5 ${isDone ? 'text-green-600' : 'text-zinc-700'}`} />
+              <ArrowRight className={`w-2.5 h-2.5 ${isDone ? 'text-green-600' : 'text-subtle'}`} />
             )}
           </div>
         );
@@ -79,36 +79,36 @@ function MethodsPreview({ methods }: { methods: MethodsInfo }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
+    <div className="border border-border-default rounded-lg bg-panel/40 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/40 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-hover/40 transition-colors"
       >
-        <Wrench className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-        <span className="text-[11px] font-medium text-zinc-300">
+        <Wrench className="w-3.5 h-3.5 text-secondary shrink-0" />
+        <span className="text-[11px] font-medium text-secondary">
           Detected Methods
         </span>
-        <span className="text-[10px] text-zinc-500 ml-auto">
+        <span className="text-[10px] text-muted ml-auto">
           {methods.tools.length} tools
           {methods.r_version ? ` | R ${methods.r_version}` : ''}
           {methods.python_version ? ` | Python ${methods.python_version}` : ''}
         </span>
-        {expanded ? <ChevronDown className="w-3 h-3 text-zinc-500" /> : <ChevronRight className="w-3 h-3 text-zinc-500" />}
+        {expanded ? <ChevronDown className="w-3 h-3 text-muted" /> : <ChevronRight className="w-3 h-3 text-muted" />}
       </button>
 
       {expanded && (
         <div className="px-3 pb-2 space-y-1.5">
           {methods.tools.slice(0, 20).map((tool, i) => (
             <div key={i} className="flex items-center gap-2 text-[10px]">
-              <span className="text-zinc-300 font-mono">{tool.name}</span>
-              {tool.version && <span className="text-zinc-500">{tool.version}</span>}
+              <span className="text-secondary font-mono">{tool.name}</span>
+              {tool.version && <span className="text-muted">{tool.version}</span>}
               {tool.language && (
-                <span className="text-[9px] text-zinc-600 bg-zinc-800 px-1 rounded">{tool.language}</span>
+                <span className="text-[9px] text-subtle bg-surface px-1 rounded">{tool.language}</span>
               )}
             </div>
           ))}
           {methods.tools.length > 20 && (
-            <span className="text-[10px] text-zinc-600">+{methods.tools.length - 20} more</span>
+            <span className="text-[10px] text-subtle">+{methods.tools.length - 20} more</span>
           )}
         </div>
       )}
@@ -136,15 +136,15 @@ export function ReportPhasePanel({
         {phase === 'scan' && (
           <div className="flex flex-col items-center gap-1 py-3">
             <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-              <span className="text-[11px] text-zinc-400">
+              <Loader2 className="w-4 h-4 text-purple-600 dark:text-purple-400 animate-spin" />
+              <span className="text-[11px] text-secondary">
                 {scanProgress
                   ? `Scanning... ${scanProgress.dirsScanned} folder${scanProgress.dirsScanned === 1 ? '' : 's'}, ${scanProgress.filesFound} file${scanProgress.filesFound === 1 ? '' : 's'} found`
                   : 'Scanning project for analysis files...'}
               </span>
             </div>
             {scanProgress && scanProgress.currentDir && (
-              <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full px-2" title={scanProgress.currentDir}>
+              <span className="text-[10px] text-subtle font-mono truncate max-w-full px-2" title={scanProgress.currentDir}>
                 {scanProgress.currentDir}
               </span>
             )}
@@ -162,15 +162,15 @@ export function ReportPhasePanel({
             {methodsInfo && <MethodsPreview methods={methodsInfo} />}
 
             {/* Report scope selector */}
-            <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 p-2.5 space-y-2">
-              <span className="text-[10px] text-zinc-400 font-medium">Report scope</span>
+            <div className="border border-border-default rounded-lg bg-panel/40 p-2.5 space-y-2">
+              <span className="text-[10px] text-secondary font-medium">Report scope</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => setReportScope('comprehensive')}
                   className={`flex-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium border transition-colors ${
                     reportScope === 'comprehensive'
-                      ? 'bg-purple-900/30 border-purple-600/40 text-purple-300'
-                      : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300'
+                      ? 'bg-purple-900/30 border-purple-600/40 text-purple-700 dark:text-purple-300'
+                      : 'bg-surface/50 border-border-strong/50 text-muted hover:text-secondary'
                   }`}
                 >
                   Comprehensive — full paper with all sections
@@ -179,8 +179,8 @@ export function ReportPhasePanel({
                   onClick={() => setReportScope('focused')}
                   className={`flex-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium border transition-colors ${
                     reportScope === 'focused'
-                      ? 'bg-purple-900/30 border-purple-600/40 text-purple-300'
-                      : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300'
+                      ? 'bg-purple-900/30 border-purple-600/40 text-purple-700 dark:text-purple-300'
+                      : 'bg-surface/50 border-border-strong/50 text-muted hover:text-secondary'
                   }`}
                 >
                   Focused — summary with key results only
@@ -190,15 +190,15 @@ export function ReportPhasePanel({
 
             {/* Plan selector (if plans exist) */}
             {(currentPlanTitle || planHistory.length > 0) && (
-              <div className="border border-zinc-800 rounded-lg bg-zinc-900/40 p-2.5 space-y-1.5">
+              <div className="border border-border-default rounded-lg bg-panel/40 p-2.5 space-y-1.5">
                 <div className="flex items-center gap-1.5">
-                  <ClipboardList className="w-3 h-3 text-amber-400" />
-                  <span className="text-[10px] text-zinc-400 font-medium">Base report on plan</span>
+                  <ClipboardList className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                  <span className="text-[10px] text-secondary font-medium">Base report on plan</span>
                 </div>
                 <select
                   value={selectedPlan}
                   onChange={(e) => setSelectedPlan(e.target.value)}
-                  className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-[11px] text-zinc-300 outline-none focus:border-purple-600/50"
+                  className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-[11px] text-secondary outline-none focus:border-purple-600/50"
                 >
                   {currentPlanTitle && (
                     <option value="current">Current: {currentPlanTitle}</option>
@@ -217,18 +217,18 @@ export function ReportPhasePanel({
               <button
                 onClick={() => onProceed(reportScope, selectedPlan === 'none' ? undefined : selectedPlan === 'current' ? currentPlanTitle || undefined : selectedPlan)}
                 disabled={selectedFiles.length === 0 || isLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-[11px] font-medium rounded-md transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-elevated disabled:text-muted text-white text-[11px] font-medium rounded-md transition-colors"
               >
                 {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FlaskConical className="w-3 h-3" />}
                 Continue with {selectedFiles.length} files
               </button>
-              <button onClick={onCancel} className="px-2 py-1.5 text-[11px] text-zinc-500 hover:text-zinc-300">
+              <button onClick={onCancel} className="px-2 py-1.5 text-[11px] text-muted hover:text-secondary">
                 Cancel
               </button>
               <button
                 onClick={onRescan}
                 disabled={isLoading}
-                className="ml-auto p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                className="ml-auto p-1.5 rounded-md text-muted hover:text-secondary hover:bg-hover transition-colors"
                 title="Rescan project files"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -240,15 +240,15 @@ export function ReportPhasePanel({
         {/* Clarify phase — handled by chat messages + Generate button */}
         {phase === 'clarify' && (
           <div className="flex items-center gap-2 py-2">
-            <MessageCircle className="w-3.5 h-3.5 text-purple-400 pointer-events-none" />
+            <MessageCircle className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 pointer-events-none" />
             {isStreaming ? (
-              <span className="text-[11px] text-zinc-400">
+              <span className="text-[11px] text-secondary">
                 Claude is reviewing your context...
               </span>
             ) : (
               <>
-                <span className="text-[11px] text-zinc-400">
-                  Provide context above, then click Generate or type <span className="text-purple-300 font-medium">"generate report"</span>.
+                <span className="text-[11px] text-secondary">
+                  Provide context above, then click Generate or type <span className="text-purple-700 dark:text-purple-300 font-medium">"generate report"</span>.
                 </span>
                 <button
                   onClick={(e) => { e.stopPropagation(); onGenerate(); }}
@@ -265,8 +265,8 @@ export function ReportPhasePanel({
         {/* Draft phase */}
         {phase === 'draft' && (
           <div className="flex items-center gap-2 py-2">
-            <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-            <span className="text-[11px] text-zinc-400">
+            <Loader2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-spin" />
+            <span className="text-[11px] text-secondary">
               Claude is drafting the report with PubMed citations...
             </span>
           </div>
@@ -275,18 +275,18 @@ export function ReportPhasePanel({
         {/* Render phase */}
         {phase === 'render' && (
           <div className="flex items-center gap-2 py-2">
-            <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin" />
-            <span className="text-[11px] text-zinc-400">Generating PDF...</span>
+            <Loader2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-spin" />
+            <span className="text-[11px] text-secondary">Generating PDF...</span>
           </div>
         )}
 
         {/* Done */}
         {phase === 'done' && outputPath && (
           <div className="flex items-center gap-2 py-2 bg-green-950/20 border border-green-800/30 rounded-md px-3">
-            <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+            <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
             <div>
-              <div className="text-[11px] text-green-300 font-medium">Report generated!</div>
-              <div className="text-[10px] text-zinc-500 font-mono truncate">{outputPath}</div>
+              <div className="text-[11px] text-green-700 dark:text-green-300 font-medium">Report generated!</div>
+              <div className="text-[10px] text-muted font-mono truncate">{outputPath}</div>
             </div>
           </div>
         )}
@@ -294,7 +294,7 @@ export function ReportPhasePanel({
         {/* Error */}
         {error && (
           <div className="flex items-center gap-2 py-2 bg-red-950/20 border border-red-800/30 rounded-md px-3">
-            <span className="text-[11px] text-red-400">{error}</span>
+            <span className="text-[11px] text-red-600 dark:text-red-400">{error}</span>
           </div>
         )}
       </div>

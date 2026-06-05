@@ -27,7 +27,7 @@ export function TokenUsageBar({ used, max, cacheRead = 0, compact }: Props) {
   const barColor =
     pct >= 85 ? 'bg-rose-500' : pct >= 60 ? 'bg-amber-400' : 'bg-emerald-500';
   const textColor =
-    pct >= 85 ? 'text-rose-400' : pct >= 60 ? 'text-amber-400' : 'text-zinc-400';
+    pct >= 85 ? 'text-rose-600 dark:text-rose-400' : pct >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-secondary';
 
   const width = compact ? 'w-24' : 'w-36';
   const height = compact ? 'h-1' : 'h-1.5';
@@ -38,7 +38,7 @@ export function TokenUsageBar({ used, max, cacheRead = 0, compact }: Props) {
       title={`${used.toLocaleString()} / ${max.toLocaleString()} tokens (${pct.toFixed(0)}%) used in context window${cacheRead > 0 ? ` · ${cacheRead.toLocaleString()} from cache` : ''}`}
     >
       <div
-        className={`${width} ${height} bg-zinc-800 rounded-full overflow-hidden border border-zinc-700/50`}
+        className={`${width} ${height} bg-surface rounded-full overflow-hidden border border-border-strong/50`}
       >
         <div
           className={`h-full ${barColor} transition-all duration-500`}
@@ -50,7 +50,7 @@ export function TokenUsageBar({ used, max, cacheRead = 0, compact }: Props) {
       </span>
       {showCacheIcon && (
         <Zap
-          className="w-3 h-3 text-blue-400 pointer-events-none"
+          className="w-3 h-3 text-blue-600 dark:text-blue-400 pointer-events-none"
           aria-label="majority of context is cache-read"
         />
       )}

@@ -55,28 +55,28 @@ export function EditorArea() {
     switch (ext) {
       case 'tsx':
       case 'ts':
-        return 'text-blue-400';
+        return 'text-blue-600 dark:text-blue-400';
       case 'rs':
-        return 'text-orange-400';
+        return 'text-orange-600 dark:text-orange-400';
       case 'json':
-        return 'text-yellow-400';
+        return 'text-yellow-600 dark:text-yellow-400';
       case 'css':
-        return 'text-purple-400';
+        return 'text-purple-600 dark:text-purple-400';
       case 'py':
-        return 'text-green-400';
+        return 'text-green-600 dark:text-green-400';
       case 'js':
       case 'jsx':
-        return 'text-yellow-400';
+        return 'text-yellow-600 dark:text-yellow-400';
       case 'pdf':
-        return 'text-red-400';
+        return 'text-red-600 dark:text-red-400';
       case 'xlsx':
       case 'xlsm':
       case 'xls':
-        return 'text-green-400';
+        return 'text-green-600 dark:text-green-400';
       case 'pptx':
       case 'pptm':
       case 'ppt':
-        return 'text-orange-400';
+        return 'text-orange-600 dark:text-orange-400';
       case 'png':
       case 'jpg':
       case 'jpeg':
@@ -86,38 +86,38 @@ export function EditorArea() {
       case 'bmp':
       case 'svg':
       case 'webp':
-        return 'text-green-400';
+        return 'text-green-600 dark:text-green-400';
       default:
-        return 'text-zinc-400';
+        return 'text-secondary';
     }
   };
 
   const getTabIcon = (tab: typeof activeTab) => {
-    if (!tab) return <FileText className="w-3.5 h-3.5 text-zinc-400" />;
+    if (!tab) return <FileText className="w-3.5 h-3.5 text-secondary" />;
     if (tab.binaryType === 'image') return <ImageIcon className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
     if (tab.binaryType === 'pdf') return <FileText className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
-    if (tab.binaryType === 'html') return <Globe className={`w-3.5 h-3.5 text-orange-400`} />;
-    if (tab.binaryType === 'xlsx') return <Sheet className={`w-3.5 h-3.5 text-green-400`} />;
-    if (tab.binaryType === 'pptx') return <Presentation className={`w-3.5 h-3.5 text-orange-400`} />;
+    if (tab.binaryType === 'html') return <Globe className={`w-3.5 h-3.5 text-orange-600 dark:text-orange-400`} />;
+    if (tab.binaryType === 'xlsx') return <Sheet className={`w-3.5 h-3.5 text-green-600 dark:text-green-400`} />;
+    if (tab.binaryType === 'pptx') return <Presentation className={`w-3.5 h-3.5 text-orange-600 dark:text-orange-400`} />;
     return <FileText className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Tab Bar */}
       {tabs.length > 0 && (
-        <div className="flex items-center h-[35px] bg-zinc-900 border-b border-zinc-800 overflow-x-auto shrink-0">
+        <div className="flex items-center h-[35px] bg-panel border-b border-border-default overflow-x-auto shrink-0">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTabId(tab.id)}
               className={`
-                group flex items-center gap-1.5 px-3 h-full text-[13px] border-r border-zinc-800 shrink-0 transition-colors
+                group flex items-center gap-1.5 px-3 h-full text-[13px] border-r border-border-default shrink-0 transition-colors
                 ${tab.isPreview ? 'italic' : ''}
                 ${
                   activeTabId === tab.id
-                    ? 'bg-zinc-950 text-zinc-100 border-t-2 border-t-blue-500'
-                    : 'text-zinc-500 hover:text-zinc-300 bg-zinc-900 border-t-2 border-t-transparent'
+                    ? 'bg-canvas text-primary border-t-2 border-t-blue-500'
+                    : 'text-muted hover:text-secondary bg-panel border-t-2 border-t-transparent'
                 }
               `}
             >
@@ -131,7 +131,7 @@ export function EditorArea() {
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                className="ml-1 p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="ml-1 p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3" />
               </span>
@@ -142,28 +142,28 @@ export function EditorArea() {
 
       {/* Editor Toolbar — shown for text files (not binary, not diff) */}
       {activeTab && !activeTab.binaryType && activeTab.mode !== 'diff' && (
-        <div className="flex items-center justify-between px-3 py-1 bg-zinc-900 border-b border-zinc-800 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-zinc-400">
+        <div className="flex items-center justify-between px-3 py-1 bg-panel border-b border-border-default shrink-0">
+          <div className="flex items-center gap-2 text-xs text-secondary">
             <FileText className={`w-3.5 h-3.5 ${getFileColor(activeTab.fileName)}`} />
-            <span className="font-medium text-zinc-300">{activeTab.fileName}</span>
+            <span className="font-medium text-secondary">{activeTab.fileName}</span>
             {activeTab.remoteProfileId && (
-              <span className="flex items-center gap-1 text-[10px] text-cyan-400/70 bg-cyan-400/10 px-1.5 py-0.5 rounded">
+              <span className="flex items-center gap-1 text-[10px] text-cyan-600 dark:text-cyan-400/70 bg-cyan-400/10 px-1.5 py-0.5 rounded">
                 <Server className="w-2.5 h-2.5 pointer-events-none" />
                 Remote
               </span>
             )}
             {activeTab.isPreview && (
-              <span className="text-[10px] text-zinc-600">Read-only</span>
+              <span className="text-[10px] text-subtle">Read-only</span>
             )}
             {activeTab.isModified && (
-              <span className="text-[10px] text-blue-400">Modified</span>
+              <span className="text-[10px] text-blue-600 dark:text-blue-400">Modified</span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
             {activeTab.isPreview ? (
               <button
                 onClick={() => promoteTab(activeTab.id)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-zinc-300 hover:text-zinc-100 bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs text-secondary hover:text-primary bg-surface hover:bg-elevated transition-colors"
                 title="Switch to edit mode"
               >
                 <Pencil className="w-3 h-3 pointer-events-none" />
@@ -175,10 +175,10 @@ export function EditorArea() {
                 disabled={!activeTab.isModified && saveFlash !== activeTab.id}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors ${
                   saveFlash === activeTab.id
-                    ? 'text-green-400 bg-green-400/10'
+                    ? 'text-green-600 dark:text-green-400 bg-green-400/10'
                     : activeTab.isModified
-                      ? 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20'
-                      : 'text-zinc-600 bg-zinc-800 cursor-default'
+                      ? 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 bg-blue-500/10 hover:bg-blue-500/20'
+                      : 'text-subtle bg-surface cursor-default'
                 }`}
                 title={`Save (${modSymbol}S)`}
               >
@@ -224,12 +224,12 @@ export function EditorArea() {
             />
           )
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-zinc-600">
-            <Code2 className="w-16 h-16 mb-4 text-zinc-800" />
+          <div className="h-full flex flex-col items-center justify-center text-subtle">
+            <Code2 className="w-16 h-16 mb-4 text-subtle" />
             <p className="text-sm mb-1">No file open</p>
-            <p className="text-xs text-zinc-700">
+            <p className="text-xs text-subtle">
               Open a file from the sidebar or press{' '}
-              <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-400 text-[11px] font-mono">
+              <kbd className="px-1.5 py-0.5 bg-surface rounded text-secondary text-[11px] font-mono">
                 {modSymbol}P
               </kbd>
             </p>

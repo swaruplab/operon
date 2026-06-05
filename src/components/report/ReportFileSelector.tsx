@@ -19,26 +19,26 @@ interface ReportFileSelectorProps {
 
 function getFileIcon(fileType: string) {
   switch (fileType) {
-    case 'pdf': return <FileText className="w-3.5 h-3.5 text-red-400 shrink-0" />;
-    case 'image': return <Image className="w-3.5 h-3.5 text-green-400 shrink-0" />;
-    case 'csv': return <Table2 className="w-3.5 h-3.5 text-yellow-400 shrink-0" />;
-    case 'code': return <Code2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />;
-    default: return <File className="w-3.5 h-3.5 text-zinc-400 shrink-0" />;
+    case 'pdf': return <FileText className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />;
+    case 'image': return <Image className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />;
+    case 'csv': return <Table2 className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400 shrink-0" />;
+    case 'code': return <Code2 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />;
+    default: return <File className="w-3.5 h-3.5 text-secondary shrink-0" />;
   }
 }
 
 function getHintBadge(hint?: string) {
   if (!hint) return null;
   const colors: Record<string, string> = {
-    results: 'bg-green-900/30 text-green-400 border-green-800/30',
-    plots: 'bg-blue-900/30 text-blue-400 border-blue-800/30',
-    raw: 'bg-zinc-800 text-zinc-500 border-zinc-700',
-    intermediate: 'bg-zinc-800 text-zinc-500 border-zinc-700',
-    scripts: 'bg-purple-900/30 text-purple-400 border-purple-800/30',
-    reference: 'bg-amber-900/30 text-amber-400 border-amber-800/30',
+    results: 'bg-green-900/30 text-green-600 dark:text-green-400 border-green-800/30',
+    plots: 'bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-800/30',
+    raw: 'bg-surface text-muted border-border-strong',
+    intermediate: 'bg-surface text-muted border-border-strong',
+    scripts: 'bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-800/30',
+    reference: 'bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-800/30',
   };
   return (
-    <span className={`text-[8px] uppercase tracking-wide px-1 py-[1px] rounded border ${colors[hint] || 'bg-zinc-800 text-zinc-500 border-zinc-700'}`}>
+    <span className={`text-[8px] uppercase tracking-wide px-1 py-[1px] rounded border ${colors[hint] || 'bg-surface text-muted border-border-strong'}`}>
       {hint}
     </span>
   );
@@ -53,11 +53,11 @@ function FileRow({ file, selected, onToggle }: {
     <button
       onClick={() => onToggle(file.path)}
       className={`w-full flex items-center gap-1.5 h-[26px] px-2 text-[12px] transition-colors ${
-        selected ? 'bg-blue-950/30 text-blue-300' : 'text-zinc-400 hover:bg-zinc-800/60'
+        selected ? 'bg-blue-950/30 text-blue-700 dark:text-blue-300' : 'text-secondary hover:bg-hover/60'
       }`}
     >
       <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-        selected ? 'bg-blue-500 border-blue-500' : 'border-zinc-600'
+        selected ? 'bg-blue-500 border-blue-500' : 'border-border-strong'
       }`}>
         {selected && <Check className="w-2.5 h-2.5 text-white" />}
       </div>
@@ -66,9 +66,9 @@ function FileRow({ file, selected, onToggle }: {
       {file.size > 1024 * 1024 && (
         <span title="Large file (>1 MB) — may use significant context"><AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" /></span>
       )}
-      <span className={`ml-auto text-[10px] shrink-0 ${file.size > 1024 * 1024 ? 'text-amber-500' : 'text-zinc-600'}`}>{formatBytes(file.size)}</span>
+      <span className={`ml-auto text-[10px] shrink-0 ${file.size > 1024 * 1024 ? 'text-amber-500' : 'text-subtle'}`}>{formatBytes(file.size)}</span>
       {file.columns && (
-        <span className="text-[9px] text-zinc-600 shrink-0">{file.columns.length} cols</span>
+        <span className="text-[9px] text-subtle shrink-0">{file.columns.length} cols</span>
       )}
     </button>
   );
@@ -98,7 +98,7 @@ function DirNode({ node, depth, selectedFiles, onToggle, onToggleDir }: {
           onClick={() => onToggleDir(node, !allSelected)}
           className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 mr-1.5 ${
             allSelected ? 'bg-blue-500 border-blue-500' :
-            someSelected ? 'bg-blue-500/30 border-blue-500' : 'border-zinc-600'
+            someSelected ? 'bg-blue-500/30 border-blue-500' : 'border-border-strong'
           }`}
         >
           {(allSelected || someSelected) && <Check className="w-2.5 h-2.5 text-white" />}
@@ -107,19 +107,19 @@ function DirNode({ node, depth, selectedFiles, onToggle, onToggleDir }: {
         {/* Dir row */}
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex-1 flex items-center gap-1 h-[28px] text-[12px] text-zinc-300 hover:bg-zinc-800/40 transition-colors rounded px-1"
+          className="flex-1 flex items-center gap-1 h-[28px] text-[12px] text-secondary hover:bg-hover/40 transition-colors rounded px-1"
         >
           {expanded
-            ? <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />
-            : <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
+            ? <ChevronDown className="w-3 h-3 text-muted shrink-0" />
+            : <ChevronRight className="w-3 h-3 text-muted shrink-0" />
           }
           {expanded
-            ? <FolderOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-            : <Folder className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            ? <FolderOpen className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            : <Folder className="w-3.5 h-3.5 text-muted shrink-0" />
           }
           <span className="truncate font-medium">{node.name}</span>
           {getHintBadge(node.hint)}
-          <span className="ml-auto text-[9px] text-zinc-600 shrink-0">
+          <span className="ml-auto text-[9px] text-subtle shrink-0">
             {node.total_file_count} file{node.total_file_count !== 1 ? 's' : ''}
           </span>
         </button>
@@ -186,46 +186,46 @@ export function ReportFileSelector({ scan, selectedFiles, onSelectionChange, max
   const clearAll = () => onSelectionChange([]);
 
   return (
-    <div className="flex flex-col border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
+    <div className="flex flex-col border border-border-default rounded-lg bg-panel/40 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/60 bg-zinc-800/20">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default/60 bg-surface/20">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium text-zinc-300">{headerLabel || 'Select files for report'}</span>
-          <span className="text-[10px] text-zinc-500">
+          <span className="text-[11px] font-medium text-secondary">{headerLabel || 'Select files for report'}</span>
+          <span className="text-[10px] text-muted">
             {headerStats || `${scan.total_pdfs} PDFs, ${scan.total_images} images, ${scan.total_csvs} CSVs, ${scan.total_docs} docs`}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={selectAll} className="text-[10px] text-blue-400 hover:text-blue-300">Select all</button>
-          <button onClick={clearAll} className="text-[10px] text-zinc-500 hover:text-zinc-300">Clear</button>
+          <button onClick={selectAll} className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700">Select all</button>
+          <button onClick={clearAll} className="text-[10px] text-muted hover:text-secondary">Clear</button>
         </div>
       </div>
 
       {/* Budget bar */}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-zinc-800/40 bg-zinc-950/30">
+      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border-default/40 bg-canvas/30">
         <div className="flex items-center gap-1.5 text-[10px]">
-          <span className={selectedFiles.length > maxFiles ? 'text-red-400' : 'text-zinc-400'}>
+          <span className={selectedFiles.length > maxFiles ? 'text-red-600 dark:text-red-400' : 'text-secondary'}>
             {selectedFiles.length}/{maxFiles} files
           </span>
         </div>
-        <div className="flex-1 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+        <div className="flex-1 h-1.5 rounded-full bg-surface overflow-hidden">
           <div
             className={`h-full rounded-full transition-all ${overLimit ? 'bg-red-500' : 'bg-blue-500'}`}
             style={{ width: `${Math.min((selectedSize / maxSize) * 100, 100)}%` }}
           />
         </div>
-        <span className={`text-[10px] ${overLimit ? 'text-red-400' : 'text-zinc-500'}`}>
+        <span className={`text-[10px] ${overLimit ? 'text-red-600 dark:text-red-400' : 'text-muted'}`}>
           {formatBytes(selectedSize)} / {formatBytes(maxSize)}
         </span>
       </div>
 
       {overLimit ? (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/20 text-[10px] text-red-400">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/20 text-[10px] text-red-600 dark:text-red-400">
           <AlertTriangle className="w-3 h-3 shrink-0" />
           Too many files or too large. Select representative files for the best report.
         </div>
       ) : (
-        <div className="px-3 py-1 text-[9px] text-zinc-600">
+        <div className="px-3 py-1 text-[9px] text-subtle">
           {tipText || 'Tip: Avoid selecting files over 1 MB — they consume significant context and may reduce report quality.'}
         </div>
       )}
@@ -248,7 +248,7 @@ export function ReportFileSelector({ scan, selectedFiles, onSelectionChange, max
           />
         ))}
         {allFiles.length === 0 && (
-          <div className="px-4 py-6 text-center text-zinc-600 text-[11px]">
+          <div className="px-4 py-6 text-center text-subtle text-[11px]">
             No PDFs, images, or CSVs found in this project.
           </div>
         )}

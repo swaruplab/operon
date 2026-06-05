@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -7,7 +7,62 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getSettings } from '../../lib/settings';
 import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
+import { useTheme } from '../../context/ThemeContext';
 import '@xterm/xterm/css/xterm.css';
+
+// Xterm theme palettes — kept in sync with the app's CSS variables in
+// styles.css. ANSI colors (red/green/…) stay vivid in both themes; only the
+// canvas + foreground swap so text contrast stays high.
+const XTERM_DARK: ITheme = {
+  background: '#09090b',
+  foreground: '#fafafa',
+  cursor: '#fafafa',
+  cursorAccent: '#09090b',
+  selectionBackground: '#3f3f46',
+  selectionForeground: '#fafafa',
+  black: '#27272a',
+  red: '#ef4444',
+  green: '#22c55e',
+  yellow: '#eab308',
+  blue: '#3b82f6',
+  magenta: '#a855f7',
+  cyan: '#06b6d4',
+  white: '#fafafa',
+  brightBlack: '#71717a',
+  brightRed: '#f87171',
+  brightGreen: '#4ade80',
+  brightYellow: '#facc15',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#c084fc',
+  brightCyan: '#22d3ee',
+  brightWhite: '#ffffff',
+};
+
+const XTERM_LIGHT: ITheme = {
+  background: '#fafafa',
+  foreground: '#18181b',
+  cursor: '#18181b',
+  cursorAccent: '#fafafa',
+  selectionBackground: '#d4d4d8',
+  selectionForeground: '#18181b',
+  // ANSI palette tuned darker for contrast against light backgrounds.
+  black: '#18181b',
+  red: '#b91c1c',
+  green: '#15803d',
+  yellow: '#a16207',
+  blue: '#1d4ed8',
+  magenta: '#7c3aed',
+  cyan: '#0e7490',
+  white: '#52525b',
+  brightBlack: '#52525b',
+  brightRed: '#dc2626',
+  brightGreen: '#16a34a',
+  brightYellow: '#ca8a04',
+  brightBlue: '#2563eb',
+  brightMagenta: '#9333ea',
+  brightCyan: '#0891b2',
+  brightWhite: '#18181b',
+};
 
 /**
  * Detects OAuth URLs in terminal output (e.g. from `claude login` on remote servers)
@@ -77,9 +132,14 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const webglAddonRef = useRef<WebglAddon | null>(null);
   const unlistenOutputRef = useRef<UnlistenFn | null>(null);
   const unlistenExitRef = useRef<UnlistenFn | null>(null);
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track the app theme so we can swap xterm colors when the user toggles.
+  const { resolved: themeMode } = useTheme();
+  const xtermTheme = themeMode === 'light' ? XTERM_LIGHT : XTERM_DARK;
 
   // Stable refs for callbacks — avoids re-creating the terminal when parent re-renders
   const onTitleChangeRef = useRef(onTitleChange);
@@ -121,6 +181,35 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
     }
   }, [isVisible, terminalId]);
 
+  // Live theme swap — when the user toggles light/dark, update the existing
+  // terminal's color palette without recreating the instance (which would
+  // wipe the scrollback).
+  //
+  // Just setting .options.theme is enough for the DOM renderer, but the
+  // WebGL renderer (default) caches glyphs in a texture atlas keyed on
+  // color — without re-creating the addon, characters stay rendered in the
+  // OLD theme's colors until each is repainted. Dispose + re-attach the
+  // WebGL addon so the new theme takes immediately on every cell.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermTheme;
+    if (webglAddonRef.current) {
+      webglAddonRef.current.dispose();
+      webglAddonRef.current = null;
+      try {
+        const fresh = new WebglAddon();
+        term.loadAddon(fresh);
+        webglAddonRef.current = fresh;
+      } catch {
+        // WebGL no longer available — canvas fallback already in use.
+      }
+    } else {
+      // Canvas renderer — force redraw of every cell.
+      term.refresh(0, term.rows - 1);
+    }
+  }, [xtermTheme]);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -134,30 +223,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, 'Courier New', monospace",
       lineHeight: 1.4,
       letterSpacing: 0,
-      theme: {
-        background: '#09090b',
-        foreground: '#fafafa',
-        cursor: '#fafafa',
-        cursorAccent: '#09090b',
-        selectionBackground: '#3f3f46',
-        selectionForeground: '#fafafa',
-        black: '#27272a',
-        red: '#ef4444',
-        green: '#22c55e',
-        yellow: '#eab308',
-        blue: '#3b82f6',
-        magenta: '#a855f7',
-        cyan: '#06b6d4',
-        white: '#fafafa',
-        brightBlack: '#71717a',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#facc15',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#c084fc',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      },
+      theme: xtermTheme,
       allowProposedApi: true,
     });
 
@@ -189,9 +255,11 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
           console.warn('xterm WebGL context lost — falling back to canvas');
           addon.dispose();
           webglAddon = null;
+          webglAddonRef.current = null;
         });
         term.loadAddon(addon);
         webglAddon = addon;
+        webglAddonRef.current = addon;
       } catch {
         console.warn('WebGL renderer not available, using canvas');
       }
@@ -423,7 +491,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
   return (
     <div
       ref={containerRef}
-      className="h-full w-full bg-[#09090b] p-1"
+      className="h-full w-full bg-canvas p-1"
       style={{ visibility: isVisible ? 'visible' : 'hidden' }}
     />
   );

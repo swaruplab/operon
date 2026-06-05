@@ -168,34 +168,34 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
 
   const getFileColor = (ext: string | null) => {
     const colorMap: Record<string, string> = {
-      tsx: 'text-blue-400',
-      ts: 'text-blue-400',
-      jsx: 'text-yellow-400',
-      js: 'text-yellow-400',
-      rs: 'text-orange-400',
-      py: 'text-green-400',
-      json: 'text-yellow-400',
-      css: 'text-purple-400',
-      html: 'text-red-400',
-      md: 'text-zinc-400',
-      toml: 'text-red-400',
-      yaml: 'text-pink-400',
-      yml: 'text-pink-400',
-      sh: 'text-green-400',
-      bash: 'text-green-400',
-      c: 'text-blue-300',
-      cpp: 'text-blue-300',
-      h: 'text-blue-300',
-      java: 'text-red-300',
-      go: 'text-cyan-400',
-      rb: 'text-red-400',
-      php: 'text-purple-300',
-      log: 'text-zinc-500',
-      txt: 'text-zinc-400',
-      cfg: 'text-zinc-400',
-      conf: 'text-zinc-400',
+      tsx: 'text-blue-600 dark:text-blue-400',
+      ts: 'text-blue-600 dark:text-blue-400',
+      jsx: 'text-yellow-600 dark:text-yellow-400',
+      js: 'text-yellow-600 dark:text-yellow-400',
+      rs: 'text-orange-600 dark:text-orange-400',
+      py: 'text-green-600 dark:text-green-400',
+      json: 'text-yellow-600 dark:text-yellow-400',
+      css: 'text-purple-600 dark:text-purple-400',
+      html: 'text-red-600 dark:text-red-400',
+      md: 'text-secondary',
+      toml: 'text-red-600 dark:text-red-400',
+      yaml: 'text-pink-600 dark:text-pink-400',
+      yml: 'text-pink-600 dark:text-pink-400',
+      sh: 'text-green-600 dark:text-green-400',
+      bash: 'text-green-600 dark:text-green-400',
+      c: 'text-blue-700 dark:text-blue-300',
+      cpp: 'text-blue-700 dark:text-blue-300',
+      h: 'text-blue-700 dark:text-blue-300',
+      java: 'text-red-700 dark:text-red-300',
+      go: 'text-cyan-600 dark:text-cyan-400',
+      rb: 'text-red-600 dark:text-red-400',
+      php: 'text-purple-700 dark:text-purple-300',
+      log: 'text-muted',
+      txt: 'text-secondary',
+      cfg: 'text-secondary',
+      conf: 'text-secondary',
     };
-    return colorMap[ext || ''] || 'text-zinc-400';
+    return colorMap[ext || ''] || 'text-secondary';
   };
 
   const formatSize = (bytes: number): string => {
@@ -214,7 +214,7 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
         onMouseLeave={() => setHovered(false)}
       >
         <button
-          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors group"
+          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -222,9 +222,9 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
         >
           {entry.is_dir ? (
             expanded ? (
-              <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <ChevronDown className="w-3.5 h-3.5 text-muted shrink-0" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+              <ChevronRight className="w-3.5 h-3.5 text-muted shrink-0" />
             )
           ) : (
             <span className="w-3.5 shrink-0" />
@@ -232,9 +232,9 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
 
           {entry.is_dir ? (
             expanded ? (
-              <FolderOpen className="w-4 h-4 text-blue-400 shrink-0" />
+              <FolderOpen className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             ) : (
-              <Folder className="w-4 h-4 text-zinc-500 shrink-0" />
+              <Folder className="w-4 h-4 text-muted shrink-0" />
             )
           ) : (
             <File className={`w-4 h-4 shrink-0 ${getFileColor(entry.extension)}`} />
@@ -243,17 +243,17 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
           <span className="truncate ml-1">{entry.name}</span>
 
           {isPinned && !hovered && (
-            <Star className="w-3 h-3 text-amber-400 ml-auto shrink-0 fill-amber-400" />
+            <Star className="w-3 h-3 text-amber-600 dark:text-amber-400 ml-auto shrink-0 fill-amber-400" />
           )}
 
           {!entry.is_dir && entry.size > 0 && !isPinned && (
-            <span className="ml-auto text-[10px] text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <span className="ml-auto text-[10px] text-subtle opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
               {formatSize(entry.size)}
             </span>
           )}
 
           {loading && (
-            <Loader2 className="ml-auto w-3 h-3 text-zinc-600 animate-spin shrink-0" />
+            <Loader2 className="ml-auto w-3 h-3 text-subtle animate-spin shrink-0" />
           )}
         </button>
 
@@ -264,8 +264,8 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
               e.stopPropagation();
               onTogglePin(entry.path, entry.name, entry.is_dir);
             }}
-            className={`absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-zinc-700 transition-colors ${
-              isPinned ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-400'
+            className={`absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-elevated transition-colors ${
+              isPinned ? 'text-amber-600 dark:text-amber-400' : 'text-subtle hover:text-amber-700 dark:hover:text-amber-600'
             }`}
             title={isPinned ? 'Unpin' : 'Pin to favorites'}
           >
@@ -764,9 +764,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {/* Drag overlay */}
       {isDragOver && (
         <div className="absolute inset-0 z-50 bg-blue-500/10 border-2 border-dashed border-blue-400 rounded-lg flex flex-col items-center justify-center pointer-events-none">
-          <Upload className="w-8 h-8 text-blue-400 mb-2" />
-          <p className="text-sm font-medium text-blue-300">Drop files to upload</p>
-          <p className="text-xs text-blue-400/70 mt-1">
+          <Upload className="w-8 h-8 text-blue-600 dark:text-blue-400 mb-2" />
+          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">Drop files to upload</p>
+          <p className="text-xs text-blue-600 dark:text-blue-400/70 mt-1">
             to {remotePath || '~'}
           </p>
         </div>
@@ -776,16 +776,16 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {transfer && (
         <div className={`absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 rounded-lg text-xs border shadow-lg ${
           transfer.status === 'done'
-            ? 'bg-green-900/80 text-green-300 border-green-800/60'
+            ? 'bg-green-900/80 text-green-700 dark:text-green-300 border-green-800/60'
             : transfer.status === 'error'
-              ? 'bg-red-900/80 text-red-300 border-red-800/60'
-              : 'bg-zinc-800/95 text-zinc-300 border-zinc-700/60'
+              ? 'bg-red-900/80 text-red-700 dark:text-red-300 border-red-800/60'
+              : 'bg-surface/95 text-secondary border-border-strong/60'
         }`}>
           <div className="flex items-center gap-2">
-            {transfer.status === 'uploading' && <Upload className="w-3.5 h-3.5 text-blue-400 animate-pulse shrink-0" />}
-            {transfer.status === 'downloading' && <Download className="w-3.5 h-3.5 text-blue-400 animate-pulse shrink-0" />}
-            {transfer.status === 'done' && <CheckCircle2 className="w-3.5 h-3.5 text-green-400 shrink-0" />}
-            {transfer.status === 'error' && <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+            {transfer.status === 'uploading' && <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-pulse shrink-0" />}
+            {transfer.status === 'downloading' && <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 animate-pulse shrink-0" />}
+            {transfer.status === 'done' && <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />}
+            {transfer.status === 'error' && <XCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />}
             <div className="flex-1 min-w-0">
               {transfer.message ? (
                 <p className="truncate">{transfer.message}</p>
@@ -803,14 +803,14 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             </div>
             <button
               onClick={() => setTransfer(null)}
-              className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+              className="p-0.5 text-muted hover:text-secondary transition-colors shrink-0"
             >
               <X className="w-3 h-3" />
             </button>
           </div>
           {/* Progress bar — bytes for downloads, file counts for uploads */}
           {(transfer.status === 'uploading' || transfer.status === 'downloading') && transfer.total > 0 && (
-            <div className="mt-1.5 h-1 bg-zinc-700 rounded-full overflow-hidden">
+            <div className="mt-1.5 h-1 bg-elevated rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 rounded-full transition-all duration-300"
                 style={{ width: `${Math.min(100, (transfer.completed / transfer.total) * 100)}%` }}
@@ -823,7 +823,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[180px]"
+          className="fixed z-[100] bg-surface border border-border-strong rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 200),
             top: Math.min(contextMenu.y, window.innerHeight - 220),
@@ -834,9 +834,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               addToChat(contextMenu.entry);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-blue-700 dark:text-blue-300 hover:bg-elevated transition-colors text-left"
           >
-            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-400 pointer-events-none" />
+            <MessageSquarePlus className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 pointer-events-none" />
             Add {contextMenu.entry.is_dir ? 'folder' : 'file'} to chat
           </button>
           {contextMenu.entry.is_dir && (
@@ -845,13 +845,13 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
                 setRegexDialogRoot(contextMenu.entry);
                 setContextMenu(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-300 hover:bg-zinc-700 transition-colors text-left"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-purple-700 dark:text-purple-300 hover:bg-elevated transition-colors text-left"
             >
-              <Filter className="w-3.5 h-3.5 text-purple-400 pointer-events-none" />
+              <Filter className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 pointer-events-none" />
               Add matching files to chat…
             </button>
           )}
-          <div className="border-t border-zinc-700 my-1" />
+          <div className="border-t border-border-strong my-1" />
           <button
             onClick={() => {
               setRenaming(contextMenu.entry);
@@ -859,16 +859,16 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               setContextMenu(null);
               setTimeout(() => renameRef.current?.select(), 50);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
-            <Pencil className="w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <Pencil className="w-3.5 h-3.5 text-muted pointer-events-none" />
             Rename
           </button>
           <button
             onClick={() => downloadToLocal(contextMenu.entry)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <Download className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             Download to local
           </button>
           <button
@@ -876,18 +876,18 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               navigator.clipboard.writeText(contextMenu.entry.path);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
-            <File className="w-3.5 h-3.5 text-zinc-500" />
+            <File className="w-3.5 h-3.5 text-muted" />
             Copy remote path
           </button>
-          <div className="border-t border-zinc-700 my-1" />
+          <div className="border-t border-border-strong my-1" />
           <button
             onClick={() => {
               setDeleteConfirm(contextMenu.entry);
               setContextMenu(null);
             }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-elevated transition-colors text-left"
           >
             <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
             Delete
@@ -908,9 +908,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
       {/* Rename inline input */}
       {renaming && (
-        <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-zinc-800 border border-zinc-600 rounded-lg shadow-lg">
-          <p className="text-[11px] text-zinc-400 mb-1.5">
-            Rename <span className="font-medium text-zinc-200">{renaming.name}</span>
+        <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-surface border border-border-strong rounded-lg shadow-lg">
+          <p className="text-[11px] text-secondary mb-1.5">
+            Rename <span className="font-medium text-primary">{renaming.name}</span>
           </p>
           <input
             ref={renameRef}
@@ -920,12 +920,12 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               if (e.key === 'Enter') handleRenameRemote();
               if (e.key === 'Escape') setRenaming(null);
             }}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-500"
+            className="w-full bg-panel border border-border-strong rounded px-2 py-1 text-xs text-primary outline-none focus:border-blue-500"
             autoFocus
           />
           <div className="flex items-center gap-2 mt-2">
             <button onClick={handleRenameRemote} className="px-2 py-0.5 text-[11px] rounded bg-blue-600 hover:bg-blue-500 text-white">Rename</button>
-            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300">Cancel</button>
+            <button onClick={() => setRenaming(null)} className="px-2 py-0.5 text-[11px] rounded bg-elevated hover:bg-elevated text-secondary">Cancel</button>
           </div>
         </div>
       )}
@@ -933,7 +933,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {/* Delete confirmation */}
       {deleteConfirm && (
         <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
-          <p className="text-[11px] text-red-300 mb-2">
+          <p className="text-[11px] text-red-700 dark:text-red-300 mb-2">
             Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
           </p>
           <div className="flex items-center gap-2">
@@ -945,7 +945,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
             </button>
             <button
               onClick={() => setDeleteConfirm(null)}
-              className="px-2.5 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded transition-colors"
+              className="px-2.5 py-1 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
             >
               Cancel
             </button>
@@ -954,25 +954,25 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
         <div className="flex items-center gap-1.5">
-          <Server className="w-3.5 h-3.5 text-green-400" />
-          <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+          <Server className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+          <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
             Remote
           </span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             onClick={navigateUp}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 text-xs"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary text-xs"
             title="Go Up"
           >
             ..
           </button>
           <button
             onClick={() => setShowHidden((v) => !v)}
-            className={`p-1 rounded hover:bg-zinc-800 transition-colors ${
-              showHidden ? 'text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'
+            className={`p-1 rounded hover:bg-hover transition-colors ${
+              showHidden ? 'text-secondary' : 'text-muted hover:text-secondary'
             }`}
             title={showHidden ? 'Hide hidden files' : 'Show hidden files'}
           >
@@ -980,21 +980,21 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           </button>
           <button
             onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
             title="New Folder"
           >
             <FolderPlus className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={refresh}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
             title="Refresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={cdToTerminal}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors shrink-0"
             title="cd to this directory in terminal"
           >
             <CornerDownRight className="w-3.5 h-3.5" />
@@ -1003,13 +1003,13 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       </div>
 
       {/* Connection info */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs border-b border-zinc-800/50">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs border-b border-border-default/50">
         <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
-        <span className="text-zinc-400 font-medium truncate">{profileName}</span>
+        <span className="text-secondary font-medium truncate">{profileName}</span>
       </div>
 
       {/* Go-to-folder path bar — click to type a path, press Enter to navigate */}
-      <div className="flex items-center gap-1 px-2 py-1 border-b border-zinc-800/30">
+      <div className="flex items-center gap-1 px-2 py-1 border-b border-border-default/30">
         {isEditingPath ? (
           <input
             ref={pathInputRef}
@@ -1024,14 +1024,14 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
               }
             }}
             onBlur={commitPathInput}
-            className="flex-1 bg-zinc-900 border border-green-700/50 rounded px-1.5 py-0.5 text-[11px] text-zinc-300 font-mono outline-none focus:border-green-500 min-w-0"
+            className="flex-1 bg-panel border border-green-700/50 rounded px-1.5 py-0.5 text-[11px] text-secondary font-mono outline-none focus:border-green-500 min-w-0"
             placeholder="/remote/path/to/folder"
             spellCheck={false}
           />
         ) : (
           <button
             onClick={() => setIsEditingPath(true)}
-            className="flex-1 text-left text-[11px] text-zinc-500 hover:text-zinc-300 truncate font-mono transition-colors rounded px-1.5 py-0.5 hover:bg-zinc-800/50 min-w-0"
+            className="flex-1 text-left text-[11px] text-muted hover:text-secondary truncate font-mono transition-colors rounded px-1.5 py-0.5 hover:bg-hover/50 min-w-0"
             title="Click to type a path"
           >
             {remotePath || '~'}
@@ -1043,8 +1043,8 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       <div className="flex-1 overflow-y-auto py-1">
         {/* Inline new folder input */}
         {creatingFolder && (
-          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-zinc-800/80 rounded border border-green-600/40">
-            <FolderPlus className="w-3.5 h-3.5 text-green-400 shrink-0" />
+          <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-surface/80 rounded border border-green-600/40">
+            <FolderPlus className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />
             <input
               ref={newFolderRef}
               type="text"
@@ -1055,7 +1055,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
                 if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
               }}
               onBlur={handleCreateFolder}
-              className="flex-1 bg-transparent text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 min-w-0"
+              className="flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-subtle min-w-0"
               placeholder="folder name"
               spellCheck={false}
             />
@@ -1064,22 +1064,22 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
         {/* Pinned/Favorites section */}
         {pinnedItems.length > 0 && (
-          <div className="mb-2 border-b border-zinc-600/40 pb-2">
-            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-400/70 font-medium uppercase tracking-wider">
+          <div className="mb-2 border-b border-border-strong/40 pb-2">
+            <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] text-amber-600 dark:text-amber-400/70 font-medium uppercase tracking-wider">
               <Star className="w-3 h-3 fill-amber-400/50" />
               Favorites
             </div>
             {pinnedItems.map((item) => (
               <div key={item.path} className="relative group">
                 <button
-                  className="w-full flex items-center gap-1.5 h-[26px] px-3 text-[13px] text-zinc-300 hover:bg-zinc-800/80 transition-colors"
+                  className="w-full flex items-center gap-1.5 h-[26px] px-3 text-[13px] text-secondary hover:bg-hover/80 transition-colors"
                   onClick={() => openPinnedItem(item)}
                   title={item.path}
                 >
                   {item.isDir ? (
-                    <Folder className="w-4 h-4 text-amber-400/70 shrink-0" />
+                    <Folder className="w-4 h-4 text-amber-600 dark:text-amber-400/70 shrink-0" />
                   ) : (
-                    <File className="w-4 h-4 text-amber-400/70 shrink-0" />
+                    <File className="w-4 h-4 text-amber-600 dark:text-amber-400/70 shrink-0" />
                   )}
                   <span className="truncate">{item.name}</span>
                 </button>
@@ -1088,7 +1088,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
                     e.stopPropagation();
                     togglePin(item.path, item.name, item.isDir);
                   }}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-700 transition-colors opacity-0 group-hover:opacity-100"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-subtle hover:text-red-700 dark:hover:text-red-600 hover:bg-elevated transition-colors opacity-0 group-hover:opacity-100"
                   title="Unpin"
                 >
                   <PinOff className="w-3 h-3" />
@@ -1100,23 +1100,23 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-8 gap-2">
-            <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
-            <span className="text-xs text-zinc-600">Connecting to {profileName}...</span>
+            <Loader2 className="w-5 h-5 text-subtle animate-spin" />
+            <span className="text-xs text-subtle">Connecting to {profileName}...</span>
           </div>
         ) : error ? (
           <div className="px-3 py-4">
-            <div className="px-3 py-2 bg-red-900/20 border border-red-800/30 rounded text-xs text-red-400">
+            <div className="px-3 py-2 bg-red-900/20 border border-red-800/30 rounded text-xs text-red-600 dark:text-red-400">
               {error}
             </div>
             <button
               onClick={refresh}
-              className="mt-2 w-full px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-300 transition-colors"
+              className="mt-2 w-full px-3 py-1.5 bg-surface hover:bg-elevated rounded text-xs text-secondary transition-colors"
             >
               Retry
             </button>
           </div>
         ) : entries.length === 0 ? (
-          <div className="px-4 py-8 text-center text-zinc-600 text-sm">Empty directory</div>
+          <div className="px-4 py-8 text-center text-subtle text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
             <RemoteTreeNode key={`${entry.path}-${refreshKey}`} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} />

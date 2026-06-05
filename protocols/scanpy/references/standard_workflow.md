@@ -27,12 +27,21 @@ adata = sc.read_10x_mtx('path/to/data/')  # For 10X data
 # Calculate QC metrics
 sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
 
-# Common filtering thresholds (adjust based on dataset)
-sc.pp.filter_cells(adata, min_genes=200)
-sc.pp.filter_genes(adata, min_cells=3)
+# Quantile-based filtering — thresholds derived from this dataset's
+# distribution instead of fixed numbers (which are wrong for many tissues)
+import numpy as np
+gene_lo = np.quantile(adata.obs['n_genes_by_counts'], 0.05)
+gene_hi = np.quantile(adata.obs['n_genes_by_counts'], 0.99)
+count_lo = np.quantile(adata.obs['total_counts'], 0.05)
+count_hi = np.quantile(adata.obs['total_counts'], 0.99)
+mt_hi = min(np.quantile(adata.obs['pct_counts_mt'], 0.99), 20.0)  # 20% sanity ceiling
 
-# Remove cells with high mitochondrial content
-adata = adata[adata.obs.pct_counts_mt < 5, :]
+adata = adata[(adata.obs['n_genes_by_counts'] >= gene_lo) &
+              (adata.obs['n_genes_by_counts'] <= gene_hi) &
+              (adata.obs['total_counts'] >= count_lo) &
+              (adata.obs['total_counts'] <= count_hi) &
+              (adata.obs['pct_counts_mt'] < mt_hi), :].copy()
+sc.pp.filter_genes(adata, min_cells=3)
 
 # Visualize QC metrics
 sc.pl.violin(adata, ['n_genes_by_counts', 'total_counts', 'pct_counts_mt'],
@@ -189,7 +198,7 @@ sc.pl.umap(adata, color='T_cell_score')
 
 ## Common Parameters to Adjust
 
-- **QC thresholds**: `min_genes`, `min_cells`, `pct_counts_mt` - depends on dataset quality
+- **QC thresholds**: Defaults are *quantile-based* (5th/99th percentile on `n_genes_by_counts` and `total_counts`, plus `min(99th %ile, 20%)` for `pct_counts_mt`) — they adapt to each dataset. Override with hard cutoffs only if you need cross-dataset reproducibility.
 - **Normalization target**: Usually 1e4, but can be adjusted
 - **HVG parameters**: Affects feature selection stringency
 - **PCA components**: Check variance ratio plot to determine optimal number

@@ -2,16 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-primary: #09090b;
-  --bg-panel: #18181b;
-  --bg-surface: #27272a;
-  --border: #27272a;
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
+/* ─── Theme palette via CSS variables ────────────────────────────────────
+ *
+ * Dark is the default (defined on :root). Adding `light` class on the
+ * <html> element (handled by useThemeEffect in App.tsx) flips every var.
+ *
+ * Values are rgb-triplets so Tailwind colors can compose with alpha:
+ *   colors.panel = 'rgb(var(--panel) / <alpha-value>)'
+ *   → `bg-panel/50` produces rgba(panel, 0.5)
+ */
+:root,
+:root.dark {
+  --canvas:        9 9 11;     /* zinc-950 — outermost page bg */
+  --panel:        24 24 27;    /* zinc-900 — sidebars, top bar, dialogs */
+  --surface:      39 39 42;    /* zinc-800 — inputs, list rows */
+  --elevated:     63 63 70;    /* zinc-700 — raised buttons, active tabs */
+  --hover:        39 39 42;    /* zinc-800 — generic hover bg */
+  --text-primary: 250 250 250; /* zinc-50  — body text */
+  --text-secondary: 212 212 216; /* zinc-300 — headings, labels */
+  --text-muted:   113 113 122; /* zinc-500 — captions, hints */
+  --text-subtle:  82 82 91;    /* zinc-600 — placeholders, disabled */
+  /* Subtle but readable borders — same contrast level as the original v0.6.x
+   * (zinc-800 against zinc-900 panel). Most partitions are a single 1px line
+   * so they read as structure without becoming visual noise. */
+  --border-default: 39 39 42;  /* zinc-800 */
+  --border-strong:  63 63 70;  /* zinc-700 — emphasized dividers */
+  --scrollbar:       63 63 70;
+  --scrollbar-hover: 82 82 91;
+}
+
+:root.light {
+  --canvas:        244 244 245; /* zinc-100 — a touch darker than panels for visible step */
+  --panel:        255 255 255;  /* white   */
+  --surface:      244 244 245;  /* zinc-100 */
+  --elevated:     228 228 231;  /* zinc-200 */
+  --hover:        228 228 231;  /* zinc-200 */
+  --text-primary:  24 24 27;    /* zinc-900 */
+  --text-secondary: 63 63 70;   /* zinc-700 */
+  --text-muted:   113 113 122;  /* zinc-500 — same hue both themes */
+  --text-subtle:  161 161 170;  /* zinc-400 */
+  --border-default: 212 212 216; /* zinc-300 — visible against white panels */
+  --border-strong:  161 161 170; /* zinc-400 */
+  --scrollbar:       212 212 216;
+  --scrollbar-hover: 161 161 170;
 }
 
 * {
@@ -23,8 +56,8 @@
 html, body, #root {
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: rgb(var(--canvas));
+  color: rgb(var(--text-primary));
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
@@ -32,28 +65,17 @@ html, body, #root {
   text-rendering: optimizeLegibility;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbar styling — themed */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: rgb(var(--scrollbar));
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
-}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--scrollbar-hover)); }
 
-/* Selection */
-::selection {
-  background: rgba(59, 130, 246, 0.3);
-}
+::selection { background: rgba(59, 130, 246, 0.3); }
 
-/* Chat message text overflow fix — prevent long URLs and unbroken strings from escaping bubbles */
 .break-words {
   overflow-wrap: anywhere;
   word-break: break-word;

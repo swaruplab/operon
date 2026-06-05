@@ -66,27 +66,31 @@ interface ProtocolsViewProps {
   remotePath?: string;
 }
 
-const MAX_ACTIVE_PROTOCOLS = 2;
+// Max active protocols injected into the agent's system prompt at once.
+// Each adds its SKILL.md to every turn (~3-10k tokens per protocol). Bumping
+// this higher inflates context cost and dilutes the agent's attention —
+// 4 is the recommended ceiling.
+const MAX_ACTIVE_PROTOCOLS = 4;
 
 type ViewMode = 'list' | 'create' | 'edit' | 'import';
 type CreateTab = 'generate' | 'manual';
 type FilterTab = 'all' | 'user' | 'bundled';
 
 const CATEGORY_META: Record<string, { label: string; icon: typeof Database; color: string }> = {
-  genomics:        { label: 'Genomics & Omics',          icon: Dna,           color: 'text-green-400' },
-  database:        { label: 'Databases & References',     icon: Database,      color: 'text-blue-400' },
-  cheminformatics: { label: 'Cheminformatics & Drug Discovery', icon: FlaskConical, color: 'text-pink-400' },
-  ml_ai:           { label: 'ML, AI & Quantum',           icon: Brain,         color: 'text-purple-400' },
-  visualization:   { label: 'Visualization & Plotting',   icon: BarChart3,     color: 'text-amber-400' },
-  writing:         { label: 'Writing & Documents',        icon: PenTool,       color: 'text-cyan-400' },
-  statistics:      { label: 'Statistics & Data Science',  icon: TrendingUp,    color: 'text-orange-400' },
-  integration:     { label: 'Lab Platforms & Integrations', icon: Plug,         color: 'text-indigo-400' },
-  research:        { label: 'Research & Reasoning',       icon: Lightbulb,     color: 'text-yellow-400' },
-  clinical:        { label: 'Clinical & Healthcare',      icon: Stethoscope,   color: 'text-red-400' },
-  finance:         { label: 'Finance & Business',         icon: DollarSign,    color: 'text-emerald-400' },
-  pipeline:        { label: 'Pipelines',                  icon: GitBranch,     color: 'text-teal-400' },
-  tool:            { label: 'Tools & Packages',           icon: Package,       color: 'text-violet-400' },
-  other:           { label: 'Other',                      icon: Layers,        color: 'text-zinc-400' },
+  genomics:        { label: 'Genomics & Omics',          icon: Dna,           color: 'text-green-600 dark:text-green-400' },
+  database:        { label: 'Databases & References',     icon: Database,      color: 'text-blue-600 dark:text-blue-400' },
+  cheminformatics: { label: 'Cheminformatics & Drug Discovery', icon: FlaskConical, color: 'text-pink-600 dark:text-pink-400' },
+  ml_ai:           { label: 'ML, AI & Quantum',           icon: Brain,         color: 'text-purple-600 dark:text-purple-400' },
+  visualization:   { label: 'Visualization & Plotting',   icon: BarChart3,     color: 'text-amber-600 dark:text-amber-400' },
+  writing:         { label: 'Writing & Documents',        icon: PenTool,       color: 'text-cyan-600 dark:text-cyan-400' },
+  statistics:      { label: 'Statistics & Data Science',  icon: TrendingUp,    color: 'text-orange-600 dark:text-orange-400' },
+  integration:     { label: 'Lab Platforms & Integrations', icon: Plug,         color: 'text-indigo-600 dark:text-indigo-400' },
+  research:        { label: 'Research & Reasoning',       icon: Lightbulb,     color: 'text-yellow-600 dark:text-yellow-400' },
+  clinical:        { label: 'Clinical & Healthcare',      icon: Stethoscope,   color: 'text-red-600 dark:text-red-400' },
+  finance:         { label: 'Finance & Business',         icon: DollarSign,    color: 'text-emerald-600 dark:text-emerald-400' },
+  pipeline:        { label: 'Pipelines',                  icon: GitBranch,     color: 'text-teal-600 dark:text-teal-400' },
+  tool:            { label: 'Tools & Packages',           icon: Package,       color: 'text-violet-600 dark:text-violet-400' },
+  other:           { label: 'Other',                      icon: Layers,        color: 'text-secondary' },
 };
 
 const CATEGORY_ORDER = [
@@ -483,16 +487,16 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-default">
           <button
             onClick={() => setViewMode('list')}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+            className="p-1 rounded hover:bg-hover text-secondary hover:text-primary"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="text-[11px] font-semibold text-zinc-300">Import Pipeline as Protocol</span>
+          <span className="text-[11px] font-semibold text-secondary">Import Pipeline as Protocol</span>
           {isRemote && (
-            <span className="text-[9px] bg-teal-900/40 text-teal-400 px-1.5 py-0.5 rounded-full ml-auto">
+            <span className="text-[9px] bg-teal-900/40 text-teal-600 dark:text-teal-400 px-1.5 py-0.5 rounded-full ml-auto">
               {sshConnection?.profileName}
             </span>
           )}
@@ -501,14 +505,14 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
         <div className="flex-1 overflow-y-auto p-3 space-y-3">
           {importPhase === 'scan' && (
             <div className="flex flex-col items-center justify-center py-8">
-              <Loader2 className="w-5 h-5 text-teal-400 animate-spin mb-2" />
-              <p className="text-xs text-zinc-400">Scanning project files...</p>
+              <Loader2 className="w-5 h-5 text-teal-600 dark:text-teal-400 animate-spin mb-2" />
+              <p className="text-xs text-secondary">Scanning project files...</p>
             </div>
           )}
 
           {importPhase === 'select' && importScan && (
             <>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
+              <p className="text-[11px] text-secondary leading-relaxed">
                 Select the scripts, configs, and workflow files that define your pipeline.
                 Data files (FASTQ, BAM, H5, etc.) are dimmed — they are not needed for the protocol.
               </p>
@@ -523,12 +527,12 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                 tipText="Scripts, configs, and docs are auto-selected. Deselect any that aren't relevant."
               />
               {importError && (
-                <p className="text-[10px] text-red-400">{importError}</p>
+                <p className="text-[10px] text-red-600 dark:text-red-400">{importError}</p>
               )}
               <button
                 onClick={() => setImportPhase('context')}
                 disabled={importSelectedFiles.length === 0}
-                className="w-full py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs font-medium rounded transition-colors"
+                className="w-full py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-elevated disabled:text-muted text-white text-xs font-medium rounded transition-colors"
               >
                 Continue ({importSelectedFiles.length} files selected)
               </button>
@@ -537,19 +541,19 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
 
           {importPhase === 'context' && (
             <>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
+              <p className="text-[11px] text-secondary leading-relaxed">
                 Optionally describe what this pipeline does. This helps Claude generate a better protocol.
               </p>
               <textarea
                 value={importContext}
                 onChange={(e) => setImportContext(e.target.value)}
                 placeholder="e.g., Bulk RNA-seq pipeline from FASTQ to differential expression, using STAR + DESeq2 on a SLURM cluster..."
-                className="w-full h-24 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 resize-none focus:outline-none focus:border-teal-600"
+                className="w-full h-24 bg-surface border border-border-strong rounded px-3 py-2 text-xs text-primary placeholder:text-subtle resize-none focus:outline-none focus:border-teal-600"
               />
               <div className="flex gap-2">
                 <button
                   onClick={() => setImportPhase('select')}
-                  className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded transition-colors"
+                  className="flex-1 py-2 bg-surface hover:bg-elevated text-secondary text-xs font-medium rounded transition-colors"
                 >
                   Back
                 </button>
@@ -566,40 +570,40 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
 
           {importPhase === 'generate' && (
             <div className="flex flex-col items-center justify-center py-8">
-              <Loader2 className="w-5 h-5 text-teal-400 animate-spin mb-2" />
-              <p className="text-xs text-zinc-400">Claude is analyzing your pipeline...</p>
-              <p className="text-[10px] text-zinc-600 mt-1">This may take 30–60 seconds</p>
+              <Loader2 className="w-5 h-5 text-teal-600 dark:text-teal-400 animate-spin mb-2" />
+              <p className="text-xs text-secondary">Claude is analyzing your pipeline...</p>
+              <p className="text-[10px] text-subtle mt-1">This may take 30–60 seconds</p>
             </div>
           )}
 
           {importPhase === 'review' && (
             <>
-              <p className="text-[11px] text-green-400 font-medium">Protocol generated! Review and save:</p>
+              <p className="text-[11px] text-green-600 dark:text-green-400 font-medium">Protocol generated! Review and save:</p>
               {importError && (
-                <p className="text-[10px] text-red-400">{importError}</p>
+                <p className="text-[10px] text-red-600 dark:text-red-400">{importError}</p>
               )}
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Protocol name</label>
+                <label className="text-[10px] text-muted block mb-1">Protocol name</label>
                 <input
                   type="text"
                   value={protocolName}
                   onChange={(e) => setProtocolName(e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-teal-600"
+                  className="w-full bg-surface border border-border-strong rounded px-3 py-1.5 text-xs text-primary focus:outline-none focus:border-teal-600"
                 />
               </div>
               <div>
-                <label className="text-[10px] text-zinc-500 block mb-1">Protocol content</label>
+                <label className="text-[10px] text-muted block mb-1">Protocol content</label>
                 <textarea
                   value={protocolContent}
                   onChange={(e) => setProtocolContent(e.target.value)}
-                  className="w-full h-64 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-zinc-200 font-mono resize-none focus:outline-none focus:border-teal-600"
+                  className="w-full h-64 bg-surface border border-border-strong rounded px-3 py-2 text-xs text-primary font-mono resize-none focus:outline-none focus:border-teal-600"
                 />
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={handleImportGenerate}
                   disabled={importGenerating}
-                  className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded transition-colors"
+                  className="flex-1 py-2 bg-surface hover:bg-elevated text-secondary text-xs font-medium rounded transition-colors"
                 >
                   Regenerate
                 </button>
@@ -619,14 +623,14 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                     setSaving(false);
                   }}
                   disabled={saving || !protocolName.trim() || !protocolContent.trim()}
-                  className="flex-1 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-elevated disabled:text-muted text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-1.5"
                 >
                   {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                   Save Protocol
                 </button>
               </div>
               {saveError && (
-                <p className="text-[10px] text-red-400">{saveError}</p>
+                <p className="text-[10px] text-red-600 dark:text-red-400">{saveError}</p>
               )}
             </>
           )}
@@ -640,28 +644,28 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-default">
           <button
             onClick={handleBack}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
             title="Back to list"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="text-sm font-medium text-zinc-300">
+          <span className="text-sm font-medium text-secondary">
             {viewMode === 'edit' ? 'Edit Protocol' : 'New Protocol'}
           </span>
         </div>
 
         {/* Tab selector (only in create mode) */}
         {viewMode === 'create' && (
-          <div className="flex border-b border-zinc-800">
+          <div className="flex border-b border-border-default">
             <button
               onClick={() => setCreateTab('generate')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${
                 createTab === 'generate'
-                  ? 'text-purple-300 border-b-2 border-purple-500 bg-purple-950/20'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-purple-700 dark:text-purple-300 border-b-2 border-purple-500 bg-purple-950/20'
+                  : 'text-muted hover:text-secondary'
               }`}
             >
               <Wand2 className="w-3 h-3" />
@@ -671,8 +675,8 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
               onClick={() => setCreateTab('manual')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-medium transition-colors ${
                 createTab === 'manual'
-                  ? 'text-teal-300 border-b-2 border-teal-500 bg-teal-950/20'
-                  : 'text-zinc-500 hover:text-zinc-300'
+                  ? 'text-teal-700 dark:text-teal-300 border-b-2 border-teal-500 bg-teal-950/20'
+                  : 'text-muted hover:text-secondary'
               }`}
             >
               <FileText className="w-3 h-3" />
@@ -687,14 +691,14 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
           {createTab === 'generate' && viewMode === 'create' && (
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider block mb-1.5">
+                <label className="text-[10px] text-muted font-medium uppercase tracking-wider block mb-1.5">
                   Describe the protocol you need
                 </label>
                 <textarea
                   value={aiDescription}
                   onChange={(e) => setAiDescription(e.target.value)}
                   placeholder="e.g., Single-cell RNA-seq analysis using Scanpy with SLURM job submission for a cluster with GPU and CPU partitions..."
-                  className="w-full h-28 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-purple-600 resize-none leading-relaxed"
+                  className="w-full h-28 bg-panel border border-border-strong rounded-lg px-3 py-2 text-xs text-primary placeholder:text-subtle outline-none focus:border-purple-600 resize-none leading-relaxed"
                   autoFocus
                 />
               </div>
@@ -718,14 +722,14 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
               </button>
 
               {generating && (
-                <p className="text-[10px] text-zinc-600 text-center">
+                <p className="text-[10px] text-subtle text-center">
                   Claude is writing your protocol. This may take 15-30 seconds.
                 </p>
               )}
 
               {generateError && (
                 <div className="p-2 bg-red-950/20 border border-red-900/30 rounded-lg">
-                  <p className="text-[10px] text-red-300">{generateError}</p>
+                  <p className="text-[10px] text-red-700 dark:text-red-300">{generateError}</p>
                 </div>
               )}
             </div>
@@ -735,7 +739,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
           {(createTab === 'manual' || viewMode === 'edit') && (
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider block mb-1.5">
+                <label className="text-[10px] text-muted font-medium uppercase tracking-wider block mb-1.5">
                   Protocol Name
                 </label>
                 <input
@@ -743,33 +747,33 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                   value={protocolName}
                   onChange={(e) => setProtocolName(e.target.value)}
                   placeholder="e.g., scRNA-seq Scanpy Pipeline"
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-teal-600"
+                  className="w-full bg-panel border border-border-strong rounded-lg px-3 py-2 text-xs text-primary placeholder:text-subtle outline-none focus:border-teal-600"
                   disabled={viewMode === 'edit'}
                 />
               </div>
 
               <div>
-                <label className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider block mb-1.5">
+                <label className="text-[10px] text-muted font-medium uppercase tracking-wider block mb-1.5">
                   Protocol Content (Markdown)
                 </label>
                 <textarea
                   value={protocolContent}
                   onChange={(e) => setProtocolContent(e.target.value)}
                   placeholder={"# My Protocol\n\nDescribe the rules, tools, and patterns Claude should follow...\n\n## Tools & Packages\n- ...\n\n## Workflow\n1. ..."}
-                  className="w-full h-64 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-teal-600 resize-none font-mono leading-relaxed"
+                  className="w-full h-64 bg-panel border border-border-strong rounded-lg px-3 py-2 text-[11px] text-primary placeholder:text-subtle outline-none focus:border-teal-600 resize-none font-mono leading-relaxed"
                   autoFocus={viewMode === 'edit'}
                 />
               </div>
 
               {protocolContent && viewMode === 'create' && createTab === 'manual' && aiDescription && (
-                <p className="text-[9px] text-zinc-600">
+                <p className="text-[9px] text-subtle">
                   Generated by Claude — review and edit before saving.
                 </p>
               )}
 
               {saveError && (
                 <div className="p-2 bg-red-950/20 border border-red-900/30 rounded-lg">
-                  <p className="text-[10px] text-red-300">{saveError}</p>
+                  <p className="text-[10px] text-red-700 dark:text-red-300">{saveError}</p>
                 </div>
               )}
             </div>
@@ -778,7 +782,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
 
         {/* Footer with save/cancel */}
         {(createTab === 'manual' || viewMode === 'edit') && (
-          <div className="flex items-center gap-2 px-3 py-2 border-t border-zinc-800">
+          <div className="flex items-center gap-2 px-3 py-2 border-t border-border-default">
             <button
               onClick={handleSave}
               disabled={saving || !protocolContent.trim()}
@@ -793,7 +797,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
             </button>
             <button
               onClick={handleBack}
-              className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg text-xs transition-colors"
+              className="px-3 py-1.5 bg-surface hover:bg-elevated text-secondary rounded-lg text-xs transition-colors"
             >
               Cancel
             </button>
@@ -807,37 +811,37 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
         <div className="flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-teal-400" />
-          <span className="text-sm font-medium text-zinc-300">Protocols</span>
-          <span className="text-[10px] text-zinc-600">{protocols.length}</span>
+          <BookOpen className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+          <span className="text-sm font-medium text-secondary">Protocols</span>
+          <span className="text-[10px] text-subtle">{protocols.length}</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             onClick={handleImport}
-            className="p-1 rounded hover:bg-zinc-800 text-teal-400 hover:text-teal-300 transition-colors"
+            className="p-1 rounded hover:bg-hover text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-700 transition-colors"
             title="Import pipeline as protocol"
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={handleNew}
-            className="p-1 rounded hover:bg-zinc-800 text-teal-400 hover:text-teal-300 transition-colors"
+            className="p-1 rounded hover:bg-hover text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-700 transition-colors"
             title="New protocol"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={loadProtocols}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
             title="Refresh protocols"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={openProtocolsFolder}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
             title="Open protocols folder"
           >
             <FolderOpen className="w-3.5 h-3.5" />
@@ -846,20 +850,20 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       </div>
 
       {/* Search bar */}
-      <div className="px-3 py-2 border-b border-zinc-800/50">
+      <div className="px-3 py-2 border-b border-border-default/50">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-subtle" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search protocols..."
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-md pl-7 pr-7 py-1.5 text-[11px] text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-zinc-600 transition-colors"
+            className="w-full bg-panel border border-border-default rounded-md pl-7 pr-7 py-1.5 text-[11px] text-secondary placeholder:text-subtle outline-none focus:border-border-strong transition-colors"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle hover:text-secondary"
             >
               <X className="w-3 h-3" />
             </button>
@@ -878,13 +882,13 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
               onClick={() => setFilterTab(tab.key)}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors ${
                 filterTab === tab.key
-                  ? 'bg-zinc-700 text-zinc-200'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                  ? 'bg-elevated text-primary'
+                  : 'text-muted hover:text-secondary hover:bg-hover/50'
               }`}
             >
               {tab.key === 'user' && <User className="w-2.5 h-2.5" />}
               {tab.label}
-              <span className={`${filterTab === tab.key ? 'text-zinc-400' : 'text-zinc-600'}`}>
+              <span className={`${filterTab === tab.key ? 'text-secondary' : 'text-subtle'}`}>
                 {tab.count}
               </span>
             </button>
@@ -895,10 +899,10 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       {/* Limit warning */}
       {activeProtocolIds.length >= MAX_ACTIVE_PROTOCOLS && (
         <div className="px-3 py-1.5 bg-amber-950/30 border-b border-amber-800/30">
-          <p className="text-[10px] text-amber-400">
+          <p className="text-[10px] text-amber-600 dark:text-amber-400">
             Maximum {MAX_ACTIVE_PROTOCOLS} protocols active. Deactivate one to select another.
           </p>
-          <p className="text-[9px] text-zinc-500 mt-0.5">
+          <p className="text-[9px] text-muted mt-0.5">
             Using too many protocols at once consumes context and may reduce response quality.
           </p>
         </div>
@@ -908,25 +912,25 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+            <Loader2 className="w-5 h-5 text-muted animate-spin" />
           </div>
         ) : filteredProtocols.length === 0 ? (
           <div className="px-3 py-6 text-center">
             {searchQuery ? (
               <>
-                <Search className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-                <p className="text-xs text-zinc-500 mb-1">No protocols match "{searchQuery}"</p>
+                <Search className="w-8 h-8 text-subtle mx-auto mb-2" />
+                <p className="text-xs text-muted mb-1">No protocols match "{searchQuery}"</p>
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="text-[10px] text-teal-400 hover:text-teal-300"
+                  className="text-[10px] text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-700"
                 >
                   Clear search
                 </button>
               </>
             ) : filterTab === 'user' ? (
               <>
-                <User className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-                <p className="text-xs text-zinc-500 mb-3">No custom protocols yet</p>
+                <User className="w-8 h-8 text-subtle mx-auto mb-2" />
+                <p className="text-xs text-muted mb-3">No custom protocols yet</p>
                 <button
                   onClick={handleNew}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-medium transition-colors"
@@ -937,8 +941,8 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
               </>
             ) : (
               <>
-                <BookOpen className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
-                <p className="text-xs text-zinc-500 mb-3">No protocols available</p>
+                <BookOpen className="w-8 h-8 text-subtle mx-auto mb-2" />
+                <p className="text-xs text-muted mb-3">No protocols available</p>
               </>
             )}
           </div>
@@ -957,16 +961,16 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                     {/* Category header */}
                     <button
                       onClick={() => toggleCategory(cat)}
-                      className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-800/30 transition-colors group"
+                      className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-hover/30 transition-colors group"
                     >
                       <ChevronRight
-                        className={`w-3 h-3 text-zinc-600 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                        className={`w-3 h-3 text-subtle transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
                       />
                       <CatIcon className={`w-3 h-3 ${meta.color}`} />
                       <span className={`text-[10px] font-semibold uppercase tracking-wider ${meta.color}`}>
                         {meta.label}
                       </span>
-                      <span className="text-[9px] text-zinc-600 ml-auto">
+                      <span className="text-[9px] text-subtle ml-auto">
                         {items.length}
                       </span>
                     </button>
@@ -979,10 +983,10 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                       const isDeleting = deletingId === p.id;
 
                       return (
-                        <div key={p.id} className="border-b border-zinc-800/30">
+                        <div key={p.id} className="border-b border-border-default/30">
                           {isDeleting ? (
                             <div className="flex items-center gap-2 px-3 py-2 bg-red-950/20">
-                              <p className="text-[10px] text-red-300 flex-1">Delete "{p.name}"?</p>
+                              <p className="text-[10px] text-red-700 dark:text-red-300 flex-1">Delete "{p.name}"?</p>
                               <button
                                 onClick={() => handleDelete(p.id)}
                                 className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
@@ -991,7 +995,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                               </button>
                               <button
                                 onClick={() => setDeletingId(null)}
-                                className="px-2 py-0.5 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[10px] rounded transition-colors"
+                                className="px-2 py-0.5 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
                               >
                                 Cancel
                               </button>
@@ -999,7 +1003,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                           ) : (
                             <>
                               <div
-                                className={`flex items-start gap-2 px-3 py-1.5 ml-2 hover:bg-zinc-800/50 transition-colors cursor-pointer ${
+                                className={`flex items-start gap-2 px-3 py-1.5 ml-2 hover:bg-hover/50 transition-colors cursor-pointer ${
                                   isActive ? 'bg-teal-950/30' : ''
                                 }`}
                                 onContextMenu={(e) => {
@@ -1016,8 +1020,8 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                     isActive
                                       ? 'bg-teal-600 text-white'
                                       : atLimit
-                                        ? 'bg-zinc-800/50 text-zinc-700 cursor-not-allowed'
-                                        : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                        ? 'bg-surface/50 text-subtle cursor-not-allowed'
+                                        : 'bg-surface text-muted hover:bg-elevated hover:text-secondary'
                                   }`}
                                   style={{ width: '18px', height: '18px' }}
                                   title={isActive ? 'Deactivate protocol' : 'Activate protocol'}
@@ -1028,24 +1032,24 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                 {/* Content */}
                                 <div className="flex-1 min-w-0" onClick={() => handleTogglePreview(p)}>
                                   <div className="flex items-center gap-1.5">
-                                    <span className={`text-[11px] font-medium ${isActive ? 'text-teal-300' : 'text-zinc-300'}`}>
+                                    <span className={`text-[11px] font-medium ${isActive ? 'text-teal-700 dark:text-teal-300' : 'text-secondary'}`}>
                                       {p.name}
                                     </span>
                                     {isActive && (
-                                      <span className="text-[8px] bg-teal-800/50 text-teal-300 px-1 py-0 rounded-full">
+                                      <span className="text-[8px] bg-teal-800/50 text-teal-700 dark:text-teal-300 px-1 py-0 rounded-full">
                                         active
                                       </span>
                                     )}
                                     {p.source === 'user' && (
-                                      <span className="text-[8px] bg-zinc-800 text-zinc-500 px-1 py-0 rounded-full">
+                                      <span className="text-[8px] bg-surface text-muted px-1 py-0 rounded-full">
                                         custom
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-[10px] text-zinc-500 truncate mt-0.5">
+                                  <p className="text-[10px] text-muted truncate mt-0.5">
                                     {p.description}
                                     {p.is_folder && (
-                                      <span className="text-zinc-600 ml-1">({p.file_count} files)</span>
+                                      <span className="text-subtle ml-1">({p.file_count} files)</span>
                                     )}
                                   </p>
                                 </div>
@@ -1055,7 +1059,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                   {p.source === 'user' && !p.is_folder && (
                                     <button
                                       onClick={() => handleEdit(p)}
-                                      className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-400 transition-colors"
+                                      className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
                                       title="Edit protocol"
                                     >
                                       <Pencil className="w-3 h-3" />
@@ -1064,7 +1068,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                   {p.source === 'user' && (
                                     <button
                                       onClick={() => setDeletingId(p.id)}
-                                      className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-red-400 transition-colors"
+                                      className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors"
                                       title="Delete protocol"
                                     >
                                       <Trash2 className="w-3 h-3" />
@@ -1072,14 +1076,14 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                   )}
                                   <button
                                     onClick={() => handleDownload(p)}
-                                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-400 transition-colors"
+                                    className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
                                     title="Download protocol"
                                   >
                                     <Download className="w-3 h-3" />
                                   </button>
                                   <button
                                     onClick={() => handleTogglePreview(p)}
-                                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-600 hover:text-zinc-400 transition-colors"
+                                    className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
                                     title="Preview protocol"
                                   >
                                     <Info className="w-3 h-3" />
@@ -1090,8 +1094,8 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                               {/* Expanded preview */}
                               {isExpanded && previewContent && (
                                 <div className="px-3 pb-2 ml-2">
-                                  <div className="bg-zinc-950 rounded border border-zinc-800 p-2 max-h-48 overflow-y-auto">
-                                    <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap leading-relaxed font-mono">
+                                  <div className="bg-canvas rounded border border-border-default p-2 max-h-48 overflow-y-auto">
+                                    <pre className="text-[10px] text-secondary whitespace-pre-wrap leading-relaxed font-mono">
                                       {previewContent.slice(0, 2000)}
                                       {previewContent.length > 2000 ? '\n...' : ''}
                                     </pre>
@@ -1113,7 +1117,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       {/* Right-click context menu */}
       {contextMenu && (
         <div
-          className="fixed z-[100] bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl py-1 min-w-[160px]"
+          className="fixed z-[100] bg-surface border border-border-strong rounded-lg shadow-xl py-1 min-w-[160px]"
           style={{
             left: Math.min(contextMenu.x, window.innerWidth - 180),
             top: Math.min(contextMenu.y, window.innerHeight - 200),
@@ -1121,38 +1125,38 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
         >
           <button
             onClick={() => { handleDownload(contextMenu.protocol); setContextMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
             <Download className="w-3.5 h-3.5 pointer-events-none" />
             Download to Local
           </button>
           <button
             onClick={() => { handleCopyContent(contextMenu.protocol); setContextMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
             <Copy className="w-3.5 h-3.5 pointer-events-none" />
             Copy to Clipboard
           </button>
           <button
             onClick={() => { handleTogglePreview(contextMenu.protocol); setContextMenu(null); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
           >
             <Info className="w-3.5 h-3.5 pointer-events-none" />
             Preview
           </button>
           {contextMenu.protocol.source === 'user' && !contextMenu.protocol.is_folder && (
             <>
-              <div className="border-t border-zinc-700 my-1" />
+              <div className="border-t border-border-strong my-1" />
               <button
                 onClick={() => { handleEdit(contextMenu.protocol); setContextMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"
               >
                 <Pencil className="w-3.5 h-3.5 pointer-events-none" />
                 Edit
               </button>
               <button
                 onClick={() => { setDeletingId(contextMenu.protocol.id); setContextMenu(null); }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-400 hover:bg-zinc-700 transition-colors text-left"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-red-600 dark:text-red-400 hover:bg-elevated transition-colors text-left"
               >
                 <Trash2 className="w-3.5 h-3.5 pointer-events-none" />
                 Delete
@@ -1163,8 +1167,8 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       )}
 
       {/* Footer info */}
-      <div className="px-3 py-2 border-t border-zinc-800">
-        <p className="text-[9px] text-zinc-600 leading-relaxed">
+      <div className="px-3 py-2 border-t border-border-default">
+        <p className="text-[9px] text-subtle leading-relaxed">
           Create protocols with AI or import from an existing pipeline.
         </p>
       </div>

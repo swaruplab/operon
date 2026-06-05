@@ -5,16 +5,19 @@
     {
       "id": "uci-zotgpt",
       "label": "UCI ZotGPT Gateway",
-      "base_url": "https://api.zotgpt.uci.edu/v1",
+      "base_url": "https://api.portkey.ai/v1",
       "description": "UC Irvine's institutional AI gateway (powered by Portkey).",
       "eligibility": "UCI faculty, staff, graduate students; PI-sponsored undergraduates.",
       "signup_url": "https://portal.azureapi.zotgpt.uci.edu",
       "docs_url": "https://zotgpt.uci.edu/services/gateway",
       "privacy_summary": "12-month retention, no training, P3 compliant, IRB-relevant audit trail.",
       "suggested_models": [
+        "@zotgpt-api-bedrock/us.anthropic.claude-opus-4-8",
         "@zotgpt-api-bedrock/us.anthropic.claude-opus-4-7",
-        "@zotgpt-api-bedrock/us.anthropic.claude-sonnet-4-5",
-        "@openai-prod/gpt-5.5"
+        "@zotgpt-api-bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "@zotgpt-api-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "@zotgpt-api-gemini/gemini-3.1-flash-lite",
+        "@zotgpt-api-azure/gpt-5.5"
       ]
     },
     {

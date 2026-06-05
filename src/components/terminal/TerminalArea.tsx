@@ -178,12 +178,12 @@ export function TerminalArea() {
   // If all tabs closed, show empty state
   if (tabs.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-[#09090b] text-zinc-500">
+      <div className="flex flex-col items-center justify-center h-full bg-canvas text-muted">
         <TerminalIcon className="w-8 h-8 mb-2 opacity-40" />
         <p className="text-xs">No terminals open</p>
         <button
           onClick={() => createTab()}
-          className="mt-2 px-3 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+          className="mt-2 px-3 py-1 text-xs rounded bg-surface hover:bg-elevated text-secondary transition-colors"
         >
           New Terminal
         </button>
@@ -192,9 +192,9 @@ export function TerminalArea() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#09090b]">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Tab bar */}
-      <div className="flex items-center h-[33px] bg-zinc-900 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center h-[33px] bg-panel border-b border-border-default shrink-0">
 
         <div className="flex items-center gap-0.5 px-1 flex-1 overflow-x-auto">
           {tabs.map((tab) => (
@@ -205,8 +205,8 @@ export function TerminalArea() {
                 group flex items-center gap-1.5 px-2.5 py-1 rounded text-xs transition-colors
                 ${
                   activeTab === tab.id
-                    ? 'bg-zinc-800 text-zinc-200'
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                    ? 'bg-surface text-primary'
+                    : 'text-muted hover:text-secondary hover:bg-hover/50'
                 }
               `}
             >
@@ -219,7 +219,7 @@ export function TerminalArea() {
                   e.stopPropagation();
                   closeTab(tab.id);
                 }}
-                className="p-0.5 rounded hover:bg-zinc-700 opacity-0 group-hover:opacity-100"
+                className="p-0.5 rounded hover:bg-elevated opacity-0 group-hover:opacity-100"
               >
                 <X className="w-2.5 h-2.5" />
               </span>
@@ -231,7 +231,7 @@ export function TerminalArea() {
           <Tooltip label="New terminal" position="top">
             <button
               onClick={() => createTab()}
-              className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="p-1.5 rounded hover:bg-hover text-muted hover:text-secondary transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
             </button>

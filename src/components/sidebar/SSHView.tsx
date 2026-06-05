@@ -434,13 +434,13 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   if (showForm) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-          <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+          <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
             {editProfile ? 'Edit Connection' : 'New Connection'}
           </span>
           <button
             onClick={resetForm}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -448,26 +448,26 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
         <div className="p-3 space-y-3 overflow-y-auto flex-1">
           {/* ~/.ssh/config picker — shown only if the file has parsed entries. */}
           {!editProfile && configHosts.length > 0 && (
-            <div className="p-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
+            <div className="p-2.5 bg-surface/50 border border-border-strong/50 rounded-lg">
               <button
                 onClick={() => setShowConfigPicker(v => !v)}
                 className="w-full flex items-center gap-1.5 text-left"
               >
                 {showConfigPicker ? (
-                  <ChevronDown className="w-3 h-3 text-zinc-500" />
+                  <ChevronDown className="w-3 h-3 text-muted" />
                 ) : (
-                  <ChevronRight className="w-3 h-3 text-zinc-500" />
+                  <ChevronRight className="w-3 h-3 text-muted" />
                 )}
-                <FileCode className="w-3 h-3 text-blue-400" />
-                <span className="text-xs text-zinc-300 font-medium">
+                <FileCode className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                <span className="text-xs text-secondary font-medium">
                   Existing Hosts
                 </span>
-                <span className="ml-auto text-[10px] text-zinc-500">
+                <span className="ml-auto text-[10px] text-muted">
                   {configHosts.length} found
                 </span>
               </button>
               {showConfigPicker && (
-                <div className="mt-2 max-h-52 overflow-y-auto border-t border-zinc-800 pt-1.5 -mx-0.5">
+                <div className="mt-2 max-h-52 overflow-y-auto border-t border-border-default pt-1.5 -mx-0.5">
                   {configHosts.map(h => {
                     const resolvedHost = h.hostname || h.alias;
                     const detail = [
@@ -478,14 +478,14 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       <button
                         key={`${h.alias}-${h.source_file}`}
                         onClick={() => applyConfigHost(h)}
-                        className="w-full text-left px-2 py-1 rounded hover:bg-zinc-700/60 transition-colors"
+                        className="w-full text-left px-2 py-1 rounded hover:bg-elevated/60 transition-colors"
                         title={`${h.source_file}${h.proxy_jump ? ` · via ${h.proxy_jump}` : ''}${h.identity_file ? ` · ${h.identity_file}` : ''}`}
                       >
-                        <div className="text-xs text-zinc-200 truncate">{h.alias}</div>
-                        <div className="text-[10px] text-zinc-500 truncate">
+                        <div className="text-xs text-primary truncate">{h.alias}</div>
+                        <div className="text-[10px] text-muted truncate">
                           {detail}
-                          {h.identity_file && <span className="ml-1 text-amber-400/60">· key</span>}
-                          {h.proxy_jump && <span className="ml-1 text-purple-400/60">· jump</span>}
+                          {h.identity_file && <span className="ml-1 text-amber-600 dark:text-amber-400/60">· key</span>}
+                          {h.proxy_jump && <span className="ml-1 text-purple-600 dark:text-purple-400/60">· jump</span>}
                         </div>
                       </button>
                     );
@@ -493,7 +493,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 </div>
               )}
               {!showConfigPicker && (
-                <p className="mt-1.5 text-[10px] text-zinc-500">
+                <p className="mt-1.5 text-[10px] text-muted">
                   Autofill from your saved SSH hosts.
                 </p>
               )}
@@ -501,16 +501,16 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
           )}
 
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">Name (optional)</label>
+            <label className="block text-xs text-muted mb-1">Name (optional)</label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My Server"
-              className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+              className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1">Host *</label>
+            <label className="block text-xs text-muted mb-1">Host *</label>
             <input
               value={host}
               onChange={(e) => setHost(e.target.value)}
@@ -519,12 +519,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
-              className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+              className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
             />
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="block text-xs text-zinc-500 mb-1">User *</label>
+              <label className="block text-xs text-muted mb-1">User *</label>
               <input
                 value={user}
                 onChange={(e) => setUser(e.target.value)}
@@ -533,11 +533,11 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 autoCorrect="off"
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
               />
             </div>
             <div className="w-20">
-              <label className="block text-xs text-zinc-500 mb-1">Port</label>
+              <label className="block text-xs text-muted mb-1">Port</label>
               <input
                 value={port}
                 onChange={(e) => setPort(e.target.value)}
@@ -547,21 +547,21 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 autoCorrect="off"
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500"
+                className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
               />
             </div>
           </div>
 
           {/* Server type selector */}
-          <div className="border-t border-zinc-800 pt-3">
-            <label className="block text-xs text-zinc-500 mb-2">Server Authentication</label>
+          <div className="border-t border-border-default pt-3">
+            <label className="block text-xs text-muted mb-2">Server Authentication</label>
             <div className="flex gap-1.5">
               <button
                 onClick={() => setAuthType('password')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] transition-colors ${
                   authType === 'password'
-                    ? 'bg-blue-600/20 border border-blue-500/50 text-blue-300'
-                    : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-zinc-300'
+                    ? 'bg-blue-600/20 border border-blue-500/50 text-blue-700 dark:text-blue-300'
+                    : 'bg-surface border border-border-strong text-secondary hover:text-secondary'
                 }`}
               >
                 <KeyRound className="w-3 h-3" />
@@ -571,8 +571,8 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 onClick={() => setAuthType('duo_mfa')}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[11px] transition-colors ${
                   authType === 'duo_mfa'
-                    ? 'bg-purple-600/20 border border-purple-500/50 text-purple-300'
-                    : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-zinc-300'
+                    ? 'bg-purple-600/20 border border-purple-500/50 text-purple-700 dark:text-purple-300'
+                    : 'bg-surface border border-border-strong text-secondary hover:text-secondary'
                 }`}
               >
                 <Smartphone className="w-3 h-3" />
@@ -582,7 +582,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
             {authType === 'duo_mfa' && (
               <div className="mt-2 p-2 bg-purple-950/20 border border-purple-800/20 rounded">
-                <p className="text-[10px] text-purple-300/80 mb-1.5">
+                <p className="text-[10px] text-purple-700 dark:text-purple-300/80 mb-1.5">
                   When prompted, Operon will auto-respond to Duo:
                 </p>
                 <div className="flex gap-1.5">
@@ -593,7 +593,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       className={`flex-1 px-2 py-1 rounded text-[10px] transition-colors ${
                         mfaMethod === method
                           ? 'bg-purple-600/30 text-purple-200'
-                          : 'bg-zinc-800/50 text-zinc-500 hover:text-zinc-400'
+                          : 'bg-surface/50 text-muted hover:text-secondary'
                       }`}
                     >
                       {method === 'push' ? 'Push' : method === 'phone' ? 'Phone Call' : 'Passcode'}
@@ -605,32 +605,32 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
           </div>
 
           {/* Authentication / Key section */}
-          <div className="border-t border-zinc-800 pt-3">
-            <label className="block text-xs text-zinc-500 mb-2">SSH Key</label>
+          <div className="border-t border-border-default pt-3">
+            <label className="block text-xs text-muted mb-2">SSH Key</label>
 
             {keySetupStatus === 'success' ? (
               <div className="flex items-center gap-2 p-2.5 bg-green-950/30 border border-green-800/30 rounded-lg mb-2">
-                <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
                 <div>
-                  <p className="text-xs text-green-300 font-medium">SSH key installed!</p>
-                  <p className="text-[10px] text-zinc-500">{keySetupMessage}</p>
+                  <p className="text-xs text-green-700 dark:text-green-300 font-medium">SSH key installed!</p>
+                  <p className="text-[10px] text-muted">{keySetupMessage}</p>
                 </div>
               </div>
             ) : keySetupStatus === 'mfa_waiting' ? (
               <div className="flex items-center gap-2 p-3 bg-purple-950/30 border border-purple-800/30 rounded-lg mb-2">
                 <div className="relative">
-                  <Smartphone className="w-5 h-5 text-purple-400" />
+                  <Smartphone className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-purple-400 rounded-full animate-ping" />
                 </div>
                 <div>
-                  <p className="text-xs text-purple-300 font-medium">Waiting for Duo approval...</p>
-                  <p className="text-[10px] text-zinc-500">{keySetupMessage}</p>
+                  <p className="text-xs text-purple-700 dark:text-purple-300 font-medium">Waiting for Duo approval...</p>
+                  <p className="text-[10px] text-muted">{keySetupMessage}</p>
                 </div>
               </div>
             ) : keySetupStatus === 'working' ? (
-              <div className="flex items-center gap-2 p-3 bg-zinc-800 rounded-lg mb-2">
-                <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
-                <p className="text-xs text-zinc-400">{keySetupMessage}</p>
+              <div className="flex items-center gap-2 p-3 bg-surface rounded-lg mb-2">
+                <Loader2 className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-spin shrink-0" />
+                <p className="text-xs text-secondary">{keySetupMessage}</p>
               </div>
             ) : (
               <>
@@ -639,7 +639,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   <select
                     value={keyFile}
                     onChange={(e) => setKeyFile(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none focus:border-blue-500"
+                    className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary outline-none focus:border-blue-500"
                   >
                     <option value="">No key selected (generate below)</option>
                     {availableKeys.map(k => {
@@ -651,12 +651,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
                 {/* Option 2: Generate key with password (+ optional Duo) */}
                 {!keyFile && host && user && (
-                  <div className="p-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg space-y-2">
+                  <div className="p-2.5 bg-surface/50 border border-border-strong/50 rounded-lg space-y-2">
                     <div className="flex items-center gap-1.5">
-                      <KeyRound className="w-3 h-3 text-amber-400" />
-                      <span className="text-[11px] text-zinc-300 font-medium">No key? Generate one automatically</span>
+                      <KeyRound className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                      <span className="text-[11px] text-secondary font-medium">No key? Generate one automatically</span>
                     </div>
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-[10px] text-muted">
                       {authType === 'duo_mfa'
                         ? 'Enter your password — Operon will handle Duo, install an SSH key, and skip MFA on future connections.'
                         : 'Enter your server password once — Operon will create an SSH key and install it.'}
@@ -667,10 +667,10 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       onChange={(e) => setKeySetupPassword(e.target.value)}
                       placeholder="Server password"
                       onKeyDown={(e) => { if (e.key === 'Enter') handleKeySetup(); }}
-                      className="w-full px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-amber-500"
+                      className="w-full px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-amber-500"
                     />
                     {keySetupStatus === 'error' && (
-                      <div className="flex items-start gap-1.5 text-[10px] text-red-300">
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-700 dark:text-red-300">
                         <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
                         {keySetupMessage}
                       </div>
@@ -678,12 +678,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                     <button
                       onClick={handleKeySetup}
                       disabled={!keySetupPassword}
-                      className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-zinc-700 rounded text-xs text-white transition-colors"
+                      className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-elevated rounded text-xs text-white transition-colors"
                     >
                       <KeyRound className="w-3 h-3" />
                       Generate & Install Key
                     </button>
-                    <p className="text-[9px] text-zinc-600">Password is used once and never stored.</p>
+                    <p className="text-[9px] text-subtle">Password is used once and never stored.</p>
                   </div>
                 )}
               </>
@@ -691,20 +691,20 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
           </div>
 
           {/* Server Configuration (SLURM, conda, paths) */}
-          <div className="border-t border-zinc-800 pt-3">
+          <div className="border-t border-border-default pt-3">
             <button
               onClick={() => setShowServerConfig(!showServerConfig)}
               className="flex items-center gap-1.5 w-full text-left"
             >
               {showServerConfig ? (
-                <ChevronDown className="w-3 h-3 text-zinc-500" />
+                <ChevronDown className="w-3 h-3 text-muted" />
               ) : (
-                <ChevronRight className="w-3 h-3 text-zinc-500" />
+                <ChevronRight className="w-3 h-3 text-muted" />
               )}
-              <Settings2 className="w-3 h-3 text-cyan-400" />
-              <span className="text-xs text-zinc-400 font-medium">Server Configuration</span>
+              <Settings2 className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
+              <span className="text-xs text-secondary font-medium">Server Configuration</span>
               {Object.values(serverConfig).filter(v => v?.trim()).length > 0 && (
-                <span className="ml-auto text-[9px] text-cyan-400/70 bg-cyan-400/10 px-1.5 py-0.5 rounded">
+                <span className="ml-auto text-[9px] text-cyan-600 dark:text-cyan-400/70 bg-cyan-400/10 px-1.5 py-0.5 rounded">
                   {Object.values(serverConfig).filter(v => v?.trim()).length} set
                 </span>
               )}
@@ -713,7 +713,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
             {showServerConfig && (
               <div className="mt-2 space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-zinc-600">
+                  <p className="text-[10px] text-subtle">
                     Used by all protocols and scripts on this server.
                   </p>
                   {(editProfile || savedProfileId) && (
@@ -737,7 +737,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                           console.error('Auto-detect failed:', err);
                         }
                       }}
-                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-400/10 hover:bg-cyan-400/20 rounded transition-colors"
+                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-700 bg-cyan-400/10 hover:bg-cyan-400/20 rounded transition-colors"
                       title="Detect SLURM accounts, conda envs, and paths from this server"
                     >
                       <Wifi className="w-2.5 h-2.5" />
@@ -748,16 +748,16 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
                 {/* SLURM */}
                 <div>
-                  <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">SLURM</span>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">SLURM</span>
                   <div className="mt-1 space-y-1.5">
                     {SERVER_CONFIG_FIELDS.filter(f => f.group === 'slurm').map(field => (
                       <div key={field.key}>
-                        <label className="block text-[10px] text-zinc-600 mb-0.5">{field.label}</label>
+                        <label className="block text-[10px] text-subtle mb-0.5">{field.label}</label>
                         <input
                           value={serverConfig[field.key] || ''}
                           onChange={(e) => setServerConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
                           placeholder={field.placeholder}
-                          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 placeholder:text-zinc-700 outline-none focus:border-cyan-500"
+                          className="w-full px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary placeholder:text-subtle outline-none focus:border-cyan-500"
                         />
                       </div>
                     ))}
@@ -766,16 +766,16 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
                 {/* Environment */}
                 <div>
-                  <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Environment</span>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">Environment</span>
                   <div className="mt-1 space-y-1.5">
                     {SERVER_CONFIG_FIELDS.filter(f => f.group === 'environment').map(field => (
                       <div key={field.key}>
-                        <label className="block text-[10px] text-zinc-600 mb-0.5">{field.label}</label>
+                        <label className="block text-[10px] text-subtle mb-0.5">{field.label}</label>
                         <input
                           value={serverConfig[field.key] || ''}
                           onChange={(e) => setServerConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
                           placeholder={field.placeholder}
-                          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 placeholder:text-zinc-700 outline-none focus:border-cyan-500"
+                          className="w-full px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary placeholder:text-subtle outline-none focus:border-cyan-500"
                         />
                       </div>
                     ))}
@@ -784,16 +784,16 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
                 {/* Paths */}
                 <div>
-                  <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Paths</span>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">Paths</span>
                   <div className="mt-1 space-y-1.5">
                     {SERVER_CONFIG_FIELDS.filter(f => f.group === 'paths').map(field => (
                       <div key={field.key}>
-                        <label className="block text-[10px] text-zinc-600 mb-0.5">{field.label}</label>
+                        <label className="block text-[10px] text-subtle mb-0.5">{field.label}</label>
                         <input
                           value={serverConfig[field.key] || ''}
                           onChange={(e) => setServerConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
                           placeholder={field.placeholder}
-                          className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 placeholder:text-zinc-700 outline-none focus:border-cyan-500"
+                          className="w-full px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary placeholder:text-subtle outline-none focus:border-cyan-500"
                         />
                       </div>
                     ))}
@@ -802,8 +802,8 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
                 {/* Custom key-value pairs */}
                 <div>
-                  <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Custom</span>
-                  <p className="text-[9px] text-zinc-600 mt-0.5 mb-1">Add any custom variables (available as {'{key}'} in scripts)</p>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">Custom</span>
+                  <p className="text-[9px] text-subtle mt-0.5 mb-1">Add any custom variables (available as {'{key}'} in scripts)</p>
                   {Object.entries(serverConfig)
                     .filter(([k]) => !SERVER_CONFIG_FIELDS.some(f => f.key === k))
                     .map(([key, value]) => (
@@ -811,12 +811,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                         <input
                           value={key}
                           disabled
-                          className="w-1/3 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-[10px] text-zinc-400"
+                          className="w-1/3 px-2 py-1 bg-panel border border-border-strong rounded text-[10px] text-secondary"
                         />
                         <input
                           value={value}
                           onChange={(e) => setServerConfig(prev => ({ ...prev, [key]: e.target.value }))}
-                          className="flex-1 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-cyan-500"
+                          className="flex-1 px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-cyan-500"
                         />
                         <button
                           onClick={() => setServerConfig(prev => {
@@ -824,7 +824,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                             delete next[key];
                             return next;
                           })}
-                          className="px-1.5 text-red-400 hover:text-red-300"
+                          className="px-1.5 text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-700"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -837,7 +837,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                         setServerConfig(prev => ({ ...prev, [key.trim().toLowerCase().replace(/\s+/g, '_')]: '' }));
                       }
                     }}
-                    className="mt-1 text-[10px] text-cyan-400 hover:text-cyan-300"
+                    className="mt-1 text-[10px] text-cyan-600 dark:text-cyan-400 hover:text-cyan-800 dark:hover:text-cyan-700"
                   >
                     + Add custom variable
                   </button>
@@ -849,7 +849,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
           <button
             onClick={() => handleSave(keySetupStatus === 'success')}
             disabled={!host || !user}
-            className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 rounded text-sm text-white transition-colors"
+            className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-elevated rounded text-sm text-white transition-colors"
           >
             {editProfile ? 'Update Connection' : (keySetupStatus === 'success' ? 'Save & Connect' : 'Save Connection')}
           </button>
@@ -860,13 +860,13 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           Remote SSH
         </span>
         <button
           onClick={() => { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); }}
-          className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+          className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -874,9 +874,9 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
       {profiles.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center px-4 text-center">
-          <MonitorSmartphone className="w-10 h-10 text-zinc-700 mb-3" />
-          <p className="text-sm text-zinc-500 mb-1">No SSH connections</p>
-          <p className="text-xs text-zinc-600">Add a remote server to connect via SSH</p>
+          <MonitorSmartphone className="w-10 h-10 text-subtle mb-3" />
+          <p className="text-sm text-muted mb-1">No SSH connections</p>
+          <p className="text-xs text-subtle">Add a remote server to connect via SSH</p>
           <button
             onClick={() => { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); }}
             className="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs text-white transition-colors"
@@ -898,8 +898,8 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
               key={profile.id}
               data-ssh-row={idx}
               onMouseDown={(e) => onRowMouseDown(e, idx)}
-              className={`group relative select-none px-3 py-2 cursor-grab active:cursor-grabbing border-b border-zinc-800/30 ${
-                isConnected ? 'bg-green-500/5 hover:bg-green-500/10' : 'hover:bg-zinc-800/50'
+              className={`group relative select-none px-3 py-2 cursor-grab active:cursor-grabbing border-b border-border-default/30 ${
+                isConnected ? 'bg-green-500/5 hover:bg-green-500/10' : 'hover:bg-hover/50'
               } ${isDragging ? 'opacity-40' : ''}`}
               onDoubleClick={() => handleEdit(profile)}
             >
@@ -910,18 +910,18 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 <div className="absolute left-0 right-0 -bottom-px h-0.5 bg-blue-500 z-10" />
               )}
               <div className="flex items-center gap-2">
-                <Server className={`w-4 h-4 shrink-0 ${isConnected ? 'text-green-500' : 'text-zinc-500'}`} />
+                <Server className={`w-4 h-4 shrink-0 ${isConnected ? 'text-green-500' : 'text-muted'}`} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-zinc-300 truncate flex items-center gap-1.5">
+                  <div className="text-sm text-secondary truncate flex items-center gap-1.5">
                     {profile.name}
                     {isConnected && (
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" title="Connected" />
                     )}
                   </div>
-                  <div className="text-xs text-zinc-600 truncate">
+                  <div className="text-xs text-subtle truncate">
                     {profile.user}@{profile.host}:{profile.port}
                     {profile.server_config && Object.keys(profile.server_config).length > 0 && (
-                      <span className="ml-1.5 text-[9px] text-cyan-400/60">
+                      <span className="ml-1.5 text-[9px] text-cyan-600 dark:text-cyan-400/60">
                         {profile.server_config.slurm_account || `${Object.keys(profile.server_config).length} settings`}
                       </span>
                     )}
@@ -940,7 +940,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   ) : (
                     <button
                       onClick={() => handleConnect(profile)}
-                      className="p-1 rounded hover:bg-zinc-700 text-green-500"
+                      className="p-1 rounded hover:bg-elevated text-green-500"
                       title="Connect"
                     >
                       <Plug className="w-3.5 h-3.5" />
@@ -948,7 +948,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   )}
                   <button
                     onClick={() => handleDelete(profile.id)}
-                    className="p-1 rounded hover:bg-zinc-700 text-red-500"
+                    className="p-1 rounded hover:bg-elevated text-red-500"
                     title="Delete"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -959,20 +959,20 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
               {/* Auth status indicator */}
               <div className="flex items-center gap-1.5 mt-1 ml-6">
                 {profile.key_file ? (
-                  <span className="flex items-center gap-1 text-[10px] text-green-400/70">
+                  <span className="flex items-center gap-1 text-[10px] text-green-600 dark:text-green-400/70">
                     <Shield className="w-2.5 h-2.5" />
                     Key auth
                     {profile.auth_type === 'duo_mfa' && (
-                      <span className="text-purple-400/60 ml-1">+ ControlMaster</span>
+                      <span className="text-purple-600 dark:text-purple-400/60 ml-1">+ ControlMaster</span>
                     )}
                   </span>
                 ) : profile.auth_type === 'duo_mfa' ? (
-                  <span className="flex items-center gap-1 text-[10px] text-purple-400/60">
+                  <span className="flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400/60">
                     <Smartphone className="w-2.5 h-2.5" />
                     Duo MFA
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-[10px] text-amber-400/60">
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400/60">
                     <KeyRound className="w-2.5 h-2.5" />
                     Password auth
                   </span>
@@ -983,22 +983,22 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
               {profile.server_config && Object.keys(profile.server_config).length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1 ml-6">
                   {profile.server_config.slurm_account && (
-                    <span className="text-[9px] bg-cyan-400/10 text-cyan-400/70 px-1.5 py-0.5 rounded">
+                    <span className="text-[9px] bg-cyan-400/10 text-cyan-600 dark:text-cyan-400/70 px-1.5 py-0.5 rounded">
                       {profile.server_config.slurm_account}
                     </span>
                   )}
                   {profile.server_config.conda_env && (
-                    <span className="text-[9px] bg-green-400/10 text-green-400/70 px-1.5 py-0.5 rounded">
+                    <span className="text-[9px] bg-green-400/10 text-green-600 dark:text-green-400/70 px-1.5 py-0.5 rounded">
                       {profile.server_config.conda_env}
                     </span>
                   )}
                   {profile.server_config.slurm_gpu_partition && (
-                    <span className="text-[9px] bg-purple-400/10 text-purple-400/70 px-1.5 py-0.5 rounded">
+                    <span className="text-[9px] bg-purple-400/10 text-purple-600 dark:text-purple-400/70 px-1.5 py-0.5 rounded">
                       GPU: {profile.server_config.slurm_gpu_partition}
                     </span>
                   )}
                   {!profile.server_config.slurm_account && !profile.server_config.conda_env && (
-                    <span className="text-[9px] text-zinc-600">
+                    <span className="text-[9px] text-subtle">
                       <Settings2 className="w-2.5 h-2.5 inline mr-0.5" />
                       {Object.keys(profile.server_config).length} settings
                     </span>

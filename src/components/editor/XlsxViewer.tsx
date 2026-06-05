@@ -69,27 +69,27 @@ export function XlsxViewer({ filePath, base64Content, mimeType }: XlsxViewerProp
   }, [base64Content, mimeType, fileName]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-2 text-xs text-zinc-400 min-w-0">
-          <Sheet className="w-4 h-4 text-green-400 shrink-0" />
+      <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default shrink-0">
+        <div className="flex items-center gap-2 text-xs text-secondary min-w-0">
+          <Sheet className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
           <span className="font-medium truncate">{fileName}</span>
           {workbook && (
             <>
-              <span className="text-zinc-600">|</span>
-              <span className="text-zinc-500">
+              <span className="text-subtle">|</span>
+              <span className="text-muted">
                 {workbook.SheetNames.length} sheet{workbook.SheetNames.length === 1 ? '' : 's'}
               </span>
             </>
           )}
-          <span className="text-[10px] text-zinc-600 ml-1">Read-only</span>
+          <span className="text-[10px] text-subtle ml-1">Read-only</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={handleDownload}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-hover transition-colors cursor-pointer"
             title="Download"
           >
             <Download className="w-3.5 h-3.5 pointer-events-none" />
@@ -99,16 +99,16 @@ export function XlsxViewer({ filePath, base64Content, mimeType }: XlsxViewerProp
 
       {/* Sheet tabs */}
       {workbook && workbook.SheetNames.length > 0 && (
-        <div className="flex items-center h-[28px] bg-zinc-900 border-b border-zinc-800 overflow-x-auto shrink-0">
+        <div className="flex items-center h-[28px] bg-panel border-b border-border-default overflow-x-auto shrink-0">
           {workbook.SheetNames.map((name) => (
             <button
               key={name}
               type="button"
               onClick={() => setActiveSheet(name)}
-              className={`px-3 h-full text-[12px] border-r border-zinc-800 shrink-0 transition-colors ${
+              className={`px-3 h-full text-[12px] border-r border-border-default shrink-0 transition-colors ${
                 activeSheet === name
-                  ? 'bg-zinc-950 text-zinc-100 border-t-2 border-t-green-500'
-                  : 'text-zinc-500 hover:text-zinc-300 bg-zinc-900 border-t-2 border-t-transparent'
+                  ? 'bg-canvas text-primary border-t-2 border-t-green-500'
+                  : 'text-muted hover:text-secondary bg-panel border-t-2 border-t-transparent'
               }`}
             >
               {name}
@@ -126,7 +126,7 @@ export function XlsxViewer({ filePath, base64Content, mimeType }: XlsxViewerProp
         ) : sheetHtml ? (
           <div className="xlsx-sheet" dangerouslySetInnerHTML={{ __html: sheetHtml }} />
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          <div className="flex items-center justify-center h-full text-muted text-sm">
             Loading spreadsheet…
           </div>
         )}

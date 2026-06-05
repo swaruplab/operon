@@ -62,6 +62,7 @@ import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
 import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
+import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -108,26 +109,26 @@ function ThinkingDisplay({ text }: { text: string }) {
   const summary = firstLine.trim().slice(0, 100) + (firstLine.trim().length > 100 ? '...' : '');
 
   return (
-    <div className="my-1 border border-zinc-700/50 rounded overflow-hidden">
+    <div className="my-1 border border-border-strong/50 rounded overflow-hidden">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 w-full px-2 py-1 text-xs bg-zinc-900/60 hover:bg-zinc-800/60"
+        className="flex items-center gap-2 w-full px-2 py-1 text-xs bg-panel/60 hover:bg-hover/60"
       >
         {expanded ? (
-          <ChevronDown className="w-3 h-3 text-zinc-600" />
+          <ChevronDown className="w-3 h-3 text-subtle" />
         ) : (
-          <ChevronRight className="w-3 h-3 text-zinc-600" />
+          <ChevronRight className="w-3 h-3 text-subtle" />
         )}
-        <Loader2 className="w-3 h-3 text-purple-400" />
-        <span className="text-purple-400/80 text-[11px]">Thinking</span>
+        <Loader2 className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+        <span className="text-purple-600 dark:text-purple-400/80 text-[11px]">Thinking</span>
         {!expanded && (
-          <span className="text-zinc-600 text-[10px] truncate ml-1">{summary}</span>
+          <span className="text-subtle text-[10px] truncate ml-1">{summary}</span>
         )}
       </button>
 
       {expanded && (
-        <div className="px-2 py-1.5 text-[11px] bg-zinc-950/80 border-t border-zinc-800/50 max-h-64 overflow-y-auto">
-          <pre className="text-zinc-500 whitespace-pre-wrap leading-relaxed">{text}</pre>
+        <div className="px-2 py-1.5 text-[11px] bg-canvas/80 border-t border-border-default/50 max-h-64 overflow-y-auto">
+          <pre className="text-muted whitespace-pre-wrap leading-relaxed">{text}</pre>
         </div>
       )}
     </div>
@@ -163,26 +164,26 @@ function TodoDisplay({ block }: { block: ToolUseBlock }) {
   return (
     <div className="my-1 rounded-lg border border-indigo-800/40 bg-indigo-950/20 overflow-hidden">
       <div className="flex items-center gap-2 px-2.5 py-1.5 bg-indigo-900/20 border-b border-indigo-800/30">
-        <ClipboardList className="w-3.5 h-3.5 text-indigo-400" />
-        <span className="text-[11px] text-indigo-300 font-medium">Plan</span>
-        <span className="text-[10px] text-indigo-400/60 ml-auto">{completed}/{todos.length} done</span>
+        <ClipboardList className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+        <span className="text-[11px] text-indigo-700 dark:text-indigo-300 font-medium">Plan</span>
+        <span className="text-[10px] text-indigo-600 dark:text-indigo-400/60 ml-auto">{completed}/{todos.length} done</span>
       </div>
       <div className="px-2.5 py-1.5 space-y-0.5">
         {todos.map((todo, i) => (
           <div key={i} className="flex items-start gap-2 py-0.5">
             <span className="mt-0.5 shrink-0 text-[11px]">
               {todo.status === 'completed' ? (
-                <span className="text-green-400">{'\u2713'}</span>
+                <span className="text-green-600 dark:text-green-400">{'\u2713'}</span>
               ) : todo.status === 'in_progress' ? (
-                <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+                <Loader2 className="w-3 h-3 text-blue-600 dark:text-blue-400 animate-spin" />
               ) : (
-                <span className="text-zinc-600">{'\u25CB'}</span>
+                <span className="text-subtle">{'\u25CB'}</span>
               )}
             </span>
             <span className={`text-[11px] leading-relaxed ${
-              todo.status === 'completed' ? 'text-zinc-500 line-through' :
-              todo.status === 'in_progress' ? 'text-blue-300' :
-              'text-zinc-400'
+              todo.status === 'completed' ? 'text-muted line-through' :
+              todo.status === 'in_progress' ? 'text-blue-700 dark:text-blue-300' :
+              'text-secondary'
             }`}>
               {todo.status === 'in_progress' ? (todo.activeForm || todo.content) : todo.content}
             </span>
@@ -230,31 +231,31 @@ function BashDisplay({ block }: { block: ToolUseBlock }) {
   const isJob = isJobSubmission(cmd);
 
   const statusIcon = block.status === 'complete'
-    ? <CheckCircle className="w-3 h-3 text-green-400/70" />
+    ? <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400/70" />
     : block.status === 'running'
-    ? <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />
+    ? <Loader2 className="w-3 h-3 text-yellow-600 dark:text-yellow-400 animate-spin" />
     : block.status === 'error'
-    ? <AlertCircle className="w-3 h-3 text-red-400" />
-    : <span className="text-zinc-600 text-[10px]">{'\u25CF'}</span>;
+    ? <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+    : <span className="text-subtle text-[10px]">{'\u25CF'}</span>;
 
   // For wait/poll commands or when description is available, show description prominently
   const showDescOnly = desc && (isWait || cmd.length > 120);
 
   return (
     <div className={`my-1 rounded-lg border overflow-hidden ${
-      isJob ? 'border-amber-800/40' : 'border-zinc-700/50'
+      isJob ? 'border-amber-800/40' : 'border-border-strong/50'
     }`}>
       {/* Header */}
       <div className={`flex items-center gap-2 px-2.5 py-1.5 ${
-        isJob ? 'bg-amber-950/30' : 'bg-zinc-900/60'
+        isJob ? 'bg-amber-950/30' : 'bg-panel/60'
       }`}>
         {statusIcon}
-        <TerminalSquare className="w-3 h-3 text-zinc-500" />
-        <span className={`text-[11px] font-medium ${isJob ? 'text-amber-300' : 'text-zinc-300'}`}>
+        <TerminalSquare className="w-3 h-3 text-muted" />
+        <span className={`text-[11px] font-medium ${isJob ? 'text-amber-700 dark:text-amber-300' : 'text-secondary'}`}>
           {isJob ? 'Submit Job' : isWait ? 'Waiting' : 'Run'}
         </span>
         {desc && (
-          <span className="text-[11px] text-zinc-400 truncate">{'\u2192'} {desc}</span>
+          <span className="text-[11px] text-secondary truncate">{'\u2192'} {desc}</span>
         )}
         {isWait && block.status === 'running' && (
           <span className="text-[10px] text-yellow-500/60 ml-auto">polling...</span>
@@ -265,19 +266,19 @@ function BashDisplay({ block }: { block: ToolUseBlock }) {
       {showDescOnly ? (
         <button
           onClick={() => setShowCmd(v => !v)}
-          className="flex items-center gap-1.5 w-full px-2.5 py-1 text-[10px] text-zinc-600 hover:text-zinc-400 bg-zinc-950/40 border-t border-zinc-800/30"
+          className="flex items-center gap-1.5 w-full px-2.5 py-1 text-[10px] text-subtle hover:text-secondary bg-canvas/40 border-t border-border-default/30"
         >
           {showCmd ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
           <span>Command</span>
         </button>
       ) : (
-        <div className="px-2.5 py-1.5 bg-zinc-950/60 border-t border-zinc-800/30">
-          <pre className="text-[11px] text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed">$ {summarizeCommand(cmd)}</pre>
+        <div className="px-2.5 py-1.5 bg-canvas/60 border-t border-border-default/30">
+          <pre className="text-[11px] text-emerald-600 dark:text-emerald-400/80 font-mono whitespace-pre-wrap leading-relaxed">$ {summarizeCommand(cmd)}</pre>
         </div>
       )}
       {showDescOnly && showCmd && (
-        <div className="px-2.5 py-1.5 bg-zinc-950/60">
-          <pre className="text-[10px] text-emerald-400/60 font-mono whitespace-pre-wrap leading-relaxed">$ {cmd}</pre>
+        <div className="px-2.5 py-1.5 bg-canvas/60">
+          <pre className="text-[10px] text-emerald-600 dark:text-emerald-400/60 font-mono whitespace-pre-wrap leading-relaxed">$ {cmd}</pre>
         </div>
       )}
 
@@ -285,15 +286,15 @@ function BashDisplay({ block }: { block: ToolUseBlock }) {
       {block.result && (
         <button
           onClick={() => setShowOutput(v => !v)}
-          className="flex items-center gap-1.5 w-full px-2.5 py-1 text-[10px] text-zinc-500 hover:text-zinc-400 bg-zinc-900/40 border-t border-zinc-800/50"
+          className="flex items-center gap-1.5 w-full px-2.5 py-1 text-[10px] text-muted hover:text-secondary bg-panel/40 border-t border-border-default/50"
         >
           {showOutput ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
           <span>Output{block.result.length > 100 ? ` (${(block.result.length / 1000).toFixed(1)}k chars)` : ''}</span>
         </button>
       )}
       {showOutput && block.result && (
-        <div className="px-2.5 py-1.5 bg-zinc-950/80 border-t border-zinc-800/30 max-h-48 overflow-y-auto">
-          <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap font-mono">{block.result.slice(0, 3000)}{block.result.length > 3000 ? '\n... (truncated)' : ''}</pre>
+        <div className="px-2.5 py-1.5 bg-canvas/80 border-t border-border-default/30 max-h-48 overflow-y-auto">
+          <pre className="text-[10px] text-muted whitespace-pre-wrap font-mono">{block.result.slice(0, 3000)}{block.result.length > 3000 ? '\n... (truncated)' : ''}</pre>
         </div>
       )}
     </div>
@@ -307,12 +308,12 @@ function FileActionDisplay({ block }: { block: ToolUseBlock }) {
   const isWrite = block.name === 'Write';
 
   const statusIcon = block.status === 'complete'
-    ? <CheckCircle className="w-3 h-3 text-green-400/70" />
+    ? <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400/70" />
     : block.status === 'running'
-    ? <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />
+    ? <Loader2 className="w-3 h-3 text-yellow-600 dark:text-yellow-400 animate-spin" />
     : block.status === 'error'
-    ? <AlertCircle className="w-3 h-3 text-red-400" />
-    : <span className="text-zinc-600 text-[10px]">{'\u25CF'}</span>;
+    ? <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+    : <span className="text-subtle text-[10px]">{'\u25CF'}</span>;
 
   // For Edit, show what changed
   const oldStr = (block.input.old_string as string) || '';
@@ -320,41 +321,41 @@ function FileActionDisplay({ block }: { block: ToolUseBlock }) {
   const hasEditDiff = block.name === 'Edit' && (oldStr || newStr);
 
   return (
-    <div className="my-1 rounded-lg border border-zinc-700/50 overflow-hidden">
+    <div className="my-1 rounded-lg border border-border-strong/50 overflow-hidden">
       <button
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-zinc-900/60 hover:bg-zinc-800/50"
+        className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-panel/60 hover:bg-hover/50"
       >
         {statusIcon}
-        <FileEdit className="w-3 h-3 text-zinc-500" />
-        <span className="text-[11px] text-zinc-300 font-medium">{isWrite ? 'Create' : 'Edit'}</span>
-        <span className="text-zinc-600">{'\u2192'}</span>
-        <span className="text-[11px] text-zinc-400 font-mono truncate">{shortenPath(fp)}</span>
+        <FileEdit className="w-3 h-3 text-muted" />
+        <span className="text-[11px] text-secondary font-medium">{isWrite ? 'Create' : 'Edit'}</span>
+        <span className="text-subtle">{'\u2192'}</span>
+        <span className="text-[11px] text-secondary font-mono truncate">{shortenPath(fp)}</span>
         <span className="ml-auto">
-          {expanded ? <ChevronDown className="w-3 h-3 text-zinc-600" /> : <ChevronRight className="w-3 h-3 text-zinc-600" />}
+          {expanded ? <ChevronDown className="w-3 h-3 text-subtle" /> : <ChevronRight className="w-3 h-3 text-subtle" />}
         </span>
       </button>
       {expanded && (
-        <div className="px-2.5 py-1.5 bg-zinc-950/60 border-t border-zinc-800/50 max-h-64 overflow-y-auto">
+        <div className="px-2.5 py-1.5 bg-canvas/60 border-t border-border-default/50 max-h-64 overflow-y-auto">
           {hasEditDiff ? (
             <div className="space-y-1">
               {oldStr && (
                 <div>
-                  <div className="text-[10px] text-red-400/70 font-medium mb-0.5">Removed:</div>
-                  <pre className="text-[10px] text-red-300/50 font-mono whitespace-pre-wrap bg-red-950/20 rounded px-1.5 py-1">{oldStr.slice(0, 1000)}</pre>
+                  <div className="text-[10px] text-red-600 dark:text-red-400/70 font-medium mb-0.5">Removed:</div>
+                  <pre className="text-[10px] text-red-700 dark:text-red-300/50 font-mono whitespace-pre-wrap bg-red-950/20 rounded px-1.5 py-1">{oldStr.slice(0, 1000)}</pre>
                 </div>
               )}
               {newStr && (
                 <div>
-                  <div className="text-[10px] text-green-400/70 font-medium mb-0.5">Added:</div>
-                  <pre className="text-[10px] text-green-300/50 font-mono whitespace-pre-wrap bg-green-950/20 rounded px-1.5 py-1">{newStr.slice(0, 1000)}</pre>
+                  <div className="text-[10px] text-green-600 dark:text-green-400/70 font-medium mb-0.5">Added:</div>
+                  <pre className="text-[10px] text-green-700 dark:text-green-300/50 font-mono whitespace-pre-wrap bg-green-950/20 rounded px-1.5 py-1">{newStr.slice(0, 1000)}</pre>
                 </div>
               )}
             </div>
           ) : isWrite && block.input.content ? (
-            <pre className="text-[10px] text-zinc-400 font-mono whitespace-pre-wrap">{String(block.input.content).slice(0, 1500)}{String(block.input.content).length > 1500 ? '\n... (truncated)' : ''}</pre>
+            <pre className="text-[10px] text-secondary font-mono whitespace-pre-wrap">{String(block.input.content).slice(0, 1500)}{String(block.input.content).length > 1500 ? '\n... (truncated)' : ''}</pre>
           ) : (
-            <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap">{JSON.stringify(block.input, null, 2)}</pre>
+            <pre className="text-[10px] text-muted whitespace-pre-wrap">{JSON.stringify(block.input, null, 2)}</pre>
           )}
         </div>
       )}
@@ -380,25 +381,25 @@ function MinorToolDisplay({ block }: { block: ToolUseBlock }) {
 
   const info = getInfo();
   const statusColor =
-    block.status === 'complete' ? 'text-green-400'
-    : block.status === 'running' ? 'text-yellow-400 animate-pulse'
-    : block.status === 'error' ? 'text-red-400'
-    : 'text-zinc-500';
+    block.status === 'complete' ? 'text-green-600 dark:text-green-400'
+    : block.status === 'running' ? 'text-yellow-600 dark:text-yellow-400 animate-pulse'
+    : block.status === 'error' ? 'text-red-600 dark:text-red-400'
+    : 'text-muted';
 
   return (
     <div className="my-0.5 rounded overflow-hidden">
       <button
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center gap-2 w-full px-2 py-0.5 text-[11px] hover:bg-zinc-800/30"
+        className="flex items-center gap-2 w-full px-2 py-0.5 text-[11px] hover:bg-hover/30"
       >
         <span className={`text-[8px] ${statusColor}`}>{'\u25CF'}</span>
-        <span className="text-zinc-500">{info.label}</span>
-        {info.detail && <span className="text-zinc-600 font-mono truncate text-[10px]">{info.detail}</span>}
-        {expanded ? <ChevronDown className="w-2.5 h-2.5 text-zinc-700 ml-auto" /> : <ChevronRight className="w-2.5 h-2.5 text-zinc-700 ml-auto" />}
+        <span className="text-muted">{info.label}</span>
+        {info.detail && <span className="text-subtle font-mono truncate text-[10px]">{info.detail}</span>}
+        {expanded ? <ChevronDown className="w-2.5 h-2.5 text-subtle ml-auto" /> : <ChevronRight className="w-2.5 h-2.5 text-subtle ml-auto" />}
       </button>
       {expanded && block.result && (
-        <div className="px-2 py-1 bg-zinc-950/60 max-h-36 overflow-y-auto">
-          <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap font-mono">{block.result.slice(0, 2000)}</pre>
+        <div className="px-2 py-1 bg-canvas/60 max-h-36 overflow-y-auto">
+          <pre className="text-[10px] text-muted whitespace-pre-wrap font-mono">{block.result.slice(0, 2000)}</pre>
         </div>
       )}
     </div>
@@ -407,9 +408,9 @@ function MinorToolDisplay({ block }: { block: ToolUseBlock }) {
 
 // Known MCP tool prefixes → display name + color
 const MCP_TOOL_PREFIXES: Array<{ prefix: string; label: string; color: string }> = [
-  { prefix: 'encode_', label: 'ENCODE', color: 'text-teal-400' },
-  { prefix: 'analyze-active-site', label: 'BioMCP', color: 'text-violet-400' },
-  { prefix: 'search-disease-proteins', label: 'BioMCP', color: 'text-violet-400' },
+  { prefix: 'encode_', label: 'ENCODE', color: 'text-teal-600 dark:text-teal-400' },
+  { prefix: 'analyze-active-site', label: 'BioMCP', color: 'text-violet-600 dark:text-violet-400' },
+  { prefix: 'search-disease-proteins', label: 'BioMCP', color: 'text-violet-600 dark:text-violet-400' },
 ];
 
 function getMCPInfo(toolName: string): { label: string; color: string } | null {
@@ -424,36 +425,36 @@ function MCPToolDisplay({ block, mcpInfo }: { block: ToolUseBlock; mcpInfo: { la
   const [expanded, setExpanded] = useState(false);
 
   const statusIcon = block.status === 'complete'
-    ? <CheckCircle className="w-3 h-3 text-green-400/70" />
+    ? <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400/70" />
     : block.status === 'running'
-    ? <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />
+    ? <Loader2 className="w-3 h-3 text-yellow-600 dark:text-yellow-400 animate-spin" />
     : block.status === 'error'
-    ? <AlertCircle className="w-3 h-3 text-red-400" />
-    : <span className="text-zinc-600 text-[10px]">{'\u25CF'}</span>;
+    ? <AlertCircle className="w-3 h-3 text-red-600 dark:text-red-400" />
+    : <span className="text-subtle text-[10px]">{'\u25CF'}</span>;
 
   return (
-    <div className="my-1 rounded-lg border border-zinc-700/50 overflow-hidden">
+    <div className="my-1 rounded-lg border border-border-strong/50 overflow-hidden">
       <button
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-zinc-900/60 hover:bg-zinc-800/50"
+        className="flex items-center gap-2 w-full px-2.5 py-1.5 bg-panel/60 hover:bg-hover/50"
       >
         {statusIcon}
-        <Server className="w-3 h-3 text-zinc-500" />
-        <span className={`text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 font-medium ${mcpInfo.color}`}>
+        <Server className="w-3 h-3 text-muted" />
+        <span className={`text-[10px] px-1.5 py-0.5 rounded bg-surface font-medium ${mcpInfo.color}`}>
           {mcpInfo.label}
         </span>
-        <span className="text-[11px] text-zinc-300 font-mono truncate">{block.name}</span>
+        <span className="text-[11px] text-secondary font-mono truncate">{block.name}</span>
         <span className="ml-auto">
-          {expanded ? <ChevronDown className="w-3 h-3 text-zinc-600" /> : <ChevronRight className="w-3 h-3 text-zinc-600" />}
+          {expanded ? <ChevronDown className="w-3 h-3 text-subtle" /> : <ChevronRight className="w-3 h-3 text-subtle" />}
         </span>
       </button>
       {expanded && (
-        <div className="px-2.5 py-1.5 bg-zinc-950/60 border-t border-zinc-800/50 max-h-48 overflow-y-auto space-y-1">
+        <div className="px-2.5 py-1.5 bg-canvas/60 border-t border-border-default/50 max-h-48 overflow-y-auto space-y-1">
           {Object.keys(block.input).length > 0 && (
-            <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap font-mono">{JSON.stringify(block.input, null, 2)}</pre>
+            <pre className="text-[10px] text-muted whitespace-pre-wrap font-mono">{JSON.stringify(block.input, null, 2)}</pre>
           )}
           {block.result && (
-            <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono mt-1">{block.result.slice(0, 2000)}{block.result.length > 2000 ? '\n... (truncated)' : ''}</pre>
+            <pre className="text-[10px] text-secondary whitespace-pre-wrap font-mono mt-1">{block.result.slice(0, 2000)}{block.result.length > 2000 ? '\n... (truncated)' : ''}</pre>
           )}
         </div>
       )}
@@ -492,7 +493,7 @@ function SessionRow({ session, displayName, ageStr, onResume, onDelete, onRename
   return (
     <div className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-indigo-900/30 transition-colors group">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-        session.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-zinc-500'
+        session.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-muted'
       }`} />
 
       {editing ? (
@@ -516,18 +517,18 @@ function SessionRow({ session, displayName, ageStr, onResume, onDelete, onRename
             }
             setEditing(false);
           }}
-          className="flex-1 bg-zinc-800 border border-indigo-500/50 rounded px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none"
+          className="flex-1 bg-surface border border-indigo-500/50 rounded px-1.5 py-0.5 text-[11px] text-primary outline-none"
         />
       ) : (
         <span
           onClick={() => { setEditValue(displayName); setEditing(true); }}
-          className="text-[11px] text-zinc-300 truncate flex-1 cursor-pointer hover:text-indigo-300 transition-colors"
+          className="text-[11px] text-secondary truncate flex-1 cursor-pointer hover:text-indigo-800 dark:hover:text-indigo-700 transition-colors"
           title="Click to rename session"
         >
           {displayName}
-          <span className="text-zinc-600 ml-1">{'\u00B7'} {ageStr}</span>
+          <span className="text-subtle ml-1">{'\u00B7'} {ageStr}</span>
           {session.status === 'running' && (
-            <span className="text-green-400 ml-1">(running)</span>
+            <span className="text-green-600 dark:text-green-400 ml-1">(running)</span>
           )}
         </span>
       )}
@@ -540,7 +541,7 @@ function SessionRow({ session, displayName, ageStr, onResume, onDelete, onRename
       </button>
       <button
         onClick={onDelete}
-        className="text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+        className="text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
       >
         <Trash2 className="w-3 h-3" />
       </button>
@@ -574,25 +575,25 @@ function WorkingSection({ thinkingText, tools, isActive }: {
 
       {/* Minor tools: collapsed into a single line */}
       {minorTools.length > 0 && (
-        <div className="my-1 rounded-lg border border-zinc-800/40 overflow-hidden">
+        <div className="my-1 rounded-lg border border-border-default/40 overflow-hidden">
           <button
             onClick={() => setShowMinor(v => !v)}
-            className="flex items-center gap-2 w-full px-2.5 py-1 text-[11px] bg-zinc-900/40 hover:bg-zinc-800/40"
+            className="flex items-center gap-2 w-full px-2.5 py-1 text-[11px] bg-panel/40 hover:bg-hover/40"
           >
             {showMinor ? (
-              <ChevronDown className="w-3 h-3 text-zinc-600 shrink-0" />
+              <ChevronDown className="w-3 h-3 text-subtle shrink-0" />
             ) : (
-              <ChevronRight className="w-3 h-3 text-zinc-600 shrink-0" />
+              <ChevronRight className="w-3 h-3 text-subtle shrink-0" />
             )}
-            <span className="text-zinc-500">
+            <span className="text-muted">
               {minorTools.length} background {minorTools.length === 1 ? 'step' : 'steps'}
             </span>
-            <span className="text-zinc-600 text-[10px]">
+            <span className="text-subtle text-[10px]">
               ({minorTools.map(t => t.name).filter((v, i, a) => a.indexOf(v) === i).join(', ')})
             </span>
           </button>
           {showMinor && (
-            <div className="border-t border-zinc-800/30 bg-zinc-950/40">
+            <div className="border-t border-border-default/30 bg-canvas/40">
               {minorTools.map((tool, i) => (
                 <MinorToolDisplay key={tool.id || `min-${i}`} block={tool} />
               ))}
@@ -604,15 +605,15 @@ function WorkingSection({ thinkingText, tools, isActive }: {
       {/* Thinking section: collapsed by default */}
       {thinkingText && (
         <details className="my-1 rounded-lg border border-purple-900/30 overflow-hidden group">
-          <summary className="flex items-center gap-2 px-2.5 py-1 text-[11px] text-purple-400/60 cursor-pointer hover:bg-purple-950/20 bg-zinc-900/30">
+          <summary className="flex items-center gap-2 px-2.5 py-1 text-[11px] text-purple-600 dark:text-purple-400/60 cursor-pointer hover:bg-purple-950/20 bg-panel/30">
             <ChevronRight className="w-3 h-3 shrink-0 group-open:rotate-90 transition-transform" />
             <span>Reasoning</span>
-            <span className="text-zinc-700 truncate ml-1 text-[10px]">
+            <span className="text-subtle truncate ml-1 text-[10px]">
               {thinkingText.split('\n').find(l => l.trim())?.trim().slice(0, 60)}...
             </span>
           </summary>
-          <div className="px-2.5 py-1.5 max-h-48 overflow-y-auto border-t border-purple-900/20 bg-zinc-950/40">
-            <pre className="text-[11px] text-zinc-500 whitespace-pre-wrap leading-relaxed">{thinkingText}</pre>
+          <div className="px-2.5 py-1.5 max-h-48 overflow-y-auto border-t border-purple-900/20 bg-canvas/40">
+            <pre className="text-[11px] text-muted whitespace-pre-wrap leading-relaxed">{thinkingText}</pre>
           </div>
         </details>
       )}
@@ -620,14 +621,14 @@ function WorkingSection({ thinkingText, tools, isActive }: {
       {/* Active status indicator */}
       {isActive && runningTool && (
         <div className="flex items-center gap-2 px-2 py-1 text-[11px]">
-          <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
-          <span className="text-blue-400/70">
+          <Loader2 className="w-3 h-3 text-blue-600 dark:text-blue-400 animate-spin" />
+          <span className="text-blue-600 dark:text-blue-400/70">
             {runningTool.name === 'Bash'
               ? ((runningTool.input.description as string) || 'Running command...')
               : `${runningTool.name}...`}
           </span>
           {totalCount > 1 && (
-            <span className="text-zinc-600 text-[10px] ml-auto">{completedCount}/{totalCount}</span>
+            <span className="text-subtle text-[10px] ml-auto">{completedCount}/{totalCount}</span>
           )}
         </div>
       )}
@@ -678,7 +679,7 @@ function MessageContextMenu({
 
   return (
     <div ref={menuRef} style={adjustedStyle}
-      className="min-w-[140px] py-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl shadow-black/40 backdrop-blur-sm"
+      className="min-w-[140px] py-1 bg-surface border border-border-strong rounded-lg shadow-xl shadow-black/40 backdrop-blur-sm"
     >
       <button
         onClick={() => {
@@ -686,9 +687,9 @@ function MessageContextMenu({
           setCopied(true);
           setTimeout(() => onClose(), 600);
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-700 hover:text-white transition-colors"
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated hover:text-white transition-colors"
       >
-        {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+        {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
         {copied ? 'Copied!' : 'Copy message'}
       </button>
     </div>
@@ -723,10 +724,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   if (isUser || isSystem) {
     // System message styling based on variant
     const systemStyles = message.variant === 'success'
-      ? 'bg-emerald-900/30 text-emerald-300 border border-emerald-800'
+      ? 'bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-800'
       : message.variant === 'info'
-        ? 'bg-blue-900/30 text-blue-300 border border-blue-800'
-        : 'bg-red-900/30 text-red-300 border border-red-800';
+        ? 'bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-800'
+        : 'bg-red-900/30 text-red-700 dark:text-red-300 border border-red-800';
 
     return (
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -779,7 +780,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     <div className="flex justify-start">
       <div
         onContextMenu={handleContextMenu}
-        className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-zinc-800/80 text-zinc-200 cursor-default break-words overflow-hidden"
+        className="max-w-[90%] rounded-xl px-3.5 py-2.5 text-[13px] leading-relaxed bg-surface/80 text-primary cursor-default break-words overflow-hidden"
       >
         {/* Working section: collapsed by default */}
         {hasWorkingContent && (
@@ -865,9 +866,9 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
   if (mode === 'choose') {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
-        <Sparkles className="w-10 h-10 text-blue-400/60 mb-3" />
-        <h3 className="text-sm font-medium text-zinc-300 mb-1">Connect to Claude</h3>
-        <p className="text-xs text-zinc-500 mb-5">
+        <Sparkles className="w-10 h-10 text-blue-600 dark:text-blue-400/60 mb-3" />
+        <h3 className="text-sm font-medium text-secondary mb-1">Connect to Claude</h3>
+        <p className="text-xs text-muted mb-5">
           Choose how to authenticate with Anthropic
         </p>
 
@@ -886,12 +887,12 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
 
         <button
           onClick={() => setMode('api_key')}
-          className="w-full flex items-center gap-3 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
+          className="w-full flex items-center gap-3 px-4 py-3 bg-surface hover:bg-elevated rounded-lg text-sm text-primary transition-colors"
         >
-          <Key className="w-4 h-4 shrink-0 text-zinc-400" />
+          <Key className="w-4 h-4 shrink-0 text-secondary" />
           <div className="text-left">
             <div className="font-medium">Use API Key</div>
-            <div className="text-[11px] text-zinc-500 mt-0.5">
+            <div className="text-[11px] text-muted mt-0.5">
               For API &amp; direct billing users
             </div>
           </div>
@@ -904,19 +905,19 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
   if (mode === 'oauth') {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6 text-center">
-        <LogIn className="w-10 h-10 text-orange-400 mb-3" />
-        <h3 className="text-sm font-medium text-zinc-300 mb-1">
+        <LogIn className="w-10 h-10 text-orange-600 dark:text-orange-400 mb-3" />
+        <h3 className="text-sm font-medium text-secondary mb-1">
           {terminalOpened ? 'Complete login in the terminal below' : 'Opening terminal...'}
         </h3>
-        <p className="text-xs text-zinc-500 mb-2">
-          <code className="bg-zinc-800 px-1 py-0.5 rounded text-orange-300 text-[11px]">claude login</code> is running in a terminal tab below.
+        <p className="text-xs text-muted mb-2">
+          <code className="bg-surface px-1 py-0.5 rounded text-orange-700 dark:text-orange-300 text-[11px]">claude login</code> is running in a terminal tab below.
         </p>
-        <p className="text-xs text-zinc-500 mb-5">
+        <p className="text-xs text-muted mb-5">
           Follow the prompts in the terminal, then click Verify below.
         </p>
 
         {oauthError && (
-          <div className="w-full mb-3 px-3 py-2 bg-red-900/20 border border-red-800/30 rounded text-xs text-red-400">
+          <div className="w-full mb-3 px-3 py-2 bg-red-900/20 border border-red-800/30 rounded text-xs text-red-600 dark:text-red-400">
             {oauthError}
           </div>
         )}
@@ -939,14 +940,14 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
 
         <button
           onClick={openTerminalLogin}
-          className="w-full px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-400 transition-colors mb-2"
+          className="w-full px-3 py-2 bg-surface hover:bg-elevated rounded-lg text-xs text-secondary transition-colors mb-2"
         >
           Reopen Terminal
         </button>
 
         <button
           onClick={() => { setMode('choose'); setOauthError(''); setTerminalOpened(false); }}
-          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          className="text-xs text-subtle hover:text-secondary transition-colors"
         >
           Back to options
         </button>
@@ -957,9 +958,9 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
   // --- API key entry ---
   return (
     <div className="flex flex-col items-center justify-center h-full px-6 text-center">
-      <Key className="w-10 h-10 text-zinc-700 mb-3" />
-      <h3 className="text-sm font-medium text-zinc-300 mb-1">API Key</h3>
-      <p className="text-xs text-zinc-500 mb-4">
+      <Key className="w-10 h-10 text-subtle mb-3" />
+      <h3 className="text-sm font-medium text-secondary mb-1">API Key</h3>
+      <p className="text-xs text-muted mb-4">
         Enter your Anthropic API key
       </p>
       <input
@@ -968,18 +969,18 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
         onChange={(e) => setKey(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && saveApiKey()}
         placeholder="sk-ant-..."
-        className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500 mb-3"
+        className="w-full px-3 py-2 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500 mb-3"
       />
       <button
         onClick={saveApiKey}
         disabled={saving || !key.trim()}
-        className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 rounded text-sm text-white transition-colors mb-2"
+        className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-elevated rounded text-sm text-white transition-colors mb-2"
       >
         {saving ? 'Saving...' : 'Save API Key'}
       </button>
       <button
         onClick={() => setMode('choose')}
-        className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+        className="text-xs text-subtle hover:text-secondary transition-colors"
       >
         Back to options
       </button>
@@ -1022,7 +1023,7 @@ function MentionPopup({
   if (!visible || items.length === 0) return null;
 
   return (
-    <div className="absolute bottom-full left-0 mb-1 w-72 max-h-48 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50">
+    <div className="absolute bottom-full left-0 mb-1 w-72 max-h-48 overflow-y-auto bg-panel border border-border-strong rounded-lg shadow-xl z-50">
       {items.map((item, i) => {
         const Icon = item.isDir ? FolderOpen : (
           item.extension && ['csv', 'tsv', 'txt', 'md', 'R', 'py', 'sh'].includes(item.extension) ? FileText : File
@@ -1032,19 +1033,19 @@ function MentionPopup({
             key={item.path}
             onClick={() => onSelect(item)}
             className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-              i === selectedIndex ? 'bg-blue-600/30 text-blue-200' : 'text-zinc-300 hover:bg-zinc-800'
+              i === selectedIndex ? 'bg-blue-600/30 text-blue-200' : 'text-secondary hover:bg-hover'
             }`}
           >
-            <Icon className={`w-3.5 h-3.5 shrink-0 ${item.isDir ? 'text-amber-400' : 'text-zinc-500'}`} />
+            <Icon className={`w-3.5 h-3.5 shrink-0 ${item.isDir ? 'text-amber-600 dark:text-amber-400' : 'text-muted'}`} />
             <span className="truncate">{item.name}</span>
-            {item.isDir && <span className="text-[10px] text-zinc-600 ml-auto shrink-0">folder</span>}
+            {item.isDir && <span className="text-[10px] text-subtle ml-auto shrink-0">folder</span>}
             {item.extension && !item.isDir && (
-              <span className="text-[10px] text-zinc-600 ml-auto shrink-0">.{item.extension}</span>
+              <span className="text-[10px] text-subtle ml-auto shrink-0">.{item.extension}</span>
             )}
           </button>
         );
       })}
-      <div className="px-3 py-1 border-t border-zinc-800 text-[10px] text-zinc-600">
+      <div className="px-3 py-1 border-t border-border-default text-[10px] text-subtle">
         {'\u2191\u2193'} navigate {'\u00B7'} Enter select {'\u00B7'} Esc dismiss
       </div>
     </div>
@@ -1076,10 +1077,10 @@ function resolveMentionContext(ref: MentionRef): string {
 // --- Mode Selector ---
 
 const MODE_CONFIG: Record<ClaudeMode, { label: string; icon: typeof Bot; color: string; desc: string }> = {
-  agent: { label: 'Agent', icon: Bot, color: 'text-blue-400', desc: 'Full tool use — reads, writes, runs commands' },
-  plan: { label: 'Plan', icon: ClipboardList, color: 'text-amber-400', desc: 'Creates implementation_plan.md — no execution' },
-  ask: { label: 'Ask', icon: MessageCircle, color: 'text-green-400', desc: 'Answer questions with PubMed-grounded literature' },
-  report: { label: 'Report', icon: FlaskConical, color: 'text-purple-400', desc: 'Generate PDF report from analysis files with PubMed citations' },
+  agent: { label: 'Agent', icon: Bot, color: 'text-blue-600 dark:text-blue-400', desc: 'Full tool use — reads, writes, runs commands' },
+  plan: { label: 'Plan', icon: ClipboardList, color: 'text-amber-600 dark:text-amber-400', desc: 'Creates implementation_plan.md — no execution' },
+  ask: { label: 'Ask', icon: MessageCircle, color: 'text-green-600 dark:text-green-400', desc: 'Answer questions with PubMed-grounded literature' },
+  report: { label: 'Report', icon: FlaskConical, color: 'text-purple-600 dark:text-purple-400', desc: 'Generate PDF report from analysis files with PubMed citations' },
 };
 
 function ModeSelector({ mode, onChange }: { mode: ClaudeMode; onChange: (m: ClaudeMode) => void }) {
@@ -1091,33 +1092,33 @@ function ModeSelector({ mode, onChange }: { mode: ClaudeMode; onChange: (m: Clau
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-800 transition-colors text-xs"
+        className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-hover transition-colors text-xs"
       >
         <Icon className={`w-3.5 h-3.5 ${current.color}`} />
-        <span className="text-zinc-300 font-medium">{current.label}</span>
-        <ChevronDown className="w-3 h-3 text-zinc-600" />
+        <span className="text-secondary font-medium">{current.label}</span>
+        <ChevronDown className="w-3 h-3 text-subtle" />
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 mb-1 w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden">
+          <div className="absolute bottom-full left-0 mb-1 w-56 bg-panel border border-border-strong rounded-lg shadow-xl z-50 overflow-hidden">
             {(Object.entries(MODE_CONFIG) as [ClaudeMode, typeof current][]).map(([key, cfg]) => {
               const MIcon = cfg.icon;
               return (
                 <button
                   key={key}
                   onClick={() => { onChange(key); setOpen(false); }}
-                  className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-zinc-800 transition-colors ${
-                    mode === key ? 'bg-zinc-800/60' : ''
+                  className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-hover transition-colors ${
+                    mode === key ? 'bg-surface/60' : ''
                   }`}
                 >
                   <MIcon className={`w-4 h-4 mt-0.5 shrink-0 ${cfg.color}`} />
                   <div>
-                    <div className="text-xs font-medium text-zinc-200">{cfg.label}</div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">{cfg.desc}</div>
+                    <div className="text-xs font-medium text-primary">{cfg.label}</div>
+                    <div className="text-[10px] text-muted mt-0.5">{cfg.desc}</div>
                   </div>
-                  {mode === key && <span className="ml-auto text-blue-400 text-xs mt-0.5">✓</span>}
+                  {mode === key && <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs mt-0.5">✓</span>}
                 </button>
               );
             })}
@@ -1140,9 +1141,9 @@ function PubMedResultsBar({ articles, onClear }: { articles: PubMedArticle[]; on
         className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-emerald-900/20 transition-colors"
       >
         {expanded ? <ChevronDown className="w-3 h-3 text-emerald-500" /> : <ChevronRight className="w-3 h-3 text-emerald-500" />}
-        <BookMarked className="w-3 h-3 text-emerald-400" />
-        <span className="text-emerald-300 font-medium">{articles.length} PubMed articles found</span>
-        <span className="ml-auto text-emerald-600 hover:text-emerald-400 text-[10px]" onClick={(e) => { e.stopPropagation(); onClear(); }}>
+        <BookMarked className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+        <span className="text-emerald-700 dark:text-emerald-300 font-medium">{articles.length} PubMed articles found</span>
+        <span className="ml-auto text-emerald-600 hover:text-emerald-700 dark:hover:text-emerald-600 text-[10px]" onClick={(e) => { e.stopPropagation(); onClear(); }}>
           Clear
         </span>
       </button>
@@ -1152,8 +1153,8 @@ function PubMedResultsBar({ articles, onClear }: { articles: PubMedArticle[]; on
             <div key={a.pmid} className="flex gap-2 py-1 border-t border-emerald-900/30">
               <span className="text-[10px] text-emerald-500 font-mono shrink-0 mt-0.5">[{i + 1}]</span>
               <div className="min-w-0">
-                <p className="text-[11px] text-zinc-300 leading-snug line-clamp-2">{a.title}</p>
-                <p className="text-[10px] text-zinc-500 truncate mt-0.5">
+                <p className="text-[11px] text-secondary leading-snug line-clamp-2">{a.title}</p>
+                <p className="text-[10px] text-muted truncate mt-0.5">
                   {a.authors.split(',').slice(0, 3).join(',')}
                   {a.authors.split(',').length > 3 ? ' et al.' : ''} — {a.journal} ({a.year})
                 </p>
@@ -1161,7 +1162,7 @@ function PubMedResultsBar({ articles, onClear }: { articles: PubMedArticle[]; on
                   href={a.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 hover:text-emerald-300 mt-0.5"
+                  className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 hover:text-emerald-800 dark:hover:text-emerald-700 mt-0.5"
                   onClick={(e) => e.stopPropagation()}
                 >
                   PMID: {a.pmid} <ExternalLink className="w-2.5 h-2.5" />
@@ -3114,7 +3115,7 @@ export function ChatPanel() {
       indexPrefix = `<project_files>\n${projectIndex.current}\n</project_files>\n\n`;
     }
 
-    // Layer 2: Active protocols (user-selected from sidebar, up to 2)
+    // Layer 2: Active protocols (user-selected from sidebar, up to MAX_ACTIVE_PROTOCOLS)
     let protocolPrefix = '';
     if (activeProtocols.length > 0 && protocolContents.size > 0) {
       const blocks = activeProtocols
@@ -3607,11 +3608,11 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
   // Show auth setup if needed
   if (authState && !authState.authenticated) {
     return (
-      <div className="flex flex-col h-full bg-zinc-950">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800 shrink-0">
+      <div className="flex flex-col h-full bg-canvas">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border-default shrink-0">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-400" />
-            <span className="text-sm font-medium text-zinc-300">Claude</span>
+            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span className="text-sm font-medium text-secondary">Claude</span>
           </div>
         </div>
         <AuthSetup onDone={(method) => setAuthState({ authenticated: true, method })} />
@@ -3620,29 +3621,29 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
   }
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default shrink-0">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-blue-400" />
-          <span className="text-sm font-medium text-zinc-300">Claude</span>
+          <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          <span className="text-sm font-medium text-secondary">Claude</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={resetChat}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted hover:text-secondary hover:bg-hover transition-colors"
             title="New chat session"
           >
             <Plus className="w-3 h-3" />
             <span>New</span>
           </button>
           {authState?.method === 'oauth' && (
-            <span className="text-[10px] text-orange-400/70 bg-orange-400/10 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] text-orange-600 dark:text-orange-400/70 bg-orange-400/10 px-1.5 py-0.5 rounded">
               Max/Pro
             </span>
           )}
           {authState?.method === 'api_key' && (
-            <span className="text-[10px] text-blue-400/70 bg-blue-400/10 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] text-blue-600 dark:text-blue-400/70 bg-blue-400/10 px-1.5 py-0.5 rounded">
               API
             </span>
           )}
@@ -3650,7 +3651,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       </div>
 
       {/* Model selector + Remote indicator */}
-      <div className="px-3 py-1.5 border-b border-zinc-800/50 shrink-0 flex items-center gap-2">
+      <div className="px-3 py-1.5 border-b border-border-default/50 shrink-0 flex items-center gap-2">
         <select
           value={model}
           onChange={(e) => {
@@ -3660,7 +3661,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             }
             setModel(e.target.value);
           }}
-          className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-400 outline-none"
+          className="flex-1 bg-panel border border-border-default rounded px-2 py-1 text-xs text-secondary outline-none"
         >
           {(() => {
             const grouped = groupAndSort(anthropicModels);
@@ -3698,11 +3699,22 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               <option value={customModel}>{customModel}</option>
             </optgroup>
           )}
-          {aiProvider === 'portkey' && portkeyModel && (
-            <optgroup label="Portkey gateway">
-              <option value={portkeyModel}>{portkeyModel}</option>
-            </optgroup>
-          )}
+          {aiProvider === 'portkey' && portkeyModel && (() => {
+            // Render the friendly name (e.g. "Claude Opus 4.8") instead of the
+            // raw `@workspace/model-id` slug.
+            const parsed = parsePortkeySlug(portkeyModel);
+            const label = parsed.family !== 'Other'
+              ? `${parsed.display_name}  ·  ${parsed.workspace_hint}`
+              : portkeyModel;
+            const groupLabel = parsed.family !== 'Other'
+              ? `Portkey · ${familyLabel(parsed.family)}`
+              : 'Portkey gateway';
+            return (
+              <optgroup label={groupLabel}>
+                <option value={portkeyModel}>{label}</option>
+              </optgroup>
+            );
+          })()}
           <optgroup label="—">
             <option value="__configure_provider__">Configure provider…</option>
           </optgroup>
@@ -3725,7 +3737,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               type="button"
               onClick={cycle}
               title={`Reasoning effort: ${effort}. Click to cycle (${levels.join(' → ')})`}
-              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 transition-colors"
+              className="shrink-0 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium bg-surface hover:bg-elevated border border-border-strong text-secondary transition-colors"
             >
               {effort}
             </button>
@@ -3752,7 +3764,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
       {/* Job completion banners (one per pending) */}
       {pendingCompletions.length > 0 && (
-        <div className="border-b border-zinc-800/30 shrink-0 py-1 bg-zinc-950/50">
+        <div className="border-b border-border-default/30 shrink-0 py-1 bg-canvas/50">
           {pendingCompletions.map((c) => (
             <JobCompletionBanner
               key={`${c.profile_id}::${c.job_id}::${c.terminal_at_ms}`}
@@ -3767,19 +3779,19 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
       {/* Remote connection banner */}
       {remoteInfo && (
-        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-zinc-800/30 shrink-0 bg-zinc-900/50">
-          <Server className="w-3 h-3 text-green-400 shrink-0" />
-          <span className="text-[10px] text-green-400 font-medium">{remoteInfo.profileName}</span>
-          <span className="text-[10px] text-zinc-600 mx-0.5">{'\u00B7'}</span>
-          <span className="text-[10px] text-zinc-500 font-mono truncate">{remoteInfo.remotePath}</span>
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border-default/30 shrink-0 bg-panel/50">
+          <Server className="w-3 h-3 text-green-600 dark:text-green-400 shrink-0" />
+          <span className="text-[10px] text-green-600 dark:text-green-400 font-medium">{remoteInfo.profileName}</span>
+          <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
+          <span className="text-[10px] text-muted font-mono truncate">{remoteInfo.remotePath}</span>
 
           {/* Use Terminal toggle */}
           <button
             onClick={() => setUseTerminal((v) => !v)}
             className={`ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors shrink-0 ${
               useTerminal && sshTerminalId
-                ? 'bg-amber-900/40 text-amber-400 hover:bg-amber-900/60'
-                : 'bg-zinc-800 text-zinc-500 hover:text-zinc-400'
+                ? 'bg-amber-900/40 text-amber-600 dark:text-amber-400 hover:bg-amber-900/60'
+                : 'bg-surface text-muted hover:text-secondary'
             }`}
             title={useTerminal
               ? 'Using terminal session (tmux/compute node) — click to use direct SSH instead'
@@ -3796,24 +3808,24 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       {remoteInfo && remoteDeps && remoteDeps.checked && !remoteDeps.hasClaude && (
         <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/30">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-amber-300 font-medium">
+              <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
                 Step 1: Install Claude Code on {remoteInfo.profileName}
               </p>
-              <p className="text-[10px] text-zinc-400 mt-0.5 leading-relaxed">
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
                 Claude Code needs to be installed on the server to run plans and agent tasks remotely.
               </p>
 
-              <div className="mt-1.5 flex items-center gap-1.5 bg-zinc-900/80 rounded px-2 py-1 border border-zinc-700/50">
-                <code className="text-[10px] text-zinc-300 font-mono select-all flex-1">
+              <div className="mt-1.5 flex items-center gap-1.5 bg-panel/80 rounded px-2 py-1 border border-border-strong/50">
+                <code className="text-[10px] text-secondary font-mono select-all flex-1">
                   curl -fsSL https://claude.ai/install.sh | bash
                 </code>
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText('curl -fsSL https://claude.ai/install.sh | bash');
                   }}
-                  className="text-[9px] text-zinc-500 hover:text-zinc-300 shrink-0 px-1"
+                  className="text-[9px] text-muted hover:text-secondary shrink-0 px-1"
                   title="Copy to clipboard"
                 >
                   Copy
@@ -3824,24 +3836,24 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <div className="mt-1.5 space-y-1.5">
                   {(remoteDeps as any).installFailed ? (
                     <>
-                      <p className="text-[10px] text-red-400 font-medium">Automatic installation did not complete successfully.</p>
-                      <div className="p-2 bg-zinc-800/60 rounded border border-zinc-700/40 space-y-1.5">
-                        <p className="text-[10px] text-zinc-300 font-medium">To install manually:</p>
-                        <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal list-inside leading-relaxed">
-                          <li>Open a terminal connected to <span className="text-zinc-300 font-medium">{remoteInfo?.profileName}</span></li>
-                          <li>Run: <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">curl -fsSL https://claude.ai/install.sh | bash</code></li>
-                          <li>If that doesn't work, try: <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">npm install -g @anthropic-ai/claude-code</code></li>
-                          <li>Run <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">source ~/.bashrc</code> to update your PATH</li>
-                          <li>Come back here and click <span className="text-blue-400 font-medium">Re-check</span></li>
+                      <p className="text-[10px] text-red-600 dark:text-red-400 font-medium">Automatic installation did not complete successfully.</p>
+                      <div className="p-2 bg-surface/60 rounded border border-border-strong/40 space-y-1.5">
+                        <p className="text-[10px] text-secondary font-medium">To install manually:</p>
+                        <ol className="text-[10px] text-secondary space-y-1 list-decimal list-inside leading-relaxed">
+                          <li>Open a terminal connected to <span className="text-secondary font-medium">{remoteInfo?.profileName}</span></li>
+                          <li>Run: <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">curl -fsSL https://claude.ai/install.sh | bash</code></li>
+                          <li>If that doesn't work, try: <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">npm install -g @anthropic-ai/claude-code</code></li>
+                          <li>Run <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">source ~/.bashrc</code> to update your PATH</li>
+                          <li>Come back here and click <span className="text-blue-600 dark:text-blue-400 font-medium">Re-check</span></li>
                         </ol>
                       </div>
-                      <details className="text-[9px] text-zinc-600">
-                        <summary className="cursor-pointer hover:text-zinc-400 transition-colors">Show error details</summary>
-                        <pre className="mt-1 text-[9px] text-red-400/70 whitespace-pre-wrap break-all bg-zinc-900/50 rounded p-1.5 border border-zinc-800/50 max-h-24 overflow-y-auto">{remoteDeps.error}</pre>
+                      <details className="text-[9px] text-subtle">
+                        <summary className="cursor-pointer hover:text-secondary transition-colors">Show error details</summary>
+                        <pre className="mt-1 text-[9px] text-red-600 dark:text-red-400/70 whitespace-pre-wrap break-all bg-panel/50 rounded p-1.5 border border-border-default/50 max-h-24 overflow-y-auto">{remoteDeps.error}</pre>
                       </details>
                     </>
                   ) : (
-                    <p className="text-[10px] text-red-400 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-[10px] text-red-600 dark:text-red-400 leading-relaxed whitespace-pre-wrap">
                       {remoteDeps.error}
                     </p>
                   )}
@@ -3852,7 +3864,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <button
                   onClick={installRemoteClaude}
                   disabled={remoteDeps.installing}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 rounded text-[11px] text-white font-medium transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 disabled:bg-elevated rounded text-[11px] text-white font-medium transition-colors"
                 >
                   {remoteDeps.installing ? (
                     <><Loader2 className="w-3 h-3 animate-spin" /> Installing...</>
@@ -3862,11 +3874,11 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </button>
                 <button
                   onClick={recheckRemoteDeps}
-                  className="flex items-center gap-1 px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[11px] text-zinc-400 transition-colors"
+                  className="flex items-center gap-1 px-2 py-1 bg-surface hover:bg-elevated rounded text-[11px] text-secondary transition-colors"
                 >
                   <RefreshCw className="w-3 h-3" /> Re-check
                 </button>
-                <span className="text-[9px] text-zinc-600 ml-auto">
+                <span className="text-[9px] text-subtle ml-auto">
                   or paste the command in the terminal below
                 </span>
               </div>
@@ -3880,18 +3892,18 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.hasClaude && remoteDeps.hasAuth !== true && (
         <div className="px-3 py-2 border-b border-blue-800/30 shrink-0 bg-blue-950/30">
           <div className="flex items-start gap-2">
-            <Key className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+            <Key className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-blue-300 font-medium">
+              <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
                 Step 2: Authenticate Claude Code on {remoteInfo.profileName}
               </p>
-              <p className="text-[10px] text-zinc-400 mt-0.5 leading-relaxed">
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
                 Claude Code is installed but needs to be authenticated. Choose one option:
               </p>
 
               {/* Option A: One-click OAuth login */}
-              <div className="mt-2 p-2 bg-zinc-900/60 rounded border border-zinc-700/50">
-                <p className="text-[10px] text-zinc-300 font-medium mb-1">Option A: Log in with your Claude account</p>
+              <div className="mt-2 p-2 bg-panel/60 rounded border border-border-strong/50">
+                <p className="text-[10px] text-secondary font-medium mb-1">Option A: Log in with your Claude account</p>
                 {loginStatus === 'idle' && (
                   <div className="flex items-center gap-2 mt-1.5">
                     <button
@@ -3990,7 +4002,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   </div>
                 )}
                 {loginStatus === 'fetching' && (
-                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400">
+                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-secondary">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     Running claude login in terminal — watching for login URL...
                   </div>
@@ -3998,13 +4010,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 {loginStatus === 'ready' && loginUrl && (
                   <div className="mt-1.5 space-y-2.5">
                     <div>
-                      <p className="text-[10px] text-green-400 mb-1">Step 1: Sign in using this link (opened in your browser):</p>
-                      <div className="flex items-start gap-1.5 bg-zinc-800/80 rounded px-2.5 py-2 border border-green-700/30">
+                      <p className="text-[10px] text-green-600 dark:text-green-400 mb-1">Step 1: Sign in using this link (opened in your browser):</p>
+                      <div className="flex items-start gap-1.5 bg-surface/80 rounded px-2.5 py-2 border border-green-700/30">
                         <a
                           href={loginUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-[10px] text-blue-400 hover:text-blue-300 underline break-all font-mono flex-1 leading-relaxed"
+                          className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline break-all font-mono flex-1 leading-relaxed"
                         >
                           {loginUrl}
                         </a>
@@ -4012,7 +4024,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           onClick={() => {
                             navigator.clipboard.writeText(loginUrl);
                           }}
-                          className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-700/60 hover:bg-zinc-700 rounded px-2 py-1 shrink-0 transition-colors"
+                          className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary bg-elevated/60 hover:bg-elevated rounded px-2 py-1 shrink-0 transition-colors"
                           title="Copy URL to clipboard"
                         >
                           <Copy className="w-3 h-3 pointer-events-none" />
@@ -4021,7 +4033,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       </div>
                     </div>
                     <div>
-                      <p className="text-[10px] text-zinc-300 mb-1">Step 2: After signing in, paste the authentication code here:</p>
+                      <p className="text-[10px] text-secondary mb-1">Step 2: After signing in, paste the authentication code here:</p>
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
@@ -4042,7 +4054,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                             }
                           }}
                           placeholder="Paste authentication code..."
-                          className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1.5 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-blue-500 font-mono"
+                          className="flex-1 bg-surface border border-border-strong rounded px-2.5 py-1.5 text-[11px] text-primary placeholder-subtle focus:outline-none focus:border-blue-500 font-mono"
                         />
                         <button
                           onClick={() => {
@@ -4058,47 +4070,47 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                             }
                           }}
                           disabled={!authCode.trim()}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 rounded text-[11px] text-white font-medium transition-colors"
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-green-600 hover:bg-green-500 disabled:bg-elevated disabled:text-muted rounded text-[11px] text-white font-medium transition-colors"
                         >
                           <Send className="w-3 h-3 pointer-events-none" />
                           Submit
                         </button>
                       </div>
-                      <p className="text-[9px] text-zinc-600 mt-1">
-                        The code will be sent to the terminal where <code className="bg-zinc-800 px-0.5 rounded">claude login</code> is waiting.
+                      <p className="text-[9px] text-subtle mt-1">
+                        The code will be sent to the terminal where <code className="bg-surface px-0.5 rounded">claude login</code> is waiting.
                       </p>
                     </div>
                   </div>
                 )}
                 {loginStatus === 'code_sent' && (
                   <div className="mt-1.5 space-y-2">
-                    <p className="text-[10px] text-green-400">Authentication code sent!</p>
-                    <div className="p-2 bg-zinc-800/60 rounded border border-green-700/30 space-y-1.5">
-                      <p className="text-[10px] text-zinc-300 font-medium">To finish, switch to the terminal and:</p>
-                      <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal list-inside leading-relaxed">
-                        <li>Press <kbd className="px-1.5 py-0.5 bg-zinc-700 rounded text-zinc-200 font-mono text-[10px]">Enter</kbd> to confirm the authentication</li>
-                        <li>Once logged in, type <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">/exit</code> to exit the Claude TUI</li>
+                    <p className="text-[10px] text-green-600 dark:text-green-400">Authentication code sent!</p>
+                    <div className="p-2 bg-surface/60 rounded border border-green-700/30 space-y-1.5">
+                      <p className="text-[10px] text-secondary font-medium">To finish, switch to the terminal and:</p>
+                      <ol className="text-[10px] text-secondary space-y-1 list-decimal list-inside leading-relaxed">
+                        <li>Press <kbd className="px-1.5 py-0.5 bg-elevated rounded text-primary font-mono text-[10px]">Enter</kbd> to confirm the authentication</li>
+                        <li>Once logged in, type <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">/exit</code> to exit the Claude TUI</li>
                       </ol>
-                      <p className="text-[9px] text-zinc-500 mt-1">Operon will auto-detect when authentication is complete.</p>
+                      <p className="text-[9px] text-muted mt-1">Operon will auto-detect when authentication is complete.</p>
                     </div>
                   </div>
                 )}
                 {loginStatus === 'ready_no_url' && (
                   <div className="mt-1.5 space-y-2">
-                    <p className="text-[10px] text-amber-400">
-                      The <code className="bg-zinc-800 px-1 rounded">claude login</code> command is running in the terminal below.
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400">
+                      The <code className="bg-surface px-1 rounded">claude login</code> command is running in the terminal below.
                     </p>
-                    <div className="p-2 bg-zinc-800/60 rounded border border-amber-700/30 space-y-1">
-                      <p className="text-[10px] text-zinc-300">Check the terminal for a login URL. If you see one:</p>
-                      <ol className="text-[10px] text-zinc-400 space-y-0.5 list-decimal list-inside leading-relaxed">
+                    <div className="p-2 bg-surface/60 rounded border border-amber-700/30 space-y-1">
+                      <p className="text-[10px] text-secondary">Check the terminal for a login URL. If you see one:</p>
+                      <ol className="text-[10px] text-secondary space-y-0.5 list-decimal list-inside leading-relaxed">
                         <li>Copy the URL from the terminal</li>
                         <li>Open it in your browser and sign in</li>
-                        <li>Come back here and click <span className="text-blue-400 font-medium">Re-check Auth</span></li>
+                        <li>Come back here and click <span className="text-blue-600 dark:text-blue-400 font-medium">Re-check Auth</span></li>
                       </ol>
                     </div>
                     <button
                       onClick={() => { setLoginStatus('idle'); }}
-                      className="text-[10px] text-zinc-400 hover:text-zinc-300 underline"
+                      className="text-[10px] text-secondary hover:text-secondary underline"
                     >
                       Try again
                     </button>
@@ -4106,23 +4118,23 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 )}
                 {loginStatus === 'error' && (
                   <div className="mt-1.5 space-y-2">
-                    <p className="text-[10px] text-red-400">Login could not be started automatically.</p>
-                    <div className="p-2 bg-zinc-800/60 rounded border border-zinc-700/40 space-y-1.5">
-                      <p className="text-[10px] text-zinc-300 font-medium">You can log in manually instead:</p>
-                      <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal list-inside leading-relaxed">
-                        <li>Open a terminal connected to <span className="text-zinc-300 font-medium">{remoteInfo?.profileName}</span></li>
-                        <li>Run: <code className="text-amber-400 bg-zinc-900/80 px-1 py-0.5 rounded font-mono">claude login</code></li>
+                    <p className="text-[10px] text-red-600 dark:text-red-400">Login could not be started automatically.</p>
+                    <div className="p-2 bg-surface/60 rounded border border-border-strong/40 space-y-1.5">
+                      <p className="text-[10px] text-secondary font-medium">You can log in manually instead:</p>
+                      <ol className="text-[10px] text-secondary space-y-1 list-decimal list-inside leading-relaxed">
+                        <li>Open a terminal connected to <span className="text-secondary font-medium">{remoteInfo?.profileName}</span></li>
+                        <li>Run: <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">claude login</code></li>
                         <li>Follow the prompts to authenticate</li>
-                        <li>Come back here and click <span className="text-blue-400 font-medium">Re-check Auth</span></li>
+                        <li>Come back here and click <span className="text-blue-600 dark:text-blue-400 font-medium">Re-check Auth</span></li>
                       </ol>
                     </div>
-                    <details className="text-[9px] text-zinc-600">
-                      <summary className="cursor-pointer hover:text-zinc-400 transition-colors">Show error details</summary>
-                      <pre className="mt-1 text-[9px] text-red-400/70 whitespace-pre-wrap break-all bg-zinc-900/50 rounded p-1.5 border border-zinc-800/50 max-h-24 overflow-y-auto">{loginError}</pre>
+                    <details className="text-[9px] text-subtle">
+                      <summary className="cursor-pointer hover:text-secondary transition-colors">Show error details</summary>
+                      <pre className="mt-1 text-[9px] text-red-600 dark:text-red-400/70 whitespace-pre-wrap break-all bg-panel/50 rounded p-1.5 border border-border-default/50 max-h-24 overflow-y-auto">{loginError}</pre>
                     </details>
                     <button
                       onClick={() => { setLoginStatus('idle'); setLoginError(null); }}
-                      className="text-[10px] text-zinc-400 hover:text-zinc-300 underline"
+                      className="text-[10px] text-secondary hover:text-secondary underline"
                     >
                       Try again
                     </button>
@@ -4131,30 +4143,30 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               </div>
 
               {/* Option B: Manual terminal login */}
-              <div className="mt-1.5 p-2 bg-zinc-900/60 rounded border border-zinc-700/50">
-                <p className="text-[10px] text-zinc-300 font-medium mb-1">Option B: Log in manually via terminal</p>
-                <p className="text-[9px] text-zinc-500 leading-relaxed">
-                  If the button above doesn't work, open a terminal to <span className="text-zinc-400">{remoteInfo?.profileName}</span> and run:
+              <div className="mt-1.5 p-2 bg-panel/60 rounded border border-border-strong/50">
+                <p className="text-[10px] text-secondary font-medium mb-1">Option B: Log in manually via terminal</p>
+                <p className="text-[9px] text-muted leading-relaxed">
+                  If the button above doesn't work, open a terminal to <span className="text-secondary">{remoteInfo?.profileName}</span> and run:
                 </p>
-                <div className="mt-1 flex items-center gap-1.5 bg-zinc-800/80 rounded px-2 py-1 border border-zinc-700/30">
-                  <code className="text-[10px] text-amber-400 font-mono select-all flex-1">claude login</code>
+                <div className="mt-1 flex items-center gap-1.5 bg-surface/80 rounded px-2 py-1 border border-border-strong/30">
+                  <code className="text-[10px] text-amber-600 dark:text-amber-400 font-mono select-all flex-1">claude login</code>
                   <button
                     onClick={() => navigator.clipboard.writeText('claude login')}
-                    className="text-[9px] text-zinc-500 hover:text-zinc-300 shrink-0 px-1"
+                    className="text-[9px] text-muted hover:text-secondary shrink-0 px-1"
                   >
                     Copy
                   </button>
                 </div>
-                <p className="text-[9px] text-zinc-600 mt-1">Follow the prompts, then click Re-check Auth below.</p>
+                <p className="text-[9px] text-subtle mt-1">Follow the prompts, then click Re-check Auth below.</p>
               </div>
 
               {/* Option C: API key */}
-              <div className="mt-1.5 p-2 bg-zinc-900/60 rounded border border-zinc-700/50">
-                <p className="text-[10px] text-zinc-300 font-medium mb-1">Option C: Use an API key</p>
-                <p className="text-[9px] text-zinc-500">
+              <div className="mt-1.5 p-2 bg-panel/60 rounded border border-border-strong/50">
+                <p className="text-[10px] text-secondary font-medium mb-1">Option C: Use an API key</p>
+                <p className="text-[9px] text-muted">
                   Set your API key in Operon settings — it gets passed to the server automatically.
                   Get a key from{' '}
-                  <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">
+                  <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline">
                     console.anthropic.com
                   </a>
                 </p>
@@ -4181,14 +4193,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
       {/* Plan workflow banner */}
       {existingPlan && (
-        <div className={`px-3 py-1.5 border-b shrink-0 ${planReady ? 'bg-amber-950/30 border-amber-800/30' : 'bg-blue-950/30 border-zinc-800/30'}`}>
+        <div className={`px-3 py-1.5 border-b shrink-0 ${planReady ? 'bg-amber-950/30 border-amber-800/30' : 'bg-blue-950/30 border-border-default/30'}`}>
           <div className="flex items-center gap-1.5">
-            <ClipboardList className={`w-3 h-3 shrink-0 ${planReady ? 'text-amber-400' : 'text-blue-400'}`} />
-            <span className={`text-[10px] font-medium ${planReady ? 'text-amber-400' : 'text-blue-400'}`}>
+            <ClipboardList className={`w-3 h-3 shrink-0 ${planReady ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`} />
+            <span className={`text-[10px] font-medium ${planReady ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
               {planReady ? 'Plan ready for review' : 'Plan detected'}
             </span>
-            <span className="text-[10px] text-zinc-600 mx-0.5">{'\u00B7'}</span>
-            <span className="text-[10px] text-zinc-500 truncate">
+            <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
+            <span className="text-[10px] text-muted truncate">
               implementation_plan.md ({existingPlan.split('\n').length} lines)
             </span>
             {/* Plan date extracted from content */}
@@ -4196,8 +4208,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               const dateMatch = existingPlan.match(/\*\*Date:\*\*\s*(.+)/);
               return dateMatch ? (
                 <>
-                  <span className="text-[10px] text-zinc-600 mx-0.5">{'\u00B7'}</span>
-                  <span className="text-[10px] text-zinc-600">{dateMatch[1].trim()}</span>
+                  <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
+                  <span className="text-[10px] text-subtle">{dateMatch[1].trim()}</span>
                 </>
               ) : null;
             })()}
@@ -4206,15 +4218,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               <div className="relative ml-1">
                 <button
                   onClick={() => setShowPlanHistory(!showPlanHistory)}
-                  className="flex items-center gap-0.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="flex items-center gap-0.5 text-[10px] text-muted hover:text-secondary transition-colors"
                   title={`${planHistory.length} archived plan${planHistory.length > 1 ? 's' : ''}`}
                 >
                   <History className="w-3 h-3" />
                   <span>{planHistory.length}</span>
                 </button>
                 {showPlanHistory && (
-                  <div className="absolute top-5 left-0 z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
-                    <div className="px-3 py-1.5 border-b border-zinc-800 text-[10px] text-zinc-400 font-medium">
+                  <div className="absolute top-5 left-0 z-50 w-72 bg-panel border border-border-strong rounded-lg shadow-xl overflow-hidden">
+                    <div className="px-3 py-1.5 border-b border-border-default text-[10px] text-secondary font-medium">
                       Plan History ({planHistory.length} archived)
                     </div>
                     <div className="max-h-48 overflow-y-auto">
@@ -4237,10 +4249,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                               console.error('Failed to load plan:', e);
                             }
                           }}
-                          className="w-full px-3 py-1.5 text-left hover:bg-zinc-800 transition-colors border-b border-zinc-800/50 last:border-0"
+                          className="w-full px-3 py-1.5 text-left hover:bg-hover transition-colors border-b border-border-default/50 last:border-0"
                         >
-                          <div className="text-[10px] text-zinc-300 font-medium truncate">{entry.title}</div>
-                          <div className="text-[9px] text-zinc-500">{entry.timestamp} · {entry.lines} lines</div>
+                          <div className="text-[10px] text-secondary font-medium truncate">{entry.title}</div>
+                          <div className="text-[9px] text-muted">{entry.timestamp} · {entry.lines} lines</div>
                         </button>
                       ))}
                     </div>
@@ -4273,13 +4285,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     setPlanReady(false);
                     // Stay in plan mode for iteration
                   }}
-                  className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-[10px] text-muted hover:text-secondary transition-colors"
                 >
                   Keep editing
                 </button>
               </div>
             ) : (
-              <span className="text-[10px] text-zinc-600 ml-auto">
+              <span className="text-[10px] text-subtle ml-auto">
                 {mode === 'agent' ? 'Agent will follow this plan' : mode === 'plan' ? 'Send feedback to update' : 'Available as context'}
               </span>
             )}
@@ -4302,7 +4314,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       setInput(suggestion);
                       textareaRef.current?.focus();
                     }}
-                    className="text-[10px] px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-full transition-colors"
+                    className="text-[10px] px-2 py-0.5 bg-surface hover:bg-elevated text-secondary hover:text-primary rounded-full transition-colors"
                   >
                     {suggestion}
                   </button>
@@ -4339,20 +4351,20 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
       {/* Active Protocols banner */}
       {activeProtocols.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-zinc-800/30 shrink-0 bg-teal-950/30 flex-wrap">
-          <BookOpen className="w-3 h-3 text-teal-400 shrink-0" />
-          <span className="text-[10px] text-teal-400 font-medium">Protocol{activeProtocols.length > 1 ? 's' : ''}</span>
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-border-default/30 shrink-0 bg-teal-950/30 flex-wrap">
+          <BookOpen className="w-3 h-3 text-teal-600 dark:text-teal-400 shrink-0" />
+          <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">Protocol{activeProtocols.length > 1 ? 's' : ''}</span>
           {activeProtocols.map((p, i) => (
             <span key={p.id} className="flex items-center gap-1">
-              {i > 0 && <span className="text-[10px] text-zinc-700">+</span>}
-              <span className="text-[10px] text-zinc-300 truncate">{p.name}</span>
+              {i > 0 && <span className="text-[10px] text-subtle">+</span>}
+              <span className="text-[10px] text-secondary truncate">{p.name}</span>
               <button
                 onClick={() => {
                   const remaining = activeProtocols.filter((ap) => ap.id !== p.id);
                   setActiveProtocols(remaining);
                   setProtocolContents((prev) => { const next = new Map(prev); next.delete(p.id); return next; });
                 }}
-                className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                className="text-[9px] text-subtle hover:text-secondary transition-colors"
                 title={`Remove ${p.name}`}
               >
                 {'\u2715'}
@@ -4367,12 +4379,12 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         <div className="mx-3 mt-2 p-3 bg-indigo-950/40 border border-indigo-800/40 rounded-lg shrink-0">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="text-xs font-medium text-indigo-300">Previous Sessions</span>
+              <RotateCcw className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Previous Sessions</span>
             </div>
             <button
               onClick={handleDismissResume}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-muted hover:text-secondary transition-colors"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -4406,7 +4418,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           })}
           <button
             onClick={handleDismissResume}
-            className="mt-1 text-[10px] text-zinc-500 hover:text-zinc-400 transition-colors"
+            className="mt-1 text-[10px] text-muted hover:text-secondary transition-colors"
           >
             Start new session instead
           </button>
@@ -4418,10 +4430,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {messages.length === 0 && !showResumeModal && (
           <div className="flex flex-col items-center justify-center h-full px-6">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/10 flex items-center justify-center mb-4">
-              <Sparkles className="w-7 h-7 text-blue-400/80" />
+              <Sparkles className="w-7 h-7 text-blue-600 dark:text-blue-400/80" />
             </div>
-            <h3 className="text-base font-medium text-zinc-300 mb-1">What would you like to build?</h3>
-            <p className="text-xs text-zinc-500 text-center max-w-[220px] leading-relaxed">
+            <h3 className="text-base font-medium text-secondary mb-1">What would you like to build?</h3>
+            <p className="text-xs text-muted text-center max-w-[220px] leading-relaxed">
               {remoteInfo
                 ? `Claude will run on ${remoteInfo.profileName} in ${remoteInfo.remotePath}`
                 : 'Describe your task below and Claude will help you build it'}
@@ -4434,7 +4446,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     setInput(hint + ' ');
                     textareaRef.current?.focus();
                   }}
-                  className="px-2.5 py-1 rounded-full border border-zinc-700/60 text-[11px] text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800/50 transition-all"
+                  className="px-2.5 py-1 rounded-full border border-border-strong/60 text-[11px] text-muted hover:text-secondary hover:border-border-strong hover:bg-hover/50 transition-all"
                 >
                   {hint}
                 </button>
@@ -4446,7 +4458,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           <MessageBubble key={msg.id} message={msg} />
         ))}
         {isStreaming && messages[messages.length - 1]?.role !== 'assistant' && (
-          <div className="flex items-center gap-2 text-zinc-500 text-sm">
+          <div className="flex items-center gap-2 text-muted text-sm">
             <span className="animate-pulse">{'\u25CF'}</span>
             <span>Claude is thinking...</span>
           </div>
@@ -4454,7 +4466,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {/* Auto-reconnect indicator — shown while attempting silent reconnect, before the user-facing stall banner appears */}
         {isStreaming && reconnecting && !streamStalled && (
           <div className="my-2 p-2 rounded-lg bg-blue-950/30 border border-blue-800/40 text-[11px] flex items-center gap-2">
-            <span className="animate-pulse text-blue-300">{'\u25CF'}</span>
+            <span className="animate-pulse text-blue-700 dark:text-blue-300">{'\u25CF'}</span>
             <span className="text-blue-200/70">
               SSH stream quiet — reconnecting (attempt {reconnectAttempts.current}/{MAX_RECONNECTS})…
             </span>
@@ -4463,7 +4475,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {/* Stalled stream warning — threshold is mode-dependent */}
         {isStreaming && streamStalled && (
           <div className="my-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[12px]">
-            <p className="text-amber-300 font-medium mb-1">
+            <p className="text-amber-700 dark:text-amber-300 font-medium mb-1">
               No response received for over {mode === 'agent' ? '8 minutes' : '90 seconds'}
             </p>
             <p className="text-amber-200/60 mb-2">
@@ -4527,7 +4539,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             OOM, NFS hiccup) without writing the .done file. */}
         {isStreaming && agentUnresponsive && !streamStalled && (
           <div className="my-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/40 text-[12px]">
-            <p className="text-rose-300 font-medium mb-1">
+            <p className="text-rose-700 dark:text-rose-300 font-medium mb-1">
               Agent has been silent for over 3 minutes
             </p>
             <p className="text-rose-200/60 mb-2">
@@ -4558,7 +4570,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               </button>
               <button
                 onClick={() => setAgentUnresponsive(false)}
-                className="px-2.5 py-1 rounded text-rose-300/60 hover:text-rose-200 text-[11px] transition-colors"
+                className="px-2.5 py-1 rounded text-rose-700 dark:text-rose-300/60 hover:text-rose-200 text-[11px] transition-colors"
               >
                 Keep waiting
               </button>
@@ -4569,7 +4581,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             Hidden for OAuth/subscription auth (no cost-per-minute concern). */}
         {authState?.method !== 'oauth' && isStreaming && sessionBudgetMinutes > 0 && elapsedMinutes >= sessionBudgetMinutes && (
           <div className="my-2 p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/40 text-[12px]">
-            <p className="text-rose-300 font-medium mb-1">
+            <p className="text-rose-700 dark:text-rose-300 font-medium mb-1">
               Session has reached its time budget ({elapsedMinutes} / {sessionBudgetMinutes} min)
             </p>
             <p className="text-rose-200/60 mb-2">
@@ -4588,7 +4600,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               </button>
               <button
                 onClick={() => setSessionBudgetMinutes((m) => m + 30)}
-                className="px-2.5 py-1 rounded text-rose-300/70 hover:text-rose-200 text-[11px] transition-colors"
+                className="px-2.5 py-1 rounded text-rose-700 dark:text-rose-300/70 hover:text-rose-200 text-[11px] transition-colors"
               >
                 +30 min
               </button>
@@ -4601,7 +4613,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           elapsedMinutes >= Math.floor(sessionBudgetMinutes * 0.75) &&
           elapsedMinutes < sessionBudgetMinutes && (
             <div className="my-2 p-2.5 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[12px]">
-              <p className="text-amber-300 font-medium mb-1">
+              <p className="text-amber-700 dark:text-amber-300 font-medium mb-1">
                 Session is at {elapsedMinutes} / {sessionBudgetMinutes} min (75%+)
               </p>
               <p className="text-amber-200/60 mb-2">
@@ -4619,7 +4631,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </button>
                 <button
                   onClick={() => setSessionBudgetMinutes((m) => m + 30)}
-                  className="px-2.5 py-1 rounded text-amber-300/70 hover:text-amber-200 text-[11px] transition-colors"
+                  className="px-2.5 py-1 rounded text-amber-700 dark:text-amber-300/70 hover:text-amber-200 text-[11px] transition-colors"
                 >
                   +30 min
                 </button>
@@ -4629,7 +4641,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {/* Plan conflict resolution UI */}
         {planConflict && (
           <div className="my-3 p-3 rounded-lg bg-amber-950/30 border border-amber-800/40">
-            <p className="text-[12px] text-amber-300 font-medium mb-2">
+            <p className="text-[12px] text-amber-700 dark:text-amber-300 font-medium mb-2">
               An implementation plan already exists. What would you like to do?
             </p>
             <div className="flex flex-col gap-2">
@@ -4652,26 +4664,26 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <FileText className="w-3.5 h-3.5 shrink-0" />
                 <div>
                   <div>Archive old plan & create new</div>
-                  <div className="text-[9px] text-emerald-400/70 font-normal mt-0.5">
+                  <div className="text-[9px] text-emerald-600 dark:text-emerald-400/70 font-normal mt-0.5">
                     Saves current plan to .operon/plan_history/ then generates a fresh plan
                   </div>
                 </div>
               </button>
               <button
                 onClick={() => handlePlanConflictChoice('replace')}
-                className="flex items-center gap-2 px-3 py-2 bg-zinc-700/40 hover:bg-zinc-700/60 border border-zinc-600/40 rounded text-[11px] text-zinc-300 font-medium transition-colors text-left"
+                className="flex items-center gap-2 px-3 py-2 bg-elevated/40 hover:bg-elevated/60 border border-border-strong/40 rounded text-[11px] text-secondary font-medium transition-colors text-left"
               >
                 <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                 <div>
                   <div>Replace existing plan</div>
-                  <div className="text-[9px] text-zinc-500 font-normal mt-0.5">
+                  <div className="text-[9px] text-muted font-normal mt-0.5">
                     Overwrites implementation_plan.md without saving the old one
                   </div>
                 </div>
               </button>
               <button
                 onClick={() => setPlanConflict(null)}
-                className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors mt-0.5"
+                className="text-[10px] text-subtle hover:text-secondary transition-colors mt-0.5"
               >
                 Cancel
               </button>
@@ -4708,12 +4720,12 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             document.addEventListener('mouseup', onUp);
           }}
         >
-          <div className="w-8 h-[3px] rounded-full bg-zinc-700 group-hover:bg-blue-400 transition-colors" />
+          <div className="w-8 h-[3px] rounded-full bg-elevated group-hover:bg-blue-400 transition-colors" />
         </div>
 
         <div className="px-3 pb-3 pt-1">
           {!projectPath && !remoteInfo && (
-            <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-yellow-900/20 border border-yellow-800/30 rounded text-xs text-yellow-400">
+            <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-yellow-900/20 border border-yellow-800/30 rounded text-xs text-yellow-600 dark:text-yellow-400">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Open a folder or connect to a remote server to use Claude</span>
             </div>
@@ -4730,25 +4742,25 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     key={`mention-${ref.path}-${ref.pattern ?? ''}-${idx}`}
                     className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-[11px] ${
                       isGroup
-                        ? 'bg-purple-900/30 border-purple-700/40 text-purple-300'
-                        : 'bg-blue-900/30 border-blue-700/40 text-blue-300'
+                        ? 'bg-purple-900/30 border-purple-700/40 text-purple-700 dark:text-purple-300'
+                        : 'bg-blue-900/30 border-blue-700/40 text-blue-700 dark:text-blue-300'
                     }`}
                     title={isGroup ? `${count} files matching /${ref.pattern}/ under ${ref.path}` : ref.path}
                   >
                     {isGroup ? (
-                      <FolderOpen className="w-3 h-3 text-purple-400" />
+                      <FolderOpen className="w-3 h-3 text-purple-600 dark:text-purple-400" />
                     ) : ref.isDir ? (
-                      <FolderOpen className="w-3 h-3 text-amber-400" />
+                      <FolderOpen className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                     ) : (
-                      <FileText className="w-3 h-3 text-zinc-400" />
+                      <FileText className="w-3 h-3 text-secondary" />
                     )}
                     {ref.name}
                     {isGroup && (
-                      <span className="text-purple-400/80">({count})</span>
+                      <span className="text-purple-600 dark:text-purple-400/80">({count})</span>
                     )}
                     <button
                       onClick={() => setMentions(prev => prev.filter((_, i) => i !== idx))}
-                      className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
+                      className="text-muted hover:text-red-700 dark:hover:text-red-600 transition-colors ml-0.5"
                     >
                       {'\u2715'}
                     </button>
@@ -4758,17 +4770,17 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               {attachments.map((att, idx) => (
                 <span
                   key={`attach-${att.path}-${idx}`}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-900/30 border border-emerald-700/40 rounded-full text-[11px] text-emerald-300"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-900/30 border border-emerald-700/40 rounded-full text-[11px] text-emerald-700 dark:text-emerald-300"
                 >
                   {att.type === 'image' ? (
-                    <Image className="w-3 h-3 text-emerald-400" />
+                    <Image className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <Paperclip className="w-3 h-3 text-emerald-400" />
+                    <Paperclip className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
                   )}
                   {att.name}
                   <button
                     onClick={() => setAttachments(prev => prev.filter((_, i) => i !== idx))}
-                    className="text-zinc-500 hover:text-red-400 transition-colors ml-0.5"
+                    className="text-muted hover:text-red-700 dark:hover:text-red-600 transition-colors ml-0.5"
                   >
                     {'\u2715'}
                   </button>
@@ -4798,7 +4810,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       setMentionQuery('');
                     }, 0);
                   }}
-                  className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-zinc-800 transition-colors text-[11px] text-zinc-500 hover:text-zinc-400"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-hover transition-colors text-[11px] text-muted hover:text-secondary"
                   title="Reference a file or folder (@mention)"
                 >
                   <AtSign className="w-3 h-3" />
@@ -4809,7 +4821,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-zinc-800 transition-colors text-[11px] text-zinc-500 hover:text-zinc-400"
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-hover transition-colors text-[11px] text-muted hover:text-secondary"
                     title="Attach a file or screenshot for context"
                   >
                     <Paperclip className="w-3 h-3" />
@@ -4870,8 +4882,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   onClick={() => setPubmedEnabled(v => !v)}
                   className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors text-[11px] ${
                     pubmedEnabled
-                      ? 'bg-emerald-900/40 border border-emerald-700/40 text-emerald-400 hover:bg-emerald-900/60'
-                      : 'text-zinc-500 hover:text-zinc-400 hover:bg-zinc-800'
+                      ? 'bg-emerald-900/40 border border-emerald-700/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-900/60'
+                      : 'text-muted hover:text-secondary hover:bg-hover'
                   }`}
                   title={pubmedEnabled ? 'PubMed literature search enabled — click to disable' : 'Enable PubMed literature search for grounded answers'}
                 >
@@ -4881,7 +4893,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </button>
               )}
               {mode === 'report' && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-purple-900/40 border border-purple-700/40 text-purple-400">
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-purple-900/40 border border-purple-700/40 text-purple-600 dark:text-purple-400">
                   <BookMarked className="w-3 h-3" />
                   <span>PubMed</span>
                   {pubmedSearching && <Loader2 className="w-2.5 h-2.5 animate-spin ml-0.5" />}
@@ -4889,7 +4901,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-zinc-600">
+            <div className="flex items-center gap-2 text-[10px] text-subtle">
               {/* Session time budget — per-session override.
                   Shows "Xm / Ym" when streaming so the user can see spend
                   at a glance. Tints amber/rose at 75% / 100%.
@@ -4911,17 +4923,17 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   onChange={(e) =>
                     setSessionBudgetMinutes(Math.max(0, parseInt(e.target.value) || 0))
                   }
-                  className="w-10 px-1 py-0 bg-zinc-900 border border-zinc-800 rounded text-[10px] text-zinc-400 outline-none focus:border-zinc-700"
+                  className="w-10 px-1 py-0 bg-panel border border-border-default rounded text-[10px] text-secondary outline-none focus:border-border-strong"
                 />
                 <span>min</span>
                 {isStreaming && sessionBudgetMinutes > 0 && (
                   <span
                     className={
                       elapsedMinutes >= sessionBudgetMinutes
-                        ? 'text-rose-400'
+                        ? 'text-rose-600 dark:text-rose-400'
                         : elapsedMinutes >= Math.floor(sessionBudgetMinutes * 0.75)
-                        ? 'text-amber-400'
-                        : 'text-zinc-500'
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-muted'
                     }
                   >
                     ({elapsedMinutes}/{sessionBudgetMinutes})
@@ -5003,7 +5015,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   : 'Ask Claude to do something... (type @ to reference files)'
               }
               rows={3}
-              className="w-full px-3.5 py-3 pr-20 bg-zinc-900 border border-zinc-700/80 rounded-xl text-[13px] text-zinc-100 placeholder:text-zinc-500 resize-none outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all shadow-lg shadow-black/20"
+              className="w-full px-3.5 py-3 pr-20 bg-panel border border-border-strong/80 rounded-xl text-[13px] text-primary placeholder:text-muted resize-none outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all shadow-lg shadow-black/20"
               style={{ minHeight: '72px', maxHeight: '300px' }}
             />
             {/* Mic button — native macOS speech recognition */}
@@ -5029,15 +5041,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               className={`absolute right-10 bottom-2.5 z-10 p-1.5 rounded-lg transition-all cursor-pointer ${
                 isDictating
                   ? 'bg-red-500/30 animate-pulse'
-                  : 'opacity-50 hover:opacity-80 hover:bg-zinc-800'
+                  : 'opacity-50 hover:opacity-80 hover:bg-hover'
               }`}
               title={isDictating ? 'Stop dictation' : 'Voice input'}
               type="button"
             >
               {isDictating ? (
-                <MicOff className="w-4 h-4 text-red-400" />
+                <MicOff className="w-4 h-4 text-red-600 dark:text-red-400" />
               ) : (
-                <Mic className="w-4 h-4 text-zinc-400" />
+                <Mic className="w-4 h-4 text-secondary" />
               )}
             </button>
             {/* Send / Stop button */}
@@ -5062,7 +5074,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               title={isStreaming ? 'Stop' : 'Send (Enter)'}
             >
               {isStreaming ? (
-                <Square className="w-4 h-4 text-red-400" />
+                <Square className="w-4 h-4 text-red-600 dark:text-red-400" />
               ) : (
                 <Send className="w-4 h-4 text-white" />
               )}

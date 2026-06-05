@@ -214,14 +214,14 @@ export function ExtensionsView() {
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border-default">
           <button
             onClick={() => setDetailView(null)}
-            className="p-0.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+            className="p-0.5 rounded hover:bg-hover text-secondary hover:text-primary"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider truncate">
+          <span className="text-[11px] font-semibold text-muted uppercase tracking-wider truncate">
             {displayName}
           </span>
         </div>
@@ -231,19 +231,19 @@ export function ExtensionsView() {
           {/* Title + actions */}
           <div className="flex items-start justify-between gap-2">
             <div>
-              <h3 className="text-sm font-medium text-zinc-200">{displayName}</h3>
-              <p className="text-[11px] text-zinc-500">{namespace}</p>
+              <h3 className="text-sm font-medium text-primary">{displayName}</h3>
+              <p className="text-[11px] text-muted">{namespace}</p>
             </div>
             <div>
               {isInstalled ? (
                 <button
                   onClick={() => handleUninstall(extId)}
-                  className="px-2 py-1 text-[11px] rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                  className="px-2 py-1 text-[11px] rounded bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
                 >
                   Uninstall
                 </button>
               ) : isInstalling ? (
-                <span className="flex items-center gap-1 text-[11px] text-blue-400">
+                <span className="flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400">
                   <Loader2 className="w-3 h-3 animate-spin" /> Installing...
                 </span>
               ) : (
@@ -263,13 +263,13 @@ export function ExtensionsView() {
           {/* README */}
           {readme === null ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+              <Loader2 className="w-4 h-4 animate-spin text-muted" />
             </div>
           ) : (
-            <div className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap break-words">
+            <div className="text-xs text-secondary leading-relaxed whitespace-pre-wrap break-words">
               {readme.slice(0, 5000)}
               {readme.length > 5000 && (
-                <span className="text-zinc-600">... (truncated)</span>
+                <span className="text-subtle">... (truncated)</span>
               )}
             </div>
           )}
@@ -283,14 +283,14 @@ export function ExtensionsView() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center px-3 py-2 border-b border-zinc-800">
-        <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+      <div className="flex items-center px-3 py-2 border-b border-border-default">
+        <span className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           Extensions
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={loadInstalled}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-hover text-muted hover:text-secondary"
             title="Refresh"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -299,27 +299,27 @@ export function ExtensionsView() {
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2 border-b border-zinc-800">
-        <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-zinc-800/50 border border-zinc-700/50">
-          <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+      <div className="px-3 py-2 border-b border-border-default">
+        <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-surface/50 border border-border-strong/50">
+          <Search className="w-3.5 h-3.5 text-muted shrink-0" />
           <input
             type="text"
             value={query}
             onChange={(e) => handleSearchInput(e.target.value)}
             placeholder="Search extensions..."
-            className="flex-1 bg-transparent text-xs text-zinc-200 placeholder-zinc-600 outline-none"
+            className="flex-1 bg-transparent text-xs text-primary placeholder-subtle outline-none"
           />
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-zinc-800">
+      <div className="flex border-b border-border-default">
         <button
           onClick={() => setTab('marketplace')}
           className={`flex-1 px-3 py-1.5 text-[11px] font-medium transition-colors ${
             tab === 'marketplace'
-              ? 'text-zinc-200 border-b-2 border-blue-500'
-              : 'text-zinc-500 hover:text-zinc-300'
+              ? 'text-primary border-b-2 border-blue-500'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           Marketplace
@@ -328,8 +328,8 @@ export function ExtensionsView() {
           onClick={() => setTab('installed')}
           className={`flex-1 px-3 py-1.5 text-[11px] font-medium transition-colors ${
             tab === 'installed'
-              ? 'text-zinc-200 border-b-2 border-blue-500'
-              : 'text-zinc-500 hover:text-zinc-300'
+              ? 'text-primary border-b-2 border-blue-500'
+              : 'text-muted hover:text-secondary'
           }`}
         >
           Installed ({installed.length})
@@ -376,10 +376,10 @@ export function ExtensionsView() {
 
 function CompatibilityBadge({ report }: { report: CompatibilityReport }) {
   const config: Record<string, { color: string; label: string; icon: typeof CheckCircle }> = {
-    full: { color: 'text-green-400 bg-green-500/10', label: 'Full Support', icon: CheckCircle },
-    lsp: { color: 'text-blue-400 bg-blue-500/10', label: 'LSP Support', icon: CheckCircle },
-    partial: { color: 'text-yellow-400 bg-yellow-500/10', label: 'Partial', icon: AlertCircle },
-    not_compatible: { color: 'text-zinc-500 bg-zinc-700/30', label: 'Not Compatible', icon: AlertCircle },
+    full: { color: 'text-green-600 dark:text-green-400 bg-green-500/10', label: 'Full Support', icon: CheckCircle },
+    lsp: { color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10', label: 'LSP Support', icon: CheckCircle },
+    partial: { color: 'text-yellow-600 dark:text-yellow-400 bg-yellow-500/10', label: 'Partial', icon: AlertCircle },
+    not_compatible: { color: 'text-muted bg-elevated/30', label: 'Not Compatible', icon: AlertCircle },
   };
   const c = config[report.level] || config.not_compatible;
   const Icon = c.icon;
@@ -389,7 +389,7 @@ function CompatibilityBadge({ report }: { report: CompatibilityReport }) {
       <Icon className="w-3 h-3" />
       {c.label}
       {report.unsupported.length > 0 && (
-        <span className="text-zinc-600 ml-1" title={`Unsupported: ${report.unsupported.join(', ')}`}>
+        <span className="text-subtle ml-1" title={`Unsupported: ${report.unsupported.join(', ')}`}>
           ({report.unsupported.length} unsupported)
         </span>
       )}
@@ -432,14 +432,14 @@ function MarketplaceList({
   if (loading && extensions.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+        <Loader2 className="w-5 h-5 animate-spin text-muted" />
       </div>
     );
   }
 
   if (extensions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-zinc-600 text-xs">
+      <div className="flex flex-col items-center justify-center py-12 text-subtle text-xs">
         <Package className="w-8 h-8 mb-2" />
         No extensions found
       </div>
@@ -447,9 +447,9 @@ function MarketplaceList({
   }
 
   return (
-    <div className="divide-y divide-zinc-800/50">
+    <div className="divide-y divide-border-default/50">
       {totalResults > 0 && (
-        <div className="px-3 py-1.5 text-[10px] text-zinc-600">
+        <div className="px-3 py-1.5 text-[10px] text-subtle">
           {totalResults.toLocaleString()} results
         </div>
       )}
@@ -464,13 +464,13 @@ function MarketplaceList({
         return (
           <div
             key={extId}
-            className="px-3 py-2 hover:bg-zinc-800/30 cursor-pointer group"
+            className="px-3 py-2 hover:bg-hover/30 cursor-pointer group"
             onClick={() => onOpenDetail(ext.namespace, ext.name, displayName)}
             onMouseEnter={() => onCheckCompat(ext.namespace, ext.name)}
           >
             <div className="flex items-start gap-2">
               {/* Icon placeholder */}
-              <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded bg-surface flex items-center justify-center shrink-0 mt-0.5">
                 {ext.files?.icon ? (
                   <img
                     src={ext.files.icon}
@@ -481,25 +481,25 @@ function MarketplaceList({
                     }}
                   />
                 ) : (
-                  <Package className="w-4 h-4 text-zinc-600" />
+                  <Package className="w-4 h-4 text-subtle" />
                 )}
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-zinc-200 truncate">
+                  <span className="text-xs font-medium text-primary truncate">
                     {displayName}
                   </span>
                   {ext.verified && (
-                    <CheckCircle className="w-3 h-3 text-blue-400 shrink-0" />
+                    <CheckCircle className="w-3 h-3 text-blue-600 dark:text-blue-400 shrink-0" />
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-zinc-500">{ext.namespace}</span>
+                  <span className="text-[10px] text-muted">{ext.namespace}</span>
                   {ext.download_count ? (
                     <>
-                      <span className="text-[10px] text-zinc-700">{'\u00B7'}</span>
-                      <span className="text-[10px] text-zinc-500">
+                      <span className="text-[10px] text-subtle">{'\u00B7'}</span>
+                      <span className="text-[10px] text-muted">
                         <Download className="w-2.5 h-2.5 inline mr-0.5" />
                         {formatDownloads(ext.download_count)}
                       </span>
@@ -507,8 +507,8 @@ function MarketplaceList({
                   ) : null}
                   {ext.average_rating ? (
                     <>
-                      <span className="text-[10px] text-zinc-700">{'\u00B7'}</span>
-                      <span className="text-[10px] text-zinc-500">
+                      <span className="text-[10px] text-subtle">{'\u00B7'}</span>
+                      <span className="text-[10px] text-muted">
                         <Star className="w-2.5 h-2.5 inline mr-0.5 text-yellow-500" />
                         {ext.average_rating.toFixed(1)}
                       </span>
@@ -516,7 +516,7 @@ function MarketplaceList({
                   ) : null}
                 </div>
                 {ext.description && (
-                  <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">
+                  <p className="text-[10px] text-muted mt-1 line-clamp-2">
                     {ext.description}
                   </p>
                 )}
@@ -529,9 +529,9 @@ function MarketplaceList({
                     className="opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     {isInstalled ? (
-                      <span className="text-[10px] text-green-400">Installed</span>
+                      <span className="text-[10px] text-green-600 dark:text-green-400">Installed</span>
                     ) : isInstalling ? (
-                      <span className="flex items-center gap-1 text-[10px] text-blue-400">
+                      <span className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         {progress?.stage || 'Installing'}
                       </span>
@@ -564,7 +564,7 @@ interface InstalledListProps {
 function InstalledList({ extensions, onUninstall, onToggle, onOpenDetail }: InstalledListProps) {
   if (extensions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-zinc-600 text-xs">
+      <div className="flex flex-col items-center justify-center py-12 text-subtle text-xs">
         <Package className="w-8 h-8 mb-2" />
         No extensions installed
       </div>
@@ -572,45 +572,45 @@ function InstalledList({ extensions, onUninstall, onToggle, onOpenDetail }: Inst
   }
 
   return (
-    <div className="divide-y divide-zinc-800/50">
+    <div className="divide-y divide-border-default/50">
       {extensions.map((ext) => {
         const [namespace, name] = ext.id.split('.');
         return (
           <div
             key={ext.id}
-            className="px-3 py-2 hover:bg-zinc-800/30 cursor-pointer group"
+            className="px-3 py-2 hover:bg-hover/30 cursor-pointer group"
             onClick={() => onOpenDetail(namespace, name, ext.display_name)}
           >
             <div className="flex items-start gap-2">
-              <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center shrink-0 mt-0.5">
-                <Package className="w-4 h-4 text-zinc-600" />
+              <div className="w-8 h-8 rounded bg-surface flex items-center justify-center shrink-0 mt-0.5">
+                <Package className="w-4 h-4 text-subtle" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-xs font-medium truncate ${ext.enabled ? 'text-zinc-200' : 'text-zinc-500'}`}>
+                  <span className={`text-xs font-medium truncate ${ext.enabled ? 'text-primary' : 'text-muted'}`}>
                     {ext.display_name}
                   </span>
-                  <span className="text-[10px] text-zinc-600">v{ext.version}</span>
+                  <span className="text-[10px] text-subtle">v{ext.version}</span>
                 </div>
-                <p className="text-[10px] text-zinc-500 mt-0.5">{ext.publisher}</p>
+                <p className="text-[10px] text-muted mt-0.5">{ext.publisher}</p>
                 {ext.description && (
-                  <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-1">{ext.description}</p>
+                  <p className="text-[10px] text-muted mt-0.5 line-clamp-1">{ext.description}</p>
                 )}
 
                 {/* Contribution summary */}
                 <div className="flex items-center gap-1.5 mt-1">
                   {ext.contributions.themes.length > 0 && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-surface text-secondary">
                       {ext.contributions.themes.length} theme{ext.contributions.themes.length !== 1 ? 's' : ''}
                     </span>
                   )}
                   {ext.contributions.snippets.length > 0 && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-surface text-secondary">
                       {ext.contributions.snippets.length} snippet{ext.contributions.snippets.length !== 1 ? 's' : ''}
                     </span>
                   )}
                   {ext.contributions.languages.length > 0 && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-surface text-secondary">
                       {ext.contributions.languages.length} lang{ext.contributions.languages.length !== 1 ? 's' : ''}
                     </span>
                   )}
@@ -623,7 +623,7 @@ function InstalledList({ extensions, onUninstall, onToggle, onOpenDetail }: Inst
                 >
                   <button
                     onClick={() => onToggle(ext.id, ext.enabled)}
-                    className={`p-0.5 rounded hover:bg-zinc-700 ${ext.enabled ? 'text-green-400' : 'text-zinc-600'}`}
+                    className={`p-0.5 rounded hover:bg-elevated ${ext.enabled ? 'text-green-600 dark:text-green-400' : 'text-subtle'}`}
                     title={ext.enabled ? 'Disable' : 'Enable'}
                   >
                     {ext.enabled ? (
@@ -634,7 +634,7 @@ function InstalledList({ extensions, onUninstall, onToggle, onOpenDetail }: Inst
                   </button>
                   <button
                     onClick={() => onUninstall(ext.id)}
-                    className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-red-400"
+                    className="p-0.5 rounded hover:bg-elevated text-muted hover:text-red-700 dark:hover:text-red-600"
                     title="Uninstall"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -689,9 +689,9 @@ function IntegratedToolsList({ tools, onOpenTool }: IntegratedToolsListProps) {
 
   return (
     <>
-      <div className="border-t border-zinc-800/50 mt-2 pt-2">
+      <div className="border-t border-border-default/50 mt-2 pt-2">
         <div className="px-3 py-1.5">
-          <div className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider mb-2">
+          <div className="text-[10px] text-muted font-medium uppercase tracking-wider mb-2">
             Integrated Tools
           </div>
           <div className="space-y-1">
@@ -700,22 +700,22 @@ function IntegratedToolsList({ tools, onOpenTool }: IntegratedToolsListProps) {
               return (
                 <div
                   key={tool.id}
-                  className="flex items-start gap-2 px-2 py-1.5 rounded bg-zinc-800/40 hover:bg-zinc-800/60 transition-colors cursor-pointer group"
+                  className="flex items-start gap-2 px-2 py-1.5 rounded bg-surface/40 hover:bg-hover/60 transition-colors cursor-pointer group"
                   onClick={() => onOpenTool(tool.id)}
                 >
-                  <div className="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center shrink-0 mt-0">
-                    <Icon className="w-4 h-4 text-zinc-400" />
+                  <div className="w-8 h-8 rounded bg-surface flex items-center justify-center shrink-0 mt-0">
+                    <Icon className="w-4 h-4 text-secondary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-zinc-200">{tool.name}</div>
-                    <p className="text-[10px] text-zinc-500">{tool.description}</p>
+                    <div className="text-xs font-medium text-primary">{tool.name}</div>
+                    <p className="text-[10px] text-muted">{tool.description}</p>
                   </div>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onOpenTool(tool.id);
                     }}
-                    className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="p-1 rounded hover:bg-elevated text-muted hover:text-secondary shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Open"
                   >
                     <Play className="w-3.5 h-3.5" />

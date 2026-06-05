@@ -51,17 +51,17 @@ function PdfViewer({ fileName, base64Content, onDownload }: {
   }, [blobUrl]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 shrink-0">
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <FileText className="w-4 h-4 text-red-400" />
+    <div className="flex flex-col h-full bg-canvas">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default shrink-0">
+        <div className="flex items-center gap-2 text-xs text-secondary">
+          <FileText className="w-4 h-4 text-red-600 dark:text-red-400" />
           <span className="font-medium">{fileName}</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={onDownload}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-hover transition-colors cursor-pointer"
             title="Download"
           >
             <Download className="w-3.5 h-3.5" />
@@ -76,7 +76,7 @@ function PdfViewer({ fileName, base64Content, onDownload }: {
             title={fileName}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
+          <div className="flex items-center justify-center h-full text-muted text-sm">
             Failed to load PDF preview
           </div>
         )}
@@ -148,20 +148,20 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
 
   if (binaryType === 'html') {
     return (
-      <div className="flex flex-col h-full bg-zinc-950">
+      <div className="flex flex-col h-full bg-canvas">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-zinc-400">
-            <Globe className="w-4 h-4 text-orange-400" />
+        <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default shrink-0">
+          <div className="flex items-center gap-2 text-xs text-secondary">
+            <Globe className="w-4 h-4 text-orange-600 dark:text-orange-400" />
             <span className="font-medium">{fileName}</span>
-            <span className="text-zinc-600">|</span>
-            <span className="text-zinc-500">Preview</span>
+            <span className="text-subtle">|</span>
+            <span className="text-muted">Preview</span>
           </div>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={handleDownload}
-              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs text-secondary hover:text-primary hover:bg-hover transition-colors cursor-pointer"
               title="Download"
             >
               <Download className="w-3.5 h-3.5" />
@@ -214,20 +214,20 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
 
   // Image viewer
   return (
-    <div className="flex flex-col h-full bg-zinc-950">
+    <div className="flex flex-col h-full bg-canvas">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 shrink-0 z-10">
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <ImageIcon className="w-4 h-4 text-green-400" />
+      <div className="flex items-center justify-between px-3 py-1.5 bg-panel border-b border-border-default shrink-0 z-10">
+        <div className="flex items-center gap-2 text-xs text-secondary">
+          <ImageIcon className="w-4 h-4 text-green-600 dark:text-green-400" />
           <span className="font-medium">{fileName}</span>
-          <span className="text-zinc-600">|</span>
-          <span className="text-zinc-500">{zoom}%</span>
+          <span className="text-subtle">|</span>
+          <span className="text-muted">{zoom}%</span>
         </div>
         <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={zoomOut}
-            className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded text-muted hover:text-secondary hover:bg-hover transition-colors cursor-pointer"
             title="Zoom Out"
           >
             <ZoomOut className="w-3.5 h-3.5 pointer-events-none" />
@@ -235,7 +235,7 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
           <button
             type="button"
             onClick={zoomIn}
-            className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded text-muted hover:text-secondary hover:bg-hover transition-colors cursor-pointer"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5 pointer-events-none" />
@@ -243,7 +243,7 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
           <button
             type="button"
             onClick={rotate}
-            className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded text-muted hover:text-secondary hover:bg-hover transition-colors cursor-pointer"
             title="Rotate"
           >
             <RotateCw className="w-3.5 h-3.5 pointer-events-none" />
@@ -251,16 +251,16 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
           <button
             type="button"
             onClick={resetZoom}
-            className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded text-muted hover:text-secondary hover:bg-hover transition-colors cursor-pointer"
             title="Fit to View"
           >
             <Maximize2 className="w-3.5 h-3.5 pointer-events-none" />
           </button>
-          <div className="w-px h-4 bg-zinc-800 mx-1" />
+          <div className="w-px h-4 bg-surface mx-1" />
           <button
             type="button"
             onClick={handleDownload}
-            className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 rounded text-muted hover:text-secondary hover:bg-hover transition-colors cursor-pointer"
             title="Download"
           >
             <Download className="w-3.5 h-3.5 pointer-events-none" />

@@ -24,7 +24,8 @@
       "binaries/rg-x86_64-unknown-linux-musl"
     ],
     "externalBin": [
-      "binaries/rg"
+      "binaries/rg",
+      "binaries/anthropic-proxy"
     ],
     "targets": "all",
     "createUpdaterArtifacts": true,
@@ -69,7 +70,9 @@
         "decorations": true,
         "center": true,
         "useHttpsScheme": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

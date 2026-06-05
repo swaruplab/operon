@@ -1,13 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield, Cpu, RefreshCw, Lock, Globe } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
-import { isMac } from '../../lib/platform';
+import { isMac, isWindows } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
 import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
-import { listPortkeyPresets, fetchPortkeyModels, type PortkeyPreset, type PortkeyModel } from '../../lib/portkey';
+import {
+  listPortkeyPresets, fetchPortkeyModels,
+  groupPortkeyModelsByFamily, familyLabel, pickBestPortkeyModel,
+  isAnthropicPortkeyModel,
+  type PortkeyPreset, type PortkeyModel,
+} from '../../lib/portkey';
 import { getApiKey } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
@@ -43,31 +48,31 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
 
   return (
     <div className={`rounded-lg border transition-colors ${
-      enabled ? 'border-blue-800/40 bg-blue-950/10' : 'border-zinc-800 bg-zinc-900/40'
+      enabled ? 'border-blue-800/40 bg-blue-950/10' : 'border-border-default bg-panel/40'
     }`}>
       {/* Main row */}
       <div className="flex items-start gap-3 px-3.5 py-3">
         {/* Icon */}
-        <div className={`mt-0.5 p-1.5 rounded-md ${enabled ? 'bg-blue-900/30' : 'bg-zinc-800/60'}`}>
-          <Server className={`w-3.5 h-3.5 ${enabled ? 'text-blue-400' : 'text-zinc-500'}`} />
+        <div className={`mt-0.5 p-1.5 rounded-md ${enabled ? 'bg-blue-900/30' : 'bg-surface/60'}`}>
+          <Server className={`w-3.5 h-3.5 ${enabled ? 'text-blue-600 dark:text-blue-400' : 'text-muted'}`} />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-medium text-zinc-200">{entry?.name || server.config.name}</span>
+            <span className="text-[13px] font-medium text-primary">{entry?.name || server.config.name}</span>
             <span className={`text-[9px] font-medium uppercase tracking-wide px-1.5 py-[1px] rounded ${
               entry?.runtime === 'node'
-                ? 'bg-green-900/30 text-green-400 border border-green-800/30'
-                : 'bg-yellow-900/30 text-yellow-400 border border-yellow-800/30'
+                ? 'bg-green-900/30 text-green-600 dark:text-green-400 border border-green-800/30'
+                : 'bg-yellow-900/30 text-yellow-600 dark:text-yellow-400 border border-yellow-800/30'
             }`}>
               {entry?.runtime === 'node' ? 'Node.js' : 'Python'}
             </span>
             {entry && (
-              <span className="text-[10px] text-zinc-500">{entry.tools_count} tools</span>
+              <span className="text-[10px] text-muted">{entry.tools_count} tools</span>
             )}
           </div>
-          <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed line-clamp-2">
+          <p className="text-[11px] text-muted mt-1 leading-relaxed line-clamp-2">
             {entry?.description || server.config.description}
           </p>
         </div>
@@ -75,12 +80,12 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
         {/* Toggle */}
         <div className="shrink-0 mt-0.5">
           {isInstalling ? (
-            <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+            <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
           ) : (
             <button
               onClick={onToggle}
               className={`relative inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
-                enabled ? 'bg-blue-500' : 'bg-zinc-600'
+                enabled ? 'bg-blue-500' : 'bg-elevated'
               }`}
               aria-label={enabled ? 'Disable server' : 'Enable server'}
             >
@@ -97,7 +102,7 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
       {/* Details toggle */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 w-full px-3.5 py-1.5 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors border-t border-zinc-800/40"
+        className="flex items-center gap-1 w-full px-3.5 py-1.5 text-[10px] text-muted hover:text-secondary transition-colors border-t border-border-default/40"
       >
         {expanded ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
         Details
@@ -107,31 +112,31 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
       {expanded && entry && (
         <div className="px-3.5 pb-3 space-y-2.5">
           <div>
-            <span className="text-[10px] text-zinc-400 font-medium">Tools:</span>
+            <span className="text-[10px] text-secondary font-medium">Tools:</span>
             <div className="mt-1 flex flex-wrap gap-1">
               {entry.tools_summary.slice(0, 8).map((tool, i) => (
-                <span key={i} className="text-[9px] text-zinc-400 bg-zinc-800/60 px-1.5 py-0.5 rounded font-mono">
+                <span key={i} className="text-[9px] text-secondary bg-surface/60 px-1.5 py-0.5 rounded font-mono">
                   {tool}
                 </span>
               ))}
               {entry.tools_summary.length > 8 && (
-                <span className="text-[9px] text-zinc-600 px-1.5 py-0.5">+{entry.tools_summary.length - 8} more</span>
+                <span className="text-[9px] text-subtle px-1.5 py-0.5">+{entry.tools_summary.length - 8} more</span>
               )}
             </div>
           </div>
           {entry.databases.length > 0 && (
             <div>
-              <span className="text-[10px] text-zinc-400 font-medium">Databases:</span>
-              <p className="text-[10px] text-zinc-500 mt-0.5 leading-relaxed">{entry.databases.join(' \u00b7 ')}</p>
+              <span className="text-[10px] text-secondary font-medium">Databases:</span>
+              <p className="text-[10px] text-muted mt-0.5 leading-relaxed">{entry.databases.join(' \u00b7 ')}</p>
             </div>
           )}
           <div className="flex items-center gap-3 pt-1">
-            <span className="text-[10px] text-zinc-600">License: {entry.license}</span>
+            <span className="text-[10px] text-subtle">License: {entry.license}</span>
             {entry.homepage && (
               <a
                 onClick={(e) => { e.preventDefault(); invoke('open_url', { url: entry.homepage }); }}
                 href="#"
-                className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300"
+                className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700"
               >
                 <ExternalLink className="w-2.5 h-2.5" /> Homepage
               </a>
@@ -140,11 +145,11 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
           {/* Environment Variables (API keys etc.) */}
           {envKeys.length > 0 && (
             <div>
-              <span className="text-[10px] text-zinc-400 font-medium">Environment Variables:</span>
+              <span className="text-[10px] text-secondary font-medium">Environment Variables:</span>
               <div className="mt-1.5 space-y-1.5">
                 {envKeys.map((key) => (
                   <div key={key} className="flex items-center gap-2">
-                    <span className="text-[10px] text-zinc-500 font-mono shrink-0 min-w-0 truncate" title={key}>
+                    <span className="text-[10px] text-muted font-mono shrink-0 min-w-0 truncate" title={key}>
                       {key.replace(/_/g, '_\u200B')}
                     </span>
                     <input
@@ -152,7 +157,7 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
                       value={envValues[key] || ''}
                       onChange={(e) => setEnvValues(prev => ({ ...prev, [key]: e.target.value }))}
                       placeholder="Enter value..."
-                      className="flex-1 px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-[11px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-600/50 font-mono min-w-0"
+                      className="flex-1 px-2 py-1 bg-panel border border-border-strong rounded text-[11px] text-primary placeholder:text-subtle outline-none focus:border-blue-600/50 font-mono min-w-0"
                     />
                   </div>
                 ))}
@@ -180,7 +185,7 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
                   {envSaving ? 'Saving...' : 'Save Keys'}
                 </button>
                 {envSaved && (
-                  <p className="text-[10px] text-emerald-400 mt-1">
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">
                     Keys saved. Start a <strong>new chat session</strong> for changes to take effect.
                   </p>
                 )}
@@ -191,8 +196,8 @@ function CatalogServerCard({ server, entry, depCheck, isInstalling, onToggle, on
           {depCheck && (
             <div className={`flex items-center gap-2 p-2 rounded-md text-[10px] ${
               depCheck.satisfied
-                ? 'bg-green-950/20 text-green-400 border border-green-900/20'
-                : 'bg-yellow-950/20 text-yellow-400 border border-yellow-900/20'
+                ? 'bg-green-950/20 text-green-600 dark:text-green-400 border border-green-900/20'
+                : 'bg-yellow-950/20 text-yellow-600 dark:text-yellow-400 border border-yellow-900/20'
             }`}>
               {depCheck.satisfied ? (
                 <><CheckCircle className="w-3 h-3 shrink-0" /> {depCheck.runtime} {depCheck.runtime_version}</>
@@ -238,21 +243,22 @@ function PortkeyProviderPanel({
     // Pre-fill the base URL from the preset. Empty for self-hosted/custom so
     // the user types their own. Don't clobber a user-entered URL when they
     // re-select the same preset.
+    //
+    // Do NOT pre-save portkey_model here — let the live catalog auto-pick the
+    // best model once the user pastes a virtual key (see the effect below).
+    // Pre-saving from suggested_models[0] locks in a possibly-stale value
+    // before the live catalog has a chance to show e.g. Opus 4.8.
     const next: AppSettings = {
       ...settings,
       portkey_preset_id: id,
       portkey_base_url: p.base_url || settings.portkey_base_url,
-      // If preset has suggested models and nothing is set, pre-pick the first.
-      portkey_model:
-        settings.portkey_model ||
-        (p.suggested_models.length > 0 ? p.suggested_models[0] : ''),
     };
     saveSettings(next);
     setModels([]);
     setModelError(null);
   };
 
-  const refreshModels = async () => {
+  const refreshModels = async (opts?: { autoPickBest?: boolean }) => {
     setFetchingModels(true);
     setModelError(null);
     try {
@@ -263,6 +269,10 @@ function PortkeyProviderPanel({
       setModels(fresh);
       if (fresh.length === 0) {
         setModelError('Gateway returned 0 models — paste a slug manually below.');
+      } else if (opts?.autoPickBest && !settings.portkey_model) {
+        // First connect — auto-pick the best Claude in the catalog.
+        const best = pickBestPortkeyModel(fresh.map((m) => m.id));
+        if (best) saveSettings({ ...settings, portkey_model: best });
       }
     } catch (err) {
       setModelError(String(err));
@@ -271,21 +281,83 @@ function PortkeyProviderPanel({
     }
   };
 
+  // Auto-fetch the catalog as soon as the user pastes a virtual key + has a
+  // base URL. Debounced so we don't spam the gateway on every keystroke.
+  useEffect(() => {
+    const key = settings.portkey_api_key.trim();
+    const base = settings.portkey_base_url.trim();
+    if (!key || !base) return;
+    if (models.length > 0) return;        // already have a catalog
+    const t = setTimeout(() => {
+      refreshModels({ autoPickBest: true }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.portkey_api_key, settings.portkey_base_url]);
+
+  // Auto start/stop the bundled translation proxy when the user picks a
+  // non-Anthropic Portkey model. Portkey's Anthropic-passthrough surface
+  // (/v1/messages) only handles Claude; Moonshot Kimi / GPT / Gemini must
+  // come in via Portkey's OpenAI Chat-Completions endpoint, which Claude
+  // Code can't speak directly. The bundled `anthropic-proxy` sidecar
+  // translates Anthropic → OpenAI in-process on localhost.
+  //
+  // Why this is critical for Bedrock non-Anthropic models specifically:
+  // Claude Code packs a JSON blob into `metadata.user_id` for telemetry.
+  // Portkey's Anthropic→Bedrock translator copies that into Bedrock's
+  // `requestMetadata`, whose regex `[a-zA-Z0-9\s:_@$#=/+,-.]` rejects
+  // the JSON braces. The anthropic-proxy drops `metadata` entirely,
+  // bypassing the issue. If the proxy fails to start the user gets a
+  // confusing 400 — so surface start errors via setProxyError below
+  // instead of silently swallowing them.
+  //
+  // Windows users: the sidecar is a no-op stub on Windows (the upstream
+  // depends on Unix-only daemonize), so we surface a warning instead.
+  const [proxyError, setProxyError] = useState<string | null>(null);
+  useEffect(() => {
+    const model = settings.portkey_model.trim();
+    const base = settings.portkey_base_url.trim();
+    const key = settings.portkey_api_key.trim();
+    if (!model || !base || !key) return;
+    if (isAnthropicPortkeyModel(model)) {
+      setProxyError(null);
+      stopTranslationProxy().catch(() => {});
+      return;
+    }
+    if (isWindows) return;     // proxy not supported, warning shown in UI
+    setProxyError(null);
+    startTranslationProxy(base, key).catch((err) => {
+      const msg = String(err);
+      setProxyError(msg);
+      console.error('[portkey] startTranslationProxy failed:', msg);
+    });
+  }, [settings.portkey_model, settings.portkey_base_url, settings.portkey_api_key]);
+
   const hintModels: string[] = activePreset?.suggested_models ?? [];
   // Combined list: live-fetched (preferred) OR hint list (fallback). De-dup.
   const modelOptions: string[] = [
     ...new Set([...models.map((m) => m.id), ...hintModels]),
   ];
+  // Group by family (Anthropic / Google / Moonshot / …) sorted best-first.
+  // OpenAI is hidden until Phase 13 (native multi-provider agent loop) lands:
+  // GPT-5+ / o-series need /v1/responses and tool-use semantics our current
+  // anthropic-proxy can't translate. Non-reasoning OpenAI models (GPT-4o,
+  // GPT-4.1) technically work via the proxy today, but we hide them too to
+  // avoid "some OpenAI works, some doesn't" confusion. Re-enable by removing
+  // this filter once Phase 13 ships.
+  const groupedModels = groupPortkeyModelsByFamily(modelOptions).filter(
+    ([family]) => family !== 'OpenAI',
+  );
 
   return (
-    <div className="space-y-4 border-t border-zinc-800 pt-4">
+    <div className="space-y-4 border-t border-border-default pt-4">
       {/* Deployment dropdown */}
       <label className="block">
-        <span className="block text-[11px] text-zinc-400 mb-1">Gateway deployment</span>
+        <span className="block text-[11px] text-secondary mb-1">Gateway deployment</span>
         <select
           value={settings.portkey_preset_id || ''}
           onChange={(e) => pickPreset(e.target.value)}
-          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50"
+          className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-emerald-600/50"
         >
           <option value="" disabled>
             Choose your gateway…
@@ -297,16 +369,16 @@ function PortkeyProviderPanel({
           ))}
         </select>
         {activePreset && (
-          <span className="block text-[10px] text-zinc-500 mt-1">{activePreset.description}</span>
+          <span className="block text-[10px] text-muted mt-1">{activePreset.description}</span>
         )}
       </label>
 
       {/* Preset-specific eligibility + signup links */}
       {activePreset && (activePreset.eligibility || activePreset.signup_url) && (
-        <div className="bg-zinc-900/50 border border-zinc-800 rounded-md p-2.5 space-y-1.5 text-[11px]">
+        <div className="bg-panel/50 border border-border-default rounded-md p-2.5 space-y-1.5 text-[11px]">
           {activePreset.eligibility && (
-            <div className="text-zinc-300">
-              <span className="text-zinc-500">Eligibility · </span>
+            <div className="text-secondary">
+              <span className="text-muted">Eligibility · </span>
               {activePreset.eligibility}
             </div>
           )}
@@ -316,7 +388,7 @@ function PortkeyProviderPanel({
                 onClick={() =>
                   invoke('open_url', { url: activePreset.signup_url }).catch(() => {})
                 }
-                className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+                className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-700"
               >
                 <ExternalLink className="w-3 h-3 pointer-events-none" />
                 Get an API key
@@ -327,7 +399,7 @@ function PortkeyProviderPanel({
                 onClick={() =>
                   invoke('open_url', { url: activePreset.docs_url }).catch(() => {})
                 }
-                className="flex items-center gap-1 text-zinc-400 hover:text-zinc-300"
+                className="flex items-center gap-1 text-secondary hover:text-secondary"
               >
                 <ExternalLink className="w-3 h-3 pointer-events-none" />
                 Docs
@@ -339,15 +411,15 @@ function PortkeyProviderPanel({
 
       {/* Base URL — pre-filled from preset, editable for self-hosted/custom */}
       <label className="block">
-        <span className="block text-[11px] text-zinc-400 mb-1">Base URL</span>
+        <span className="block text-[11px] text-secondary mb-1">Base URL</span>
         <input
           type="text"
           value={settings.portkey_base_url}
           onChange={(e) => saveSettings({ ...settings, portkey_base_url: e.target.value })}
           placeholder="https://api.zotgpt.uci.edu/v1"
-          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+          className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-emerald-600/50 font-mono"
         />
-        <span className="block text-[10px] text-zinc-600 mt-1">
+        <span className="block text-[10px] text-subtle mt-1">
           Should end in <span className="font-mono">/v1</span>. Portkey speaks Anthropic's
           <span className="font-mono"> /v1/messages</span> natively — works on Windows + HPC.
         </span>
@@ -355,29 +427,29 @@ function PortkeyProviderPanel({
 
       {/* Virtual API key */}
       <label className="block">
-        <span className="block text-[11px] text-zinc-400 mb-1">Virtual API key</span>
+        <span className="block text-[11px] text-secondary mb-1">Virtual API key</span>
         <input
           type="password"
           value={settings.portkey_api_key}
           onChange={(e) => saveSettings({ ...settings, portkey_api_key: e.target.value })}
           placeholder="pk-…"
-          className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+          className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-emerald-600/50 font-mono"
         />
       </label>
 
       {/* Model selector */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-zinc-400">Model</span>
+          <span className="text-[11px] text-secondary">Model</span>
           <div className="flex items-center gap-2">
             <button
-              onClick={refreshModels}
+              onClick={() => refreshModels()}
               disabled={
                 fetchingModels ||
                 !settings.portkey_base_url.trim() ||
                 !settings.portkey_api_key.trim()
               }
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+              className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-secondary hover:text-primary disabled:opacity-40"
               title="Call /v1/models on the configured gateway"
             >
               <RefreshCw className={`w-3 h-3 ${fetchingModels ? 'animate-spin' : ''}`} />
@@ -385,7 +457,7 @@ function PortkeyProviderPanel({
             </button>
             <button
               onClick={() => setCustomSlug((v) => !v)}
-              className="text-[10px] text-zinc-500 hover:text-zinc-300"
+              className="text-[10px] text-muted hover:text-secondary"
             >
               {customSlug ? 'Pick from list' : 'Paste slug'}
             </button>
@@ -397,47 +469,100 @@ function PortkeyProviderPanel({
             value={settings.portkey_model}
             onChange={(e) => saveSettings({ ...settings, portkey_model: e.target.value })}
             placeholder="@workspace/model-slug"
-            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono"
+            className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-emerald-600/50 font-mono"
           />
         ) : (
           <select
             value={settings.portkey_model}
             onChange={(e) => saveSettings({ ...settings, portkey_model: e.target.value })}
             disabled={modelOptions.length === 0}
-            className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-emerald-600/50 font-mono disabled:opacity-50"
+            className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-emerald-600/50 disabled:opacity-50"
           >
             {modelOptions.length === 0 ? (
               <option value="">
-                {settings.portkey_model || 'Refresh catalog or paste a slug'}
+                {settings.portkey_model || 'Paste a virtual key — catalog loads automatically'}
               </option>
             ) : (
               <>
                 {settings.portkey_model && !modelOptions.includes(settings.portkey_model) && (
-                  <option value={settings.portkey_model}>{settings.portkey_model} (saved)</option>
-                )}
-                {modelOptions.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
+                  <option value={settings.portkey_model}>
+                    {settings.portkey_model} (saved)
                   </option>
+                )}
+                {groupedModels.map(([family, models]) => (
+                  <optgroup key={family} label={familyLabel(family)}>
+                    {models.map((m) => (
+                      <option key={m.slug} value={m.slug}>
+                        {m.display_name}
+                        {m.workspace_hint ? `  ·  via ${m.workspace_hint}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </>
             )}
           </select>
         )}
-        {modelError && <div className="text-[10px] text-amber-400">{modelError}</div>}
-        {models.length === 0 && hintModels.length > 0 && !modelError && (
-          <div className="text-[10px] text-zinc-600">
-            Showing suggested slugs for {activePreset?.label}. Click "Refresh catalog" to load the live list.
+        {modelError && <div className="text-[10px] text-amber-600 dark:text-amber-400">{modelError}</div>}
+        {models.length === 0 && hintModels.length > 0 && !modelError && !fetchingModels && (
+          <div className="text-[10px] text-subtle">
+            Showing suggested defaults for {activePreset?.label}. Paste your virtual key above to auto-load the live catalog.
           </div>
+        )}
+        {models.length > 0 && !modelError && (
+          <div className="text-[10px] text-subtle">
+            Grouped by model family · {models.length} models available · best-first
+          </div>
+        )}
+        {settings.portkey_model && !isAnthropicPortkeyModel(settings.portkey_model) && (
+          /^@[^/]+\/(?:gpt|o[1-9])/i.test(settings.portkey_model) ? (
+            <div className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed mt-1">
+              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>
+                OpenAI is temporarily disabled. GPT-5+/o-series need OpenAI's
+                Responses API (which our translation proxy can't speak yet)
+                and we're hiding all OpenAI models to avoid mixed-support
+                confusion. Coming back in Phase 13 — native multi-provider
+                agent loop. Pick a Claude, Kimi, or Gemini model meanwhile.
+              </span>
+            </div>
+          ) : isWindows ? (
+            <div className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed mt-1">
+              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>
+                Non-Anthropic Portkey models need the local translation proxy,
+                which isn't available on Windows. Pick a Claude model, or
+                connect to a remote LiteLLM/OpenRouter endpoint via the
+                Custom provider instead.
+              </span>
+            </div>
+          ) : proxyError ? (
+            <div className="flex items-start gap-1.5 text-[10px] text-red-600 dark:text-red-400 leading-relaxed mt-1">
+              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>
+                Translation proxy failed to start: {proxyError}. Non-Anthropic
+                Portkey models will fail until this is fixed.
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-start gap-1.5 text-[10px] text-purple-600 dark:text-purple-400 leading-relaxed mt-1">
+              <Server className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>
+                Routed via local Anthropic→OpenAI translation proxy (Claude
+                Code can't speak this model's API directly). Started
+                automatically; tool-use quality may be lower than Claude.
+              </span>
+            </div>
+          )
         )}
       </div>
 
       {/* Privacy footnote */}
       {activePreset?.privacy_summary && (
-        <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 leading-relaxed pt-1">
-          <Lock className="w-3 h-3 mt-0.5 shrink-0 text-zinc-600" />
+        <div className="flex items-start gap-1.5 text-[10px] text-muted leading-relaxed pt-1">
+          <Lock className="w-3 h-3 mt-0.5 shrink-0 text-subtle" />
           <span>
-            <span className="text-zinc-400">Privacy · </span>
+            <span className="text-secondary">Privacy · </span>
             {activePreset.privacy_summary}
           </span>
         </div>
@@ -630,12 +755,12 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[700px] max-h-[80vh] bg-zinc-900 rounded-xl border border-zinc-700 shadow-2xl flex overflow-hidden">
+      <div className="relative w-[700px] max-h-[80vh] bg-panel rounded-xl border border-border-strong shadow-2xl flex overflow-hidden">
         {/* Sidebar */}
-        <div className="w-[180px] border-r border-zinc-800 py-3">
-          <div className="flex items-center gap-2 px-4 pb-3 border-b border-zinc-800">
-            <Settings className="w-4 h-4 text-zinc-400" />
-            <span className="text-sm font-medium text-zinc-300">Settings</span>
+        <div className="w-[180px] border-r border-border-default py-3">
+          <div className="flex items-center gap-2 px-4 pb-3 border-b border-border-default">
+            <Settings className="w-4 h-4 text-secondary" />
+            <span className="text-sm font-medium text-secondary">Settings</span>
           </div>
           <div className="py-2">
             {sections.map((section) => (
@@ -644,8 +769,8 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 onClick={() => setActiveSection(section.id)}
                 className={`w-full text-left px-4 py-1.5 text-sm ${
                   activeSection === section.id
-                    ? 'bg-zinc-800 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                    ? 'bg-surface text-primary'
+                    : 'text-secondary hover:text-primary hover:bg-hover/50'
                 }`}
               >
                 {section.label}
@@ -658,41 +783,41 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
         <div className="flex-1 overflow-y-auto p-6">
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300"
+            className="absolute top-3 right-3 p-1 rounded hover:bg-hover text-muted hover:text-secondary"
           >
             <X className="w-4 h-4" />
           </button>
 
           {activeSection === 'editor' && (
             <div className="space-y-5">
-              <h3 className="text-sm font-medium text-zinc-200">Editor Settings</h3>
+              <h3 className="text-sm font-medium text-primary">Editor Settings</h3>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Font Size</span>
+                <span className="text-sm text-secondary">Font Size</span>
                 <input
                   type="number"
                   value={settings.font_size}
                   onChange={(e) =>
                     saveSettings({ ...settings, font_size: parseInt(e.target.value) || 13 })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Tab Size</span>
+                <span className="text-sm text-secondary">Tab Size</span>
                 <input
                   type="number"
                   value={settings.tab_size}
                   onChange={(e) =>
                     saveSettings({ ...settings, tab_size: parseInt(e.target.value) || 2 })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Word Wrap</span>
+                <span className="text-sm text-secondary">Word Wrap</span>
                 <input
                   type="checkbox"
                   checked={settings.word_wrap}
@@ -702,7 +827,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Minimap</span>
+                <span className="text-sm text-secondary">Minimap</span>
                 <input
                   type="checkbox"
                   checked={settings.minimap_enabled}
@@ -714,7 +839,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Show Hidden Files</span>
+                <span className="text-sm text-secondary">Show Hidden Files</span>
                 <input
                   type="checkbox"
                   checked={settings.show_hidden_files}
@@ -729,10 +854,10 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
           {activeSection === 'terminal' && (
             <div className="space-y-5">
-              <h3 className="text-sm font-medium text-zinc-200">Terminal Settings</h3>
+              <h3 className="text-sm font-medium text-primary">Terminal Settings</h3>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Terminal Font Size</span>
+                <span className="text-sm text-secondary">Terminal Font Size</span>
                 <input
                   type="number"
                   value={settings.terminal_font_size}
@@ -742,14 +867,14 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       terminal_font_size: parseInt(e.target.value) || 13,
                     })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               <label className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <div className="text-sm text-zinc-400">Use WebGL renderer</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">
+                  <div className="text-sm text-secondary">Use WebGL renderer</div>
+                  <div className="text-xs text-muted mt-0.5">
                     Faster, but some GPU + external-display combinations
                     (e.g. Mac mini + Apple Studio Display scaled modes)
                     render glyphs with hairline artifacts. Turn off to use
@@ -771,10 +896,10 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
               <label className="flex items-start justify-between gap-4">
                 <div className="flex-1">
-                  <div className="text-sm text-zinc-400">
+                  <div className="text-sm text-secondary">
                     Auto-wrap SSH in tmux
                   </div>
-                  <div className="text-xs text-zinc-500 mt-0.5">
+                  <div className="text-xs text-muted mt-0.5">
                     Wrap each new SSH terminal in a shared tmux session so
                     jobs keep running after Operon quits or your laptop
                     sleeps. No-op on hosts without tmux. Open a new terminal
@@ -795,7 +920,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">tmux session name</span>
+                <span className="text-sm text-secondary">tmux session name</span>
                 <input
                   type="text"
                   value={settings.ssh_tmux_session}
@@ -806,7 +931,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       ssh_tmux_session: e.target.value,
                     })
                   }
-                  className="w-40 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none disabled:opacity-40"
+                  className="w-40 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none disabled:opacity-40"
                 />
               </label>
             </div>
@@ -814,20 +939,20 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
           {activeSection === 'claude' && (
             <div className="space-y-5">
-              <h3 className="text-sm font-medium text-zinc-200">Claude Code Settings</h3>
+              <h3 className="text-sm font-medium text-primary">Claude Code Settings</h3>
 
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm text-zinc-400">Default Model</div>
+                  <div className="text-sm text-secondary">Default Model</div>
                   {modelsError && (
-                    <div className="text-xs text-amber-400 mt-1 max-w-xs">{modelsError}</div>
+                    <div className="text-xs text-amber-600 dark:text-amber-400 mt-1 max-w-xs">{modelsError}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
                   <select
                     value={settings.model}
                     onChange={(e) => saveSettings({ ...settings, model: e.target.value })}
-                    className="w-56 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                    className="w-56 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                   >
                     {(() => {
                       const grouped = groupAndSort(anthropicModels);
@@ -864,7 +989,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     onClick={refreshAnthropicModels}
                     disabled={modelsRefreshing}
                     title="Refresh from api.anthropic.com/v1/models"
-                    className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 disabled:opacity-40"
+                    className="p-1.5 rounded hover:bg-hover text-secondary hover:text-primary disabled:opacity-40"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${modelsRefreshing ? 'animate-spin' : ''}`} />
                   </button>
@@ -877,16 +1002,16 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 return (
                   <label className="flex items-center justify-between">
                     <div>
-                      <div className="text-sm text-zinc-400">Reasoning Effort</div>
+                      <div className="text-sm text-secondary">Reasoning Effort</div>
                       {levels.length === 0 && (
-                        <div className="text-xs text-zinc-500 mt-0.5">Not supported by this model</div>
+                        <div className="text-xs text-muted mt-0.5">Not supported by this model</div>
                       )}
                     </div>
                     <select
                       value={settings.effort}
                       onChange={(e) => saveSettings({ ...settings, effort: e.target.value })}
                       disabled={levels.length === 0}
-                      className="w-56 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none disabled:opacity-40"
+                      className="w-56 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none disabled:opacity-40"
                     >
                       {levels.length === 0 ? (
                         <option value={settings.effort}>—</option>
@@ -901,19 +1026,19 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               })()}
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Max Turns</span>
+                <span className="text-sm text-secondary">Max Turns</span>
                 <input
                   type="number"
                   value={settings.max_turns}
                   onChange={(e) =>
                     saveSettings({ ...settings, max_turns: parseInt(e.target.value) || 25 })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm text-zinc-400">Max Budget (USD)</span>
+                <span className="text-sm text-secondary">Max Budget (USD)</span>
                 <input
                   type="number"
                   step="0.5"
@@ -924,14 +1049,14 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       max_budget_usd: parseFloat(e.target.value) || 5.0,
                     })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               <label className="flex items-start justify-between gap-4">
-                <span className="text-sm text-zinc-400 flex-1">
+                <span className="text-sm text-secondary flex-1">
                   Session Time Budget (min)
-                  <span className="block text-[11px] text-zinc-500 mt-0.5">
+                  <span className="block text-[11px] text-muted mt-0.5">
                     Warn-only banner at 75% and 100%. Override per-session next to Send. 0 = off.
                   </span>
                 </span>
@@ -946,15 +1071,15 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       session_time_budget_minutes: Math.max(0, parseInt(e.target.value) || 0),
                     })
                   }
-                  className="w-20 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-sm text-zinc-100 outline-none"
+                  className="w-20 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none"
                 />
               </label>
 
               {/* Permission Level */}
-              <div className="pt-3 border-t border-zinc-800">
+              <div className="pt-3 border-t border-border-default">
                 <div className="flex items-center gap-2 mb-3">
-                  <Shield className="w-4 h-4 text-zinc-400" />
-                  <span className="text-sm font-medium text-zinc-200">Permission Level</span>
+                  <Shield className="w-4 h-4 text-secondary" />
+                  <span className="text-sm font-medium text-primary">Permission Level</span>
                 </div>
                 <div className="space-y-2">
                   {([
@@ -963,24 +1088,24 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       label: 'Full Auto',
                       desc: 'Claude reads, writes, and executes commands without asking. Fastest workflow.',
                       icon: ShieldOff,
-                      color: 'text-amber-400',
-                      border: settings.permission_mode === 'full_auto' ? 'border-amber-500/60 bg-amber-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                      color: 'text-amber-600 dark:text-amber-400',
+                      border: settings.permission_mode === 'full_auto' ? 'border-amber-500/60 bg-amber-950/20' : 'border-border-strong/50 hover:border-border-strong',
                     },
                     {
                       value: 'safe_mode',
                       label: 'Safe Mode',
                       desc: 'Claude can read and search freely, but writes, edits, and bash commands require approval.',
                       icon: ShieldCheck,
-                      color: 'text-blue-400',
-                      border: settings.permission_mode === 'safe_mode' ? 'border-blue-500/60 bg-blue-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                      color: 'text-blue-600 dark:text-blue-400',
+                      border: settings.permission_mode === 'safe_mode' ? 'border-blue-500/60 bg-blue-950/20' : 'border-border-strong/50 hover:border-border-strong',
                     },
                     {
                       value: 'supervised',
                       label: 'Supervised',
                       desc: 'Claude asks permission for every action. Maximum control, slower workflow.',
                       icon: Shield,
-                      color: 'text-green-400',
-                      border: settings.permission_mode === 'supervised' ? 'border-green-500/60 bg-green-950/20' : 'border-zinc-700/50 hover:border-zinc-600',
+                      color: 'text-green-600 dark:text-green-400',
+                      border: settings.permission_mode === 'supervised' ? 'border-green-500/60 bg-green-950/20' : 'border-border-strong/50 hover:border-border-strong',
                     },
                   ] as const).map((opt) => {
                     const Icon = opt.icon;
@@ -991,15 +1116,15 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         onClick={() => saveSettings({ ...settings, permission_mode: opt.value })}
                         className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-all text-left ${opt.border}`}
                       >
-                        <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${isActive ? opt.color : 'text-zinc-500'}`} />
+                        <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${isActive ? opt.color : 'text-muted'}`} />
                         <div className="min-w-0">
-                          <div className={`text-xs font-medium ${isActive ? 'text-zinc-100' : 'text-zinc-400'}`}>
+                          <div className={`text-xs font-medium ${isActive ? 'text-primary' : 'text-secondary'}`}>
                             {opt.label}
                             {opt.value === 'full_auto' && (
-                              <span className="ml-1.5 text-[10px] text-zinc-600 font-normal">default</span>
+                              <span className="ml-1.5 text-[10px] text-subtle font-normal">default</span>
                             )}
                           </div>
-                          <div className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">{opt.desc}</div>
+                          <div className="text-[11px] text-muted mt-0.5 leading-relaxed">{opt.desc}</div>
                         </div>
                         {isActive && (
                           <CheckCircle className={`w-3.5 h-3.5 mt-0.5 shrink-0 ml-auto ${opt.color}`} />
@@ -1009,7 +1134,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   })}
                 </div>
                 {settings.permission_mode === 'supervised' && (
-                  <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-yellow-950/20 border border-yellow-800/30 rounded text-[11px] text-yellow-400/80">
+                  <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-yellow-950/20 border border-yellow-800/30 rounded text-[11px] text-yellow-600 dark:text-yellow-400/80">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <span>Supervised mode requires Claude Code to be authenticated interactively. Each action will prompt in the terminal.</span>
                   </div>
@@ -1021,8 +1146,8 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
           {activeSection === 'provider' && (
             <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-medium text-zinc-200">AI Provider</h3>
-                <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                <h3 className="text-sm font-medium text-primary">AI Provider</h3>
+                <p className="text-[11px] text-muted mt-1 leading-relaxed">
                   Route Claude Code to other models — OpenAI, Gemini, open-weights, and more. The recommended way is an Anthropic-compatible gateway (OpenRouter or LiteLLM): Claude Code calls it directly, with no proxy, and it works everywhere — including Windows and remote/HPC sessions.
                 </p>
               </div>
@@ -1034,15 +1159,15 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   className={`p-3 rounded-lg border text-left transition-all ${
                     settings.ai_provider === 'anthropic'
                       ? 'border-blue-500/60 bg-blue-950/20'
-                      : 'border-zinc-700/50 hover:border-zinc-600'
+                      : 'border-border-strong/50 hover:border-border-strong'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <CheckCircle className={`w-3.5 h-3.5 ${settings.ai_provider === 'anthropic' ? 'text-blue-400' : 'text-zinc-600'}`} />
-                    <span className="text-xs font-medium text-zinc-200">Anthropic</span>
-                    <span className="ml-auto text-[10px] text-zinc-500">default</span>
+                    <CheckCircle className={`w-3.5 h-3.5 ${settings.ai_provider === 'anthropic' ? 'text-blue-600 dark:text-blue-400' : 'text-subtle'}`} />
+                    <span className="text-xs font-medium text-primary">Anthropic</span>
+                    <span className="ml-auto text-[10px] text-muted">default</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">Hosted Claude API. Best tool-use quality.</p>
+                  <p className="text-[11px] text-muted mt-1">Hosted Claude API. Best tool-use quality.</p>
                 </button>
 
                 <button
@@ -1050,15 +1175,15 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   className={`p-3 rounded-lg border text-left transition-all ${
                     settings.ai_provider === 'portkey'
                       ? 'border-emerald-500/60 bg-emerald-950/20'
-                      : 'border-zinc-700/50 hover:border-zinc-600'
+                      : 'border-border-strong/50 hover:border-border-strong'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Shield className={`w-3.5 h-3.5 ${settings.ai_provider === 'portkey' ? 'text-emerald-400' : 'text-zinc-600'}`} />
-                    <span className="text-xs font-medium text-zinc-200">Portkey gateway</span>
-                    <span className="ml-auto text-[10px] text-zinc-500">institutional</span>
+                    <Shield className={`w-3.5 h-3.5 ${settings.ai_provider === 'portkey' ? 'text-emerald-600 dark:text-emerald-400' : 'text-subtle'}`} />
+                    <span className="text-xs font-medium text-primary">Portkey gateway</span>
+                    <span className="ml-auto text-[10px] text-muted">institutional</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">UCI ZotGPT, Portkey Cloud, or your own.</p>
+                  <p className="text-[11px] text-muted mt-1">UCI ZotGPT, Portkey Cloud, or your own.</p>
                 </button>
 
                 <button
@@ -1066,15 +1191,15 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   className={`p-3 rounded-lg border text-left transition-all ${
                     settings.ai_provider === 'custom'
                       ? 'border-purple-500/60 bg-purple-950/20'
-                      : 'border-zinc-700/50 hover:border-zinc-600'
+                      : 'border-border-strong/50 hover:border-border-strong'
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Cpu className={`w-3.5 h-3.5 ${settings.ai_provider === 'custom' ? 'text-purple-400' : 'text-zinc-600'}`} />
-                    <span className="text-xs font-medium text-zinc-200">Custom provider</span>
-                    <span className="ml-auto text-[10px] text-zinc-500">advanced</span>
+                    <Cpu className={`w-3.5 h-3.5 ${settings.ai_provider === 'custom' ? 'text-purple-600 dark:text-purple-400' : 'text-subtle'}`} />
+                    <span className="text-xs font-medium text-primary">Custom provider</span>
+                    <span className="ml-auto text-[10px] text-muted">advanced</span>
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-1">OpenAI/Gemini/open-weights via gateway or local.</p>
+                  <p className="text-[11px] text-muted mt-1">OpenAI/Gemini/open-weights via gateway or local.</p>
                 </button>
               </div>
 
@@ -1083,12 +1208,12 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               )}
 
               {settings.ai_provider === 'custom' && (
-                <div className="space-y-4 border-t border-zinc-800 pt-4">
+                <div className="space-y-4 border-t border-border-default pt-4">
                   {/* Presets — grouped by route. Clicking a gateway preset turns
                       the translation proxy OFF; a local-runtime preset turns it ON. */}
                   <div className="space-y-2.5">
                     <div>
-                      <span className="block text-[11px] text-zinc-400 mb-1">
+                      <span className="block text-[11px] text-secondary mb-1">
                         Gateways <span className="text-green-500/70">· recommended — no proxy</span>
                       </span>
                       <div className="flex flex-wrap gap-1.5">
@@ -1099,7 +1224,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                           <button
                             key={p.label}
                             onClick={() => saveSettings({ ...settings, custom_base_url: p.url, use_translation_proxy: false })}
-                            className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
+                            className="px-2 py-1 text-[11px] bg-surface hover:bg-elevated text-secondary rounded border border-border-strong"
                           >
                             {p.label}
                           </button>
@@ -1107,7 +1232,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       </div>
                     </div>
                     <div>
-                      <span className="block text-[11px] text-zinc-400 mb-1">
+                      <span className="block text-[11px] text-secondary mb-1">
                         Local runtimes <span className="text-amber-500/70">· needs translation proxy</span>
                       </span>
                       <div className="flex flex-wrap gap-1.5">
@@ -1119,7 +1244,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                           <button
                             key={p.label}
                             onClick={() => saveSettings({ ...settings, custom_base_url: p.url, use_translation_proxy: true })}
-                            className="px-2 py-1 text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded border border-zinc-700"
+                            className="px-2 py-1 text-[11px] bg-surface hover:bg-elevated text-secondary rounded border border-border-strong"
                           >
                             {p.label}
                           </button>
@@ -1130,33 +1255,33 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
                   {/* Base URL */}
                   <label className="block">
-                    <span className="block text-[11px] text-zinc-400 mb-1">Base URL</span>
+                    <span className="block text-[11px] text-secondary mb-1">Base URL</span>
                     <input
                       type="text"
                       value={settings.custom_base_url}
                       onChange={(e) => saveSettings({ ...settings, custom_base_url: e.target.value })}
                       placeholder="http://localhost:11434/v1"
-                      className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                      className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-purple-600/50 font-mono"
                     />
-                    <span className="block text-[10px] text-zinc-600 mt-1">The URL of your OpenAI-compatible endpoint. Must end in /v1 (or equivalent).</span>
+                    <span className="block text-[10px] text-subtle mt-1">The URL of your OpenAI-compatible endpoint. Must end in /v1 (or equivalent).</span>
                   </label>
 
                   {/* API key */}
                   <label className="block">
-                    <span className="block text-[11px] text-zinc-400 mb-1">API key <span className="text-zinc-600">(optional for local endpoints)</span></span>
+                    <span className="block text-[11px] text-secondary mb-1">API key <span className="text-subtle">(optional for local endpoints)</span></span>
                     <input
                       type="password"
                       value={settings.custom_api_key}
                       onChange={(e) => saveSettings({ ...settings, custom_api_key: e.target.value })}
                       placeholder="sk-…"
-                      className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                      className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-purple-600/50 font-mono"
                     />
                   </label>
 
                   {/* Model picker */}
                   <label className="block">
                     <span className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] text-zinc-400">Default model</span>
+                      <span className="text-[11px] text-secondary">Default model</span>
                       <button
                         onClick={async () => {
                           setProviderDetecting(true);
@@ -1175,7 +1300,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                           }
                         }}
                         disabled={!settings.custom_base_url.trim() || providerDetecting}
-                        className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-purple-300 hover:text-purple-200 disabled:text-zinc-600 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-purple-700 dark:text-purple-300 hover:text-purple-200 disabled:text-subtle disabled:cursor-not-allowed"
                       >
                         {providerDetecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                         Detect models
@@ -1185,7 +1310,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       <select
                         value={settings.custom_model}
                         onChange={(e) => saveSettings({ ...settings, custom_model: e.target.value })}
-                        className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                        className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-purple-600/50 font-mono"
                       >
                         {providerModels.map((m) => <option key={m} value={m}>{m}</option>)}
                       </select>
@@ -1195,7 +1320,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         value={settings.custom_model}
                         onChange={(e) => saveSettings({ ...settings, custom_model: e.target.value })}
                         placeholder="qwen2.5-coder:32b"
-                        className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-100 outline-none focus:border-purple-600/50 font-mono"
+                        className="w-full px-2 py-1.5 bg-surface border border-border-strong rounded text-xs text-primary outline-none focus:border-purple-600/50 font-mono"
                       />
                     )}
                   </label>
@@ -1220,7 +1345,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         }
                       }}
                       disabled={!settings.custom_base_url.trim() || !settings.custom_model || providerTesting}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs font-medium rounded-md"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:bg-elevated disabled:text-muted text-white text-xs font-medium rounded-md"
                     >
                       {providerTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
                       Test connection
@@ -1228,8 +1353,8 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     {providerTestResult && (
                       <div className={`mt-2 px-3 py-2 rounded text-[11px] flex items-start gap-2 ${
                         providerTestResult.ok
-                          ? 'bg-green-950/30 border border-green-800/40 text-green-300'
-                          : 'bg-red-950/30 border border-red-800/40 text-red-300'
+                          ? 'bg-green-950/30 border border-green-800/40 text-green-700 dark:text-green-300'
+                          : 'bg-red-950/30 border border-red-800/40 text-red-700 dark:text-red-300'
                       }`}>
                         {providerTestResult.ok ? <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
                         <span className="break-all">{providerTestResult.msg}</span>
@@ -1238,31 +1363,31 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </div>
 
                   {/* Translation proxy — Anthropic ↔ OpenAI bridge */}
-                  <div className="px-3 py-3 bg-zinc-900/60 border border-zinc-800 rounded space-y-2.5">
+                  <div className="px-3 py-3 bg-panel/60 border border-border-default rounded space-y-2.5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-[12px] font-medium text-zinc-200 flex items-center gap-2">
+                        <div className="text-[12px] font-medium text-primary flex items-center gap-2">
                           Translation proxy
                           {proxyStatus.running ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-green-900/30 border border-green-800/40 text-green-400">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-green-900/30 border border-green-800/40 text-green-600 dark:text-green-400">
                               <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
                               running :{proxyStatus.port}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-zinc-800 border border-zinc-700 text-zinc-500">
-                              <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                            <span className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono bg-surface border border-border-strong text-muted">
+                              <span className="w-1.5 h-1.5 rounded-full bg-muted" />
                               stopped
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-zinc-500 mt-1 leading-relaxed">
+                        <p className="text-[11px] text-muted mt-1 leading-relaxed">
                           Optional — leave OFF for the recommended gateway route. Turn it on only when your endpoint speaks OpenAI Chat Completions but not the Anthropic Messages API: Ollama, vLLM, and LM Studio older than 0.4.1. The proxy runs locally, so it is not available on Windows or for remote/HPC sessions.
                         </p>
                       </div>
                       <button
                         onClick={() => saveSettings({ ...settings, use_translation_proxy: !settings.use_translation_proxy })}
                         className={`shrink-0 relative inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
-                          settings.use_translation_proxy ? 'bg-purple-500' : 'bg-zinc-600'
+                          settings.use_translation_proxy ? 'bg-purple-500' : 'bg-elevated'
                         }`}
                         aria-label="Toggle translation proxy"
                       >
@@ -1288,7 +1413,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                             }
                           }}
                           disabled={!settings.custom_base_url.trim() || proxyBusy}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-800/50 disabled:text-zinc-600 text-zinc-200 text-[11px] font-medium rounded-md border border-zinc-700"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-elevated disabled:bg-surface/50 disabled:text-subtle text-primary text-[11px] font-medium rounded-md border border-border-strong"
                         >
                           {proxyBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                           {proxyStatus.running ? 'Restart proxy' : 'Start proxy'}
@@ -1308,13 +1433,13 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                               }
                             }}
                             disabled={proxyBusy}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[11px] font-medium rounded-md border border-zinc-700"
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-elevated text-secondary text-[11px] font-medium rounded-md border border-border-strong"
                           >
                             Stop
                           </button>
                         )}
                         {proxyStatus.running && (
-                          <span className="text-[10px] font-mono text-zinc-500 truncate">
+                          <span className="text-[10px] font-mono text-muted truncate">
                             → {proxyStatus.upstream_base_url}
                           </span>
                         )}
@@ -1322,7 +1447,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     )}
 
                     {proxyError && (
-                      <div className="px-2.5 py-1.5 bg-red-950/30 border border-red-800/40 rounded text-[11px] text-red-300 flex items-start gap-2">
+                      <div className="px-2.5 py-1.5 bg-red-950/30 border border-red-800/40 rounded text-[11px] text-red-700 dark:text-red-300 flex items-start gap-2">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                         <span className="break-all">{proxyError}</span>
                       </div>
@@ -1330,7 +1455,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </div>
 
                   {/* Caveats */}
-                  <div className="px-3 py-2 bg-amber-950/20 border border-amber-800/30 rounded text-[11px] text-amber-400/80 flex items-start gap-2">
+                  <div className="px-3 py-2 bg-amber-950/20 border border-amber-800/30 rounded text-[11px] text-amber-600 dark:text-amber-400/80 flex items-start gap-2">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <div>
                       Agentic tool-use quality drops sharply below ~30B models. Extended thinking and some tools may behave differently across backends. Remote (SSH/tmux) sessions require a manual `ssh -R {proxyStatus.port ?? '<port>'}:127.0.0.1:{proxyStatus.port ?? '<port>'}` reverse tunnel — auto-tunneling for remote modes is not yet wired in this release.
@@ -1345,10 +1470,10 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
             <div className="space-y-5">
               <div>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-zinc-200">MCP Servers</h3>
-                  {mcpLoading && <Loader2 className="w-3.5 h-3.5 text-zinc-500 animate-spin" />}
+                  <h3 className="text-sm font-medium text-primary">MCP Servers</h3>
+                  {mcpLoading && <Loader2 className="w-3.5 h-3.5 text-muted animate-spin" />}
                 </div>
-                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
                   MCP servers give Claude access to external tools and databases.
                   Enabled servers are automatically available in all Claude sessions.
                 </p>
@@ -1356,9 +1481,9 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
               {mcpError && (
                 <div className="flex items-center gap-2 p-2.5 bg-red-950/20 border border-red-900/30 rounded-lg">
-                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                  <span className="text-[11px] text-red-300">{mcpError}</span>
-                  <button onClick={() => setMcpError(null)} className="ml-auto text-zinc-600 hover:text-zinc-400">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
+                  <span className="text-[11px] text-red-700 dark:text-red-300">{mcpError}</span>
+                  <button onClick={() => setMcpError(null)} className="ml-auto text-subtle hover:text-secondary">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -1366,7 +1491,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
               {/* Catalog Servers */}
               <div className="space-y-2.5">
-                <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Research Tools Catalog</h4>
+                <h4 className="text-[10px] font-semibold text-muted uppercase tracking-wider">Research Tools Catalog</h4>
                 {mcpServers.filter(s => s.from_catalog).map((server) => (
                   <CatalogServerCard
                     key={server.config.name}
@@ -1409,37 +1534,37 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               {/* Custom Servers */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Custom Servers</h4>
+                  <h4 className="text-[10px] font-semibold text-muted uppercase tracking-wider">Custom Servers</h4>
                   <button
                     onClick={() => setShowCustomForm(!showCustomForm)}
-                    className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+                    className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 transition-colors"
                   >
                     <Plus className="w-3 h-3" /> Add
                   </button>
                 </div>
 
                 {showCustomForm && (
-                  <div className="p-3 bg-zinc-800/50 border border-zinc-700 rounded-lg space-y-2">
+                  <div className="p-3 bg-surface/50 border border-border-strong rounded-lg space-y-2">
                     <input
                       type="text"
                       value={customServer.name}
                       onChange={(e) => setCustomServer(prev => ({ ...prev, name: e.target.value }))}
                       placeholder="Server name"
-                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                      className="w-full px-2 py-1 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none"
                     />
                     <input
                       type="text"
                       value={customServer.command}
                       onChange={(e) => setCustomServer(prev => ({ ...prev, command: e.target.value }))}
                       placeholder="Command (e.g. npx, uvx, node)"
-                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                      className="w-full px-2 py-1 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none"
                     />
                     <input
                       type="text"
                       value={customServer.args}
                       onChange={(e) => setCustomServer(prev => ({ ...prev, args: e.target.value }))}
                       placeholder="Arguments (space-separated)"
-                      className="w-full px-2 py-1 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"
+                      className="w-full px-2 py-1 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none"
                     />
                     <div className="flex gap-2 pt-1">
                       <button
@@ -1463,13 +1588,13 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                           }
                         }}
                         disabled={!customServer.name.trim() || !customServer.command.trim()}
-                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 rounded text-xs text-white"
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-elevated rounded text-xs text-white"
                       >
                         Add Server
                       </button>
                       <button
                         onClick={() => { setShowCustomForm(false); setCustomServer({ name: '', command: '', args: '' }); }}
-                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-xs text-zinc-400"
+                        className="px-3 py-1 bg-surface hover:bg-elevated rounded text-xs text-secondary"
                       >
                         Cancel
                       </button>
@@ -1478,11 +1603,11 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 )}
 
                 {mcpServers.filter(s => !s.from_catalog).map((server) => (
-                  <div key={server.config.name} className="flex items-center gap-3 px-3 py-2 bg-zinc-800/30 border border-zinc-800 rounded-lg">
-                    <Server className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                  <div key={server.config.name} className="flex items-center gap-3 px-3 py-2 bg-surface/30 border border-border-default rounded-lg">
+                    <Server className="w-3.5 h-3.5 text-muted shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm text-zinc-300">{server.config.name}</span>
-                      <p className="text-[10px] text-zinc-600 font-mono truncate">{server.config.command} {server.config.args.join(' ')}</p>
+                      <span className="text-sm text-secondary">{server.config.name}</span>
+                      <p className="text-[10px] text-subtle font-mono truncate">{server.config.command} {server.config.args.join(' ')}</p>
                     </div>
                     <button
                       onClick={async () => {
@@ -1494,7 +1619,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         await refreshMCPServers();
                       }}
                       className={`relative w-9 h-5 rounded-full transition-colors ${
-                        server.config.enabled ? 'bg-blue-600' : 'bg-zinc-700'
+                        server.config.enabled ? 'bg-blue-600' : 'bg-elevated'
                       }`}
                     >
                       <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
@@ -1506,7 +1631,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         await removeMCPServer(server.config.name);
                         await refreshMCPServers();
                       }}
-                      className="text-zinc-600 hover:text-red-400 transition-colors"
+                      className="text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1514,7 +1639,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 ))}
 
                 {mcpServers.filter(s => !s.from_catalog).length === 0 && !showCustomForm && (
-                  <p className="text-[11px] text-zinc-600 italic">No custom servers configured</p>
+                  <p className="text-[11px] text-subtle italic">No custom servers configured</p>
                 )}
               </div>
             </div>
@@ -1523,18 +1648,18 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
           {activeSection === 'extensions' && (
             <div className="space-y-5">
               <div>
-                <h3 className="text-sm font-medium text-zinc-200">Extension Settings</h3>
-                <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed">
+                <h3 className="text-sm font-medium text-primary">Extension Settings</h3>
+                <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
                   Configure settings for installed extensions. Changes are saved automatically.
                 </p>
               </div>
 
               {extSettingsLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                  <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
                 </div>
               ) : installedExtensions.length === 0 ? (
-                <p className="text-[11px] text-zinc-500 italic">No installed extensions with configuration options.</p>
+                <p className="text-[11px] text-muted italic">No installed extensions with configuration options.</p>
               ) : (
                 <div className="space-y-4">
                   {installedExtensions.map((ext) => {
@@ -1543,18 +1668,18 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     const properties = schema?.properties || {};
 
                     return (
-                      <div key={ext.id} className="border border-zinc-800 rounded-lg bg-zinc-900/40 overflow-hidden">
+                      <div key={ext.id} className="border border-border-default rounded-lg bg-panel/40 overflow-hidden">
                         {/* Extension header */}
-                        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-zinc-800/60 bg-zinc-800/20">
-                          <div className="p-1.5 rounded-md bg-zinc-800/60">
-                            <Settings className="w-3.5 h-3.5 text-zinc-400" />
+                        <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-border-default/60 bg-surface/20">
+                          <div className="p-1.5 rounded-md bg-surface/60">
+                            <Settings className="w-3.5 h-3.5 text-secondary" />
                           </div>
-                          <span className="text-[13px] font-medium text-zinc-200">{ext.display_name}</span>
-                          <span className="text-[10px] text-zinc-600 ml-auto">{Object.keys(properties).length} settings</span>
+                          <span className="text-[13px] font-medium text-primary">{ext.display_name}</span>
+                          <span className="text-[10px] text-subtle ml-auto">{Object.keys(properties).length} settings</span>
                         </div>
 
                         {/* Settings list */}
-                        <div className="divide-y divide-zinc-800/40">
+                        <div className="divide-y divide-border-default/40">
                           {Object.entries(properties).map(([key, prop]: [string, any]) => {
                             const currentValue = currentSettings[key];
                             const type = prop.type;
@@ -1585,9 +1710,9 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                   /* Boolean: toggle row */
                                   <div className="flex items-center justify-between gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-[12px] text-zinc-300">{displayName}</div>
+                                      <div className="text-[12px] text-secondary">{displayName}</div>
                                       {description && (
-                                        <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed line-clamp-2">{description}</p>
+                                        <p className="text-[10px] text-subtle mt-0.5 leading-relaxed line-clamp-2">{description}</p>
                                       )}
                                     </div>
                                     <button
@@ -1603,7 +1728,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                         }).catch(() => {});
                                       }}
                                       className={`relative shrink-0 inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
-                                        Boolean(currentValue) ? 'bg-blue-500' : 'bg-zinc-600'
+                                        Boolean(currentValue) ? 'bg-blue-500' : 'bg-elevated'
                                       }`}
                                       aria-label={`Toggle ${displayName}`}
                                     >
@@ -1616,9 +1741,9 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                   /* Non-boolean: stacked layout */
                                   <div className="space-y-1.5">
                                     <div>
-                                      <div className="text-[12px] text-zinc-300">{displayName}</div>
+                                      <div className="text-[12px] text-secondary">{displayName}</div>
                                       {description && (
-                                        <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed line-clamp-2">{description}</p>
+                                        <p className="text-[10px] text-subtle mt-0.5 leading-relaxed line-clamp-2">{description}</p>
                                       )}
                                     </div>
                                     {type === 'number' ? (
@@ -1635,7 +1760,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                             [key]: currentSettings[key],
                                           }).catch(() => {})
                                         }
-                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-surface border border-border-strong rounded-md text-[12px] text-primary outline-none focus:border-blue-500/50 transition-colors"
                                       />
                                     ) : prop.enum ? (
                                       <select
@@ -1648,7 +1773,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                             [key]: value,
                                           }).catch(() => {});
                                         }}
-                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
+                                        className="w-full max-w-[200px] px-2.5 py-1.5 bg-surface border border-border-strong rounded-md text-[12px] text-primary outline-none focus:border-blue-500/50 transition-colors appearance-none cursor-pointer"
                                       >
                                         {prop.enum.map((opt: any) => (
                                           <option key={opt} value={opt}>
@@ -1667,14 +1792,14 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                                             [key]: currentSettings[key],
                                           }).catch(() => {})
                                         }
-                                        className="w-full max-w-[300px] px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-[12px] text-zinc-100 outline-none focus:border-blue-500/50 transition-colors"
+                                        className="w-full max-w-[300px] px-2.5 py-1.5 bg-surface border border-border-strong rounded-md text-[12px] text-primary outline-none focus:border-blue-500/50 transition-colors"
                                         placeholder={prop.default != null ? String(prop.default) : ''}
                                       />
                                     )}
                                   </div>
                                 )}
                                 {/* Show full key as subtle reference */}
-                                <div className="text-[9px] text-zinc-700 mt-1 font-mono truncate">{key}</div>
+                                <div className="text-[9px] text-subtle mt-1 font-mono truncate">{key}</div>
                               </div>
                             );
                           })}
@@ -1689,8 +1814,8 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
           {activeSection === 'setup' && (
             <div className="space-y-5">
-              <h3 className="text-sm font-medium text-zinc-200">Setup & Installation</h3>
-              <p className="text-sm text-zinc-400">
+              <h3 className="text-sm font-medium text-primary">Setup & Installation</h3>
+              <p className="text-sm text-secondary">
                 Run the setup wizard to check and install dependencies for Claude Code on your local machine or remote HPC servers.
               </p>
 
@@ -1703,23 +1828,23 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   Run Setup Wizard
                 </button>
 
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-subtle">
                   The wizard checks for {isMac ? 'Xcode CLI Tools, Homebrew, ' : ''}Node.js, GitHub CLI, Claude Code, and the PDF report library (reportlab), and can install any missing dependencies.
                 </p>
               </div>
 
-              <div className="border-t border-zinc-800 pt-4">
-                <h4 className="text-sm font-medium text-zinc-300 mb-2">Remote Server Setup</h4>
-                <p className="text-sm text-zinc-400 mb-3">
+              <div className="border-t border-border-default pt-4">
+                <h4 className="text-sm font-medium text-secondary mb-2">Remote Server Setup</h4>
+                <p className="text-sm text-secondary mb-3">
                   To install Claude Code on a remote HPC server, connect to the server via SSH first (using the SSH panel in the sidebar), then run:
                 </p>
-                <div className="bg-zinc-950 rounded-lg p-3 font-mono text-xs text-zinc-300 space-y-2">
+                <div className="bg-canvas rounded-lg p-3 font-mono text-xs text-secondary space-y-2">
                   <div>
-                    <p className="text-zinc-500"># Install Claude Code (no Node.js required)</p>
+                    <p className="text-muted"># Install Claude Code (no Node.js required)</p>
                     <p>curl -fsSL https://claude.ai/install.sh | bash</p>
                   </div>
                   <div>
-                    <p className="text-zinc-500"># Install PDF report library</p>
+                    <p className="text-muted"># Install PDF report library</p>
                     <p>pip3 install reportlab --user</p>
                   </div>
                 </div>
@@ -1729,7 +1854,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
 
           {activeSection === 'auth' && (
             <div className="space-y-5">
-              <h3 className="text-sm font-medium text-zinc-200">Authentication</h3>
+              <h3 className="text-sm font-medium text-primary">Authentication</h3>
 
               {/* Current status banner */}
               {authStatus && (
@@ -1739,19 +1864,19 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     : 'bg-yellow-900/10 border-yellow-800/30'
                 }`}>
                   {authStatus.authenticated ? (
-                    <CheckCircle className="w-5 h-5 text-green-400 shrink-0" />
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
                   ) : (
-                    <Key className="w-5 h-5 text-yellow-400 shrink-0" />
+                    <Key className="w-5 h-5 text-yellow-600 dark:text-yellow-400 shrink-0" />
                   )}
                   <div>
-                    <p className={`text-sm font-medium ${authStatus.authenticated ? 'text-green-300' : 'text-yellow-300'}`}>
+                    <p className={`text-sm font-medium ${authStatus.authenticated ? 'text-green-700 dark:text-green-300' : 'text-yellow-700 dark:text-yellow-300'}`}>
                       {authStatus.authenticated
                         ? authStatus.method === 'oauth'
                           ? 'Signed in with Anthropic account'
                           : 'Authenticated with API key'
                         : 'Not authenticated'}
                     </p>
-                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                    <p className="text-[11px] text-muted mt-0.5">
                       {authStatus.authenticated
                         ? authStatus.method === 'oauth'
                           ? 'Using your Max, Pro, or Team subscription'
@@ -1763,18 +1888,18 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               )}
 
               {/* Option 1: Anthropic Account (OAuth) */}
-              <div className="p-4 bg-zinc-800 rounded-lg">
+              <div className="p-4 bg-surface rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
-                  <LogIn className="w-4 h-4 text-orange-400" />
-                  <span className="text-sm font-medium text-zinc-200">Anthropic Account</span>
+                  <LogIn className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                  <span className="text-sm font-medium text-primary">Anthropic Account</span>
                   {authStatus?.method === 'oauth' && (
-                    <span className="ml-auto text-[11px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
+                    <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
                       Active
                     </span>
                   )}
                 </div>
-                <p className="text-[12px] text-zinc-500 mb-3">
-                  For Max, Pro &amp; Team subscribers. Runs <code className="bg-zinc-900 px-1 rounded text-zinc-400">claude login</code> in a terminal tab.
+                <p className="text-[12px] text-muted mb-3">
+                  For Max, Pro &amp; Team subscribers. Runs <code className="bg-panel px-1 rounded text-secondary">claude login</code> in a terminal tab.
                 </p>
 
                 <div className="flex gap-2">
@@ -1803,7 +1928,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       setOauthChecking(false);
                     }}
                     disabled={oauthChecking}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 rounded text-sm text-zinc-300 transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-elevated hover:bg-elevated disabled:bg-surface rounded text-sm text-secondary transition-colors"
                   >
                     {oauthChecking ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1816,26 +1941,26 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               </div>
 
               {/* Option 2: API Key */}
-              <div className="p-4 bg-zinc-800 rounded-lg">
+              <div className="p-4 bg-surface rounded-lg">
                 <div className="flex items-center gap-2 mb-1">
-                  <Key className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm font-medium text-zinc-200">API Key</span>
+                  <Key className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm font-medium text-primary">API Key</span>
                   {hasKey && (
-                    <span className="ml-auto text-[11px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
+                    <span className="ml-auto text-[11px] text-green-600 dark:text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full">
                       Configured
                     </span>
                   )}
                 </div>
-                <p className="text-[12px] text-zinc-500 mb-3">
-                  For direct API billing. Get your key from <span className="text-zinc-400">console.anthropic.com</span>.
+                <p className="text-[12px] text-muted mb-3">
+                  For direct API billing. Get your key from <span className="text-secondary">console.anthropic.com</span>.
                 </p>
 
                 {hasKey ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-zinc-500 flex-1">API key is stored in memory</span>
+                    <span className="text-xs text-muted flex-1">API key is stored in memory</span>
                     <button
                       onClick={() => { handleDeleteApiKey(); refreshAuthStatus(); }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-400 hover:text-red-300 bg-red-900/20 hover:bg-red-900/30 rounded transition-colors"
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-700 bg-red-900/20 hover:bg-red-900/30 rounded transition-colors"
                     >
                       <Trash2 className="w-3 h-3" />
                       Remove
@@ -1849,12 +1974,12 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       onChange={(e) => setApiKey(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
                       placeholder="sk-ant-..."
-                      className="flex-1 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors"
+                      className="flex-1 px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500 transition-colors"
                     />
                     <button
                       onClick={() => { handleSaveApiKey().then(() => refreshAuthStatus()); }}
                       disabled={!apiKey.trim()}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 rounded text-sm text-white transition-colors"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-elevated rounded text-sm text-white transition-colors"
                     >
                       Save
                     </button>

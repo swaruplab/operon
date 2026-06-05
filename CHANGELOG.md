@@ -4,6 +4,146 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-06-04
+
+A big release. Three headline themes: a new **Portkey gateway provider** for
+institutional and managed AI gateways (with UCI ZotGPT as the flagship
+preset); a full **light / dark theme** with smooth runtime swap across every
+panel including Monaco syntax, xterm palette, and the native macOS title
+bar; and **twelve new bundled single-cell protocols** (now stackable up to
+4 at once). Plus the proxy-sidecar registration fix that unblocked the
+custom-provider path for Ollama/vLLM users, and an Intel-Mac binary for the
+bundled translation proxy.
+
+### Added
+
+- **Portkey gateway provider** (`src-tauri/src/commands/portkey.rs`,
+  `src/lib/portkey.ts`, `src/components/settings/SettingsPanel.tsx`). Third
+  AI provider option alongside Anthropic Direct and Custom OpenAI-Compatible.
+  Bundled presets for **UCI ZotGPT Gateway** (institutional, P3-compliant,
+  IRB-friendly) and **Portkey Cloud** (pay-as-you-go). Preset manifest at
+  `presets/portkey.json` is fetched from GitHub at launch with a 7-day cache,
+  so new institutional presets propagate to existing installs without an
+  Operon release. Add yours via PR.
+- **Portkey model catalog auto-fetch + grouping**. Pasting a virtual key
+  auto-calls `/v1/models` and renders results grouped by family
+  (Anthropic / Google / Moonshot / Meta / Mistral), best-first within each
+  family. Auto-picks the best Claude on first connect; falls back to preset
+  suggestions if the gateway returns nothing. Workspace hint (e.g. "bedrock",
+  "vertex") shown next to each model.
+- **Smart routing for non-Anthropic Portkey models**. Anthropic-family
+  models go direct to Portkey's `/v1/messages` passthrough. Non-Anthropic
+  (Kimi, Gemini, Llama, …) is auto-routed through the bundled `anthropic-proxy`
+  sidecar so Claude Code's Anthropic-format requests are translated to OpenAI
+  Chat Completions transparently. Purple badge under the model dropdown
+  confirms when the proxy is active.
+- **Light / dark theme with smooth runtime swap**
+  (`src/context/ThemeContext.tsx`, `src/styles.css`, `tailwind.config.js`).
+  Sun/Moon toggle in the top bar; persists to `settings.theme`; supports
+  `dark` / `light` / `system` (follows OS `prefers-color-scheme` live).
+  Implementation: semantic palette (`bg-canvas` / `bg-panel` / `text-primary`
+  / `border-default` …) wired to CSS variables that flip via a `light`
+  class on `<html>`. 31 files swept from `zinc-*` to semantic classes; 144
+  accent text colors promoted with `dark:` variants for readable light mode.
+- **Monaco `operon-light` theme** (`src/components/editor/CodeEditor.tsx`).
+  Darker syntax hues (violet-600 keywords, blue-700 functions, etc.) tuned
+  for contrast against white. Live swap via `setTheme` on toggle. Applies to
+  both `CodeEditor` and `DiffViewer`.
+- **xterm.js theme swap with WebGL atlas refresh**
+  (`src/components/terminal/TerminalInstance.tsx`). Light palette uses darker
+  ANSI hues (red-700, green-700, blue-700, …) for readability on white. On
+  theme toggle the WebGL addon is disposed + recreated so the new colors take
+  immediately on every cell — `options.theme` alone doesn't invalidate the
+  texture atlas.
+- **Native macOS title bar follows theme**. `titleBarStyle: "Overlay"` +
+  `hiddenTitle: true` in `tauri.conf.json` so the webview extends under the
+  traffic-light area; the themed top-bar background fills the space.
+  `getCurrentWindow().setTheme(resolved)` syncs `NSWindow.appearance` as a
+  belt-and-suspenders.
+- **Twelve new single-cell protocols**, all bundled (`protocols/`):
+  ArchR, CellBender, CellChat, hdWGCNA, kallisto-bustools, MRVI, ResolVI,
+  Seurat, SingleCellExperiment, snapATAC2, spatial-transcriptomics,
+  STELLAR Atlas. scVelo extended with dynamical-model and
+  differential-kinetics references. Brings the bundled total to 192.
+- **Multi-protocol stacking — cap raised from 2 → 4**. Pick up to four
+  protocols simultaneously and Operon stacks their context for the
+  conversation. Useful for combined workflows (e.g. scanpy + scvelo +
+  cellchat in a single agent run).
+- **Intel-Mac binary** for the bundled translation proxy
+  (`src-tauri/binaries/anthropic-proxy-x86_64-apple-darwin`, v1.2.0 from
+  upstream m0n0x41d/anthropic-proxy-rs, sha256-verified). Production
+  builds now work on both Apple Silicon and Intel Macs.
+- **Phase 13 design note** added to `CLAUDE.md` — Native Multi-Provider
+  Agent Loop. Sketches the path to first-class GPT-5+ / o-series and other
+  non-Claude-Code-format models without dependency on the Anthropic protocol
+  shim. Currently OpenAI is temporarily hidden from the Portkey UI; comes
+  back when Phase 13 lands.
+
+### Changed
+
+- **Tauri sidecar registration**. Added `binaries/anthropic-proxy` to
+  `externalBin` in `tauri.conf.json` and `shell:allow-execute` in
+  `capabilities/default.json`. Previously the translation proxy was silently
+  rejected at spawn time (the silent `.catch(() => {})` in the start path
+  swallowed the permission error), so the Ollama/vLLM custom-provider
+  path was effectively broken for everyone. Now works end-to-end.
+- **Help panel** (`src/components/help/HelpPanel.tsx`). New items: Light
+  and dark theme (Getting Started), Portkey gateway provider (AI Providers),
+  Bundled single-cell protocols (Protocols). The AI Providers overview now
+  documents all three provider types (Anthropic / Portkey / Custom).
+- **Beta-header suppression for Bedrock-backed Portkey routes**. When the
+  Portkey provider routes Claude models via Bedrock, Claude Code's
+  `anthropic-beta` headers (prompt-caching, extended-thinking, etc.) trigger
+  Bedrock's "invalid beta flag" 400. `ai_provider_env` now sets
+  `DISABLE_PROMPT_CACHING=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
+  `MAX_THINKING_TOKENS=0`, `ANTHROPIC_BETAS=""` for the Portkey direct path
+  to suppress them. Loses prompt-caching and extended-thinking for that
+  path; both come back as soon as Portkey/Bedrock accepts the flags.
+- **Settings panel for Portkey**. Real-time proxy lifecycle: starting a
+  non-Anthropic Portkey model auto-spawns the translation proxy; switching
+  to a Claude model auto-stops it. Surfaces proxy-start errors inline
+  (previously swallowed silently). Surfaces a Windows warning when picking
+  a non-Anthropic Portkey model (the proxy sidecar is Unix-only).
+
+### Fixed
+
+- **Translation proxy never started** — root cause for
+  "Ollama models don't respond" reports. `start_translation_proxy` would
+  fail with a Tauri permission error because `binaries/anthropic-proxy`
+  wasn't allowlisted; the frontend swallowed it. Now allowlisted and the
+  start error surfaces in the settings UI if it ever recurs.
+- **Path doubling for Portkey base URLs ending in `/v1`**. The Anthropic
+  SDK appends `/v1/messages` to `ANTHROPIC_BASE_URL`; a user-stored
+  `https://api.portkey.ai/v1` was producing `…/v1/v1/messages` which Portkey
+  accepted with 200 + a malformed body, causing Claude Code's
+  "empty or malformed response" error. The Portkey env builder now strips
+  trailing `/v1` before handing the URL to the SDK.
+- **Bedrock `requestMetadata` 400 for non-Anthropic models** — the
+  `anthropic-proxy-rs` sidecar drops Anthropic's `metadata.user_id` during
+  translation (it would otherwise carry a JSON blob containing `{`, `}`,
+  `"` characters that violate Bedrock's regex). Routing non-Anthropic
+  Portkey models via the proxy bypasses this; a silent fallback to the
+  direct path no longer fires when the proxy is missing.
+- **xterm theme didn't switch** — `options.theme = X` alone doesn't
+  invalidate the WebGL texture atlas, so cells kept rendering in the old
+  palette. Now disposes + recreates the WebGL addon on theme change.
+- **Three hardcoded `bg-[#09090b]` in terminal components** that escaped
+  the theming sweep (arbitrary-value syntax, not `bg-zinc-*`). Now use
+  `bg-canvas` and theme correctly in light mode.
+
+### Known limitations
+
+- **OpenAI Portkey models hidden in UI** until Phase 13 lands. GPT-5+/o-series
+  need OpenAI's Responses API which the bundled translation proxy doesn't
+  speak. Workaround: use LiteLLM as a router with direct Azure credentials
+  via the Custom provider.
+- **Non-Anthropic Portkey models in remote/HPC sessions** not yet wired —
+  the proxy currently runs only on the laptop. Anthropic-family Portkey
+  models do work remotely (direct passthrough, no proxy needed).
+- **Windows + Portkey non-Anthropic** — the proxy sidecar depends on
+  Unix-only daemonize; Windows users see an inline warning suggesting
+  LiteLLM/OpenRouter via the Custom provider as the workaround.
+
 ## [0.6.0] — 2026-05-01
 
 This release focuses on **HPC reliability** (no more "are you working?" check-ins
