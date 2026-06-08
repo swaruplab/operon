@@ -583,7 +583,6 @@ pub async fn start_job_tail(
     cmd.stderr(std::process::Stdio::null());
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000);
     }
 

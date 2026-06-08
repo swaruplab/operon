@@ -16,13 +16,21 @@
 //! The `ai_provider_env` helper in `claude.rs` consults this and substitutes the
 //! proxy URL for the user's upstream URL when sending env vars to Claude Code.
 
+#[cfg(not(target_os = "windows"))]
 use std::net::TcpListener;
 use std::sync::Mutex;
+#[cfg(not(target_os = "windows"))]
 use std::time::{Duration, Instant};
 
+// had to gate non-windows imports
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri::AppHandle;
+#[cfg(not(target_os = "windows"))]
+use tauri::Emitter;
+use tauri_plugin_shell::process::CommandChild;
+#[cfg(not(target_os = "windows"))]
+use tauri_plugin_shell::process::CommandEvent;
+#[cfg(not(target_os = "windows"))]
 use tauri_plugin_shell::ShellExt;
 
 pub struct ProxyHandle {
@@ -60,6 +68,8 @@ impl ProxyManager {
     }
 }
 
+// requires non-windows gate
+#[cfg(not(target_os = "windows"))]
 fn pick_free_port() -> Result<u16, String> {
     let listener =
         TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Bind probe failed: {}", e))?;
@@ -71,6 +81,8 @@ fn pick_free_port() -> Result<u16, String> {
     Ok(port)
 }
 
+// requires non-windows gate
+#[cfg(not(target_os = "windows"))]
 async fn wait_for_port(port: u16, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -104,70 +116,75 @@ pub async fn start_translation_proxy(
         );
     }
 
-    // Kill any existing proxy first.
-    state.stop()?;
+    // wrapping this prevents warnings due to unreachable code
+    // on windows computers
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Kill any existing proxy first.
+        state.stop()?;
 
-    let upstream = upstream_base_url.trim().trim_end_matches('/').to_string();
-    if upstream.is_empty() {
-        return Err("Upstream base URL is required".to_string());
-    }
-
-    let port = pick_free_port()?;
-
-    let shell = app.shell();
-    let mut cmd = shell
-        .sidecar("anthropic-proxy")
-        .map_err(|e| format!("Failed to locate anthropic-proxy sidecar: {}", e))?
-        .env("UPSTREAM_BASE_URL", &upstream)
-        .env("PORT", port.to_string());
-
-    if let Some(key) = upstream_api_key.as_ref() {
-        if !key.is_empty() {
-            cmd = cmd.env("UPSTREAM_API_KEY", key);
+        let upstream = upstream_base_url.trim().trim_end_matches('/').to_string();
+        if upstream.is_empty() {
+            return Err("Upstream base URL is required".to_string());
         }
-    }
 
-    let (mut rx, child) = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn anthropic-proxy sidecar: {}", e))?;
+        let port = pick_free_port()?;
 
-    // Drain stdout/stderr so the child doesn't block. Emit log lines to the
-    // frontend so a status panel can surface them.
-    let app_for_logs = app.clone();
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).to_string();
-                    let _ = app_for_logs.emit("translation-proxy-log", line);
-                }
-                CommandEvent::Terminated(payload) => {
-                    let _ = app_for_logs.emit("translation-proxy-exit", payload.code);
-                    break;
-                }
-                _ => {}
+        let shell = app.shell();
+        let mut cmd = shell
+            .sidecar("anthropic-proxy")
+            .map_err(|e| format!("Failed to locate anthropic-proxy sidecar: {}", e))?
+            .env("UPSTREAM_BASE_URL", &upstream)
+            .env("PORT", port.to_string());
+
+        if let Some(key) = upstream_api_key.as_ref() {
+            if !key.is_empty() {
+                cmd = cmd.env("UPSTREAM_API_KEY", key);
             }
         }
-    });
 
-    // Give the server up to 5s to bind.
-    if !wait_for_port(port, Duration::from_secs(5)).await {
-        // Best-effort cleanup — child should be dead or dying.
-        let _ = child.kill();
-        return Err(format!(
-            "Translation proxy failed to bind to 127.0.0.1:{} within 5s",
-            port
-        ));
+        let (mut rx, child) = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn anthropic-proxy sidecar: {}", e))?;
+
+        // Drain stdout/stderr so the child doesn't block. Emit log lines to the
+        // frontend so a status panel can surface them.
+        let app_for_logs = app.clone();
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
+                        let line = String::from_utf8_lossy(&bytes).to_string();
+                        let _ = app_for_logs.emit("translation-proxy-log", line);
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        let _ = app_for_logs.emit("translation-proxy-exit", payload.code);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        // Give the server up to 5s to bind.
+        if !wait_for_port(port, Duration::from_secs(5)).await {
+            // Best-effort cleanup — child should be dead or dying.
+            let _ = child.kill();
+            return Err(format!(
+                "Translation proxy failed to bind to 127.0.0.1:{} within 5s",
+                port
+            ));
+        }
+
+        let mut guard = state.handle.lock().map_err(|e| e.to_string())?;
+        *guard = Some(ProxyHandle {
+            child,
+            port,
+            upstream_base_url: upstream,
+        });
+
+        Ok(format!("http://127.0.0.1:{}", port))
     }
-
-    let mut guard = state.handle.lock().map_err(|e| e.to_string())?;
-    *guard = Some(ProxyHandle {
-        child,
-        port,
-        upstream_base_url: upstream,
-    });
-
-    Ok(format!("http://127.0.0.1:{}", port))
 }
 
 #[tauri::command]

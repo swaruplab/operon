@@ -111,6 +111,7 @@ fn control_master_active(profile: &SSHProfile) -> bool {
 }
 
 /// Build common SSH args including ControlMaster and ControlPath.
+#[cfg(not(target_os = "windows"))] // ControlMaster is not supported on Windows
 fn control_master_args(profile: &SSHProfile, as_master: bool) -> String {
     if !profile.use_control_master || !crate::platform::supports_ssh_mux() {
         return String::new();
@@ -1228,7 +1229,19 @@ fn ssh_exec_oneshot(
         return Err(format!("SSH command failed: {}", filtered_stderr));
     }
 
-    Ok(stdout)
+    // This should be all that's needed because Windows exits early
+    // tauri was otherwise upset that unreachable!() was not actually
+    // reachable after windows exits early, so I commented it out.
+    #[cfg(not(target_os = "windows"))]
+    return Ok(stdout);
+
+    /*
+    // Unreachable on non-Windows, but needed for Windows cfg where the function
+    // returns early from the #[cfg(target_os = "windows")] block above.
+    #[cfg(target_os = "windows")]
+    unreachable!()
+    */
+
 }
 
 /// Async wrapper around the blocking [`ssh_exec`]. Runs the SSH call on a
@@ -2284,7 +2297,9 @@ pub async fn setup_ssh_key(
         pub_key, pub_key
     );
 
-    let ssh_cmd = format!(
+    // prefixed with "_" to show this is unused...
+    // consider removing later
+    let _ssh_cmd = format!(
         "ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p {} {}@{} {}",
         profile.port,
         profile.user,

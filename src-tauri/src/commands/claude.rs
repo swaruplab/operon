@@ -1961,6 +1961,7 @@ exit 0
 const GUARD_PROMPT_NOTICE: &str = "FILE-SAFETY POLICY: You must not delete files or directories. Operon hard-blocks every deletion command the agent issues (rm, rmdir, unlink, shred, find -delete, git clean, git rm, rsync --delete, and similar) — such commands will fail at the tool level. Do not attempt deletions or workarounds. If a file or folder genuinely needs to be removed, state the exact path and ask the user to delete it themselves via the Explorer or their terminal, then carry on with the rest of the task.\n\n";
 
 /// Build the Claude Code settings JSON that registers the guard hook (local mode).
+#[allow(dead_code)] // I think this is not allways run, so allow dead code
 fn guard_settings_json(hook_path: &str) -> String {
     let esc = hook_path.replace('\\', "\\\\").replace('"', "\\\"");
     format!(
