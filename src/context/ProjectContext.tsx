@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 
-export type BinaryFileType = 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | null;
+export type BinaryFileType = 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx' | null;
 
 export interface EditorTab {
   id: string;

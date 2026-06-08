@@ -77,6 +77,10 @@ export function EditorArea() {
       case 'pptm':
       case 'ppt':
         return 'text-orange-600 dark:text-orange-400';
+      case 'docx':
+      case 'docm':
+      case 'doc':
+        return 'text-blue-600 dark:text-blue-400';
       case 'png':
       case 'jpg':
       case 'jpeg':
@@ -99,6 +103,7 @@ export function EditorArea() {
     if (tab.binaryType === 'html') return <Globe className={`w-3.5 h-3.5 text-orange-600 dark:text-orange-400`} />;
     if (tab.binaryType === 'xlsx') return <Sheet className={`w-3.5 h-3.5 text-green-600 dark:text-green-400`} />;
     if (tab.binaryType === 'pptx') return <Presentation className={`w-3.5 h-3.5 text-orange-600 dark:text-orange-400`} />;
+    if (tab.binaryType === 'docx') return <FileText className={`w-3.5 h-3.5 text-blue-600 dark:text-blue-400`} />;
     return <FileText className={`w-3.5 h-3.5 ${getFileColor(tab.fileName)}`} />;
   };
 

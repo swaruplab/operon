@@ -119,3 +119,56 @@ export async function scpBatchUpload(profileId: string, localPaths: string[], re
 export async function clearSshCache(): Promise<void> {
   return invoke('clear_ssh_cache');
 }
+
+import type { FileEntry } from './files';
+
+interface CachedDir {
+  entries: FileEntry[];
+  ts: number;
+}
+
+const REMOTE_DIR_CACHE = new Map<string, CachedDir>();
+const REMOTE_DIR_TTL_MS = 15_000;
+
+function cacheKey(profileId: string, path: string, showHidden: boolean): string {
+  return `${profileId}:${path}:${showHidden ? 1 : 0}`;
+}
+
+export async function listRemoteDirectoryCached(
+  profileId: string,
+  path: string,
+  showHidden = false,
+): Promise<FileEntry[]> {
+  const key = cacheKey(profileId, path, showHidden);
+  const hit = REMOTE_DIR_CACHE.get(key);
+  if (hit && Date.now() - hit.ts < REMOTE_DIR_TTL_MS) {
+    return hit.entries;
+  }
+  const entries = await invoke<FileEntry[]>('list_remote_directory', {
+    profileId,
+    path,
+    showHidden,
+  });
+  REMOTE_DIR_CACHE.set(key, { entries, ts: Date.now() });
+  return entries;
+}
+
+export function invalidateRemotePath(profileId: string, path: string): void {
+  const prefix = `${profileId}:${path}:`;
+  const parent = path.replace(/\/[^/]*\/?$/, '') || '/';
+  const parentPrefix = `${profileId}:${parent}:`;
+  for (const k of Array.from(REMOTE_DIR_CACHE.keys())) {
+    if (k.startsWith(prefix) || k.startsWith(parentPrefix)) {
+      REMOTE_DIR_CACHE.delete(k);
+    }
+  }
+}
+
+export async function clearRemoteCache(): Promise<void> {
+  REMOTE_DIR_CACHE.clear();
+  try {
+    await invoke('clear_ssh_cache');
+  } catch {
+    /* backend may be unavailable; client cache already cleared */
+  }
+}

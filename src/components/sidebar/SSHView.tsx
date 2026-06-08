@@ -3,7 +3,6 @@ import {
   Plus,
   MonitorSmartphone,
   Trash2,
-  Plug,
   X,
   Server,
   KeyRound,
@@ -940,10 +939,10 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   ) : (
                     <button
                       onClick={() => handleConnect(profile)}
-                      className="p-1 rounded hover:bg-elevated text-green-500"
-                      title="Connect"
+                      className="px-3 py-1 rounded text-[11px] font-semibold tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                      title="Connect to this server"
                     >
-                      <Plug className="w-3.5 h-3.5" />
+                      CONNECT
                     </button>
                   )}
                   <button

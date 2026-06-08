@@ -63,6 +63,7 @@ import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
 import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
+import { listRemoteDirectoryCached } from '../../lib/ssh';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -1473,13 +1474,9 @@ export function ChatPanel() {
       }
 
       try {
-        let entries: Array<{ name: string; path: string; is_dir: boolean; size: number; extension?: string }>;
+        let entries: Array<{ name: string; path: string; is_dir: boolean; size: number; extension?: string | null }>;
         if (isRemote) {
-          entries = await invoke<typeof entries>('list_remote_directory', {
-            profileId: remoteInfo.profileId,
-            path: searchDir,
-            showHidden: false,
-          });
+          entries = await listRemoteDirectoryCached(remoteInfo.profileId, searchDir, false);
         } else {
           entries = await invoke<typeof entries>('list_directory', {
             path: searchDir,

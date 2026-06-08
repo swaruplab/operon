@@ -33,7 +33,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 
-const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx'; mimeType: string }> = {
+const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
   jpg: { binaryType: 'image', mimeType: 'image/jpeg' },
   jpeg: { binaryType: 'image', mimeType: 'image/jpeg' },
@@ -52,6 +52,9 @@ const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' |
   pptx: { binaryType: 'pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
   pptm: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12' },
   ppt: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint' },
+  docx: { binaryType: 'docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  docm: { binaryType: 'docx', mimeType: 'application/vnd.ms-word.document.macroEnabled.12' },
+  doc: { binaryType: 'docx', mimeType: 'application/msword' },
 };
 
 interface SidebarProps {
@@ -873,11 +876,13 @@ function FileExplorerView({ sshConnection, localTerminalId }: FileExplorerViewPr
       {explorerMode === 'local' || !sshConnection ? (
         <LocalFileExplorer localTerminalId={localTerminalId} />
       ) : (
-        <RemoteExplorer
-          profileId={sshConnection.profileId}
-          profileName={sshConnection.profileName}
-          terminalId={sshConnection.terminalId}
-        />
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <RemoteExplorer
+            profileId={sshConnection.profileId}
+            profileName={sshConnection.profileName}
+            terminalId={sshConnection.terminalId}
+          />
+        </div>
       )}
     </div>
   );

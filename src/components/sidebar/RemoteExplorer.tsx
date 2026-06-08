@@ -31,9 +31,10 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
+import { listRemoteDirectoryCached, invalidateRemotePath, clearRemoteCache } from '../../lib/ssh';
 import { RegexAddDialog } from './Sidebar';
 
-const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx'; mimeType: string }> = {
+const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
   jpg: { binaryType: 'image', mimeType: 'image/jpeg' },
   jpeg: { binaryType: 'image', mimeType: 'image/jpeg' },
@@ -52,6 +53,9 @@ const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' |
   pptx: { binaryType: 'pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
   pptm: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12' },
   ppt: { binaryType: 'pptx', mimeType: 'application/vnd.ms-powerpoint' },
+  docx: { binaryType: 'docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+  docm: { binaryType: 'docx', mimeType: 'application/vnd.ms-word.document.macroEnabled.12' },
+  doc: { binaryType: 'docx', mimeType: 'application/msword' },
 };
 
 interface RemoteExplorerProps {
@@ -97,11 +101,7 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
     // Expanding: always fetch fresh directory listing
     setLoading(true);
     try {
-      const entries = await invoke<FileEntry[]>('list_remote_directory', {
-        profileId,
-        path: entry.path,
-        showHidden,
-      });
+      const entries = await listRemoteDirectoryCached(profileId, entry.path, showHidden);
       setChildren(entries);
     } catch (err) {
       console.error('Failed to list remote directory:', err);
@@ -338,7 +338,6 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [pinnedItems, setPinnedItems] = useState<RemotePinnedItem[]>(() => loadRemotePinnedItems(profileId));
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -381,9 +380,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
         profileId,
         path: `${remotePath}/${name}`,
       });
+      invalidateRemotePath(profileId, remotePath);
       setCreatingFolder(false);
       setNewFolderName('');
-      setRefreshKey(k => k + 1);
     } catch (err) {
       console.error('Failed to create remote folder:', err);
     }
@@ -413,11 +412,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       setLoading(true);
       setError(null);
       try {
-        const items = await invoke<FileEntry[]>('list_remote_directory', {
-          profileId,
-          path,
-          showHidden,
-        });
+        const items = await listRemoteDirectoryCached(profileId, path, showHidden);
         setEntries(items);
         setRemotePath(path);
         // Notify other components (e.g. ChatPanel) about the current remote path
@@ -476,11 +471,9 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   }, [profileId, loadDir]); // loadDir already depends on showHidden
 
   const refresh = async () => {
-    // Clear the backend SSH cache first so we get truly fresh data
-    try { await invoke('clear_ssh_cache'); } catch { /* ignore */ }
+    try { await clearRemoteCache(); } catch { /* ignore */ }
     if (remotePath) {
       loadDir(remotePath);
-      setRefreshKey((k) => k + 1);
     }
   };
 
@@ -688,9 +681,11 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     const newPath = `${dir}/${renameInput.trim()}`;
     try {
       await invoke('rename_remote_path', { profileId, oldPath: renaming.path, newPath });
+      invalidateRemotePath(profileId, renaming.path);
+      invalidateRemotePath(profileId, newPath);
       setRenaming(null);
       if (remotePath) {
-        const items = await invoke<FileEntry[]>('list_remote_directory', { profileId, path: remotePath });
+        const items = await listRemoteDirectoryCached(profileId, remotePath, showHidden);
         setEntries(items);
       }
     } catch (err) {
@@ -702,9 +697,10 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const handleDeleteRemoteFile = async (entry: FileEntry) => {
     try {
       await invoke('delete_remote_file', { profileId, path: entry.path });
+      invalidateRemotePath(profileId, entry.path);
       setDeleteConfirm(null);
       // Refresh the current directory
-      const items = await invoke<FileEntry[]>('list_remote_directory', { profileId, path: remotePath });
+      const items = await listRemoteDirectoryCached(profileId, remotePath, showHidden);
       setEntries(items);
     } catch (err) {
       console.error('Failed to delete remote file:', err);
@@ -1040,7 +1036,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       </div>
 
       {/* File tree */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="flex-1 min-h-0 overflow-y-auto py-1 pb-16">
         {/* Inline new folder input */}
         {creatingFolder && (
           <div className="flex items-center gap-1 px-2 py-1 mx-1 mb-1 bg-surface/80 rounded border border-green-600/40">
@@ -1119,7 +1115,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           <div className="px-4 py-8 text-center text-subtle text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
-            <RemoteTreeNode key={`${entry.path}-${refreshKey}`} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} />
+            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} />
           ))
         )}
       </div>

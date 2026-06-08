@@ -118,6 +118,56 @@ fn control_master_args(profile: &SSHProfile, as_master: bool) -> String {
     crate::platform::ssh_mux_args(&profile.host, profile.port, &profile.user, as_master)
 }
 
+/// Ensure a backgrounded ControlMaster is alive for this profile. Returns
+/// Ok(true) if a master socket is usable after the call, Ok(false) if the
+/// platform or profile opts out, Err with a diagnostic if the spawn failed.
+/// Lets short-lived `ssh_exec` callers (file browser, status polls) avoid a
+/// full handshake when no interactive SSH terminal has been opened yet.
+fn ensure_control_master(profile: &SSHProfile) -> Result<bool, String> {
+    if !profile.use_control_master || !crate::platform::supports_ssh_mux() {
+        return Ok(false);
+    }
+    if control_master_active(profile) {
+        return Ok(true);
+    }
+
+    let sock = control_socket_path(profile);
+    let mut cmd = format!(
+        "ssh -M -N -f \
+         -o ControlMaster=yes \
+         -o ControlPath='{}' \
+         -o ControlPersist=10m \
+         -o ServerAliveInterval=30 \
+         -o ServerAliveCountMax=3 \
+         -o ConnectTimeout=15 \
+         -o BatchMode=yes",
+        sock.replace('\'', "'\\''")
+    );
+    if let Some(key) = &profile.key_file {
+        if std::path::Path::new(key).exists() {
+            cmd.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
+        }
+    }
+    cmd.push_str(&format!(
+        " -p {} {}@{}",
+        profile.port, profile.user, profile.host
+    ));
+
+    let status = crate::platform::shell_exec(&cmd)
+        .status()
+        .map_err(|e| format!("Failed to spawn ControlMaster: {}", e))?;
+
+    if control_master_active(profile) {
+        Ok(true)
+    } else {
+        Err(format!(
+            "ControlMaster spawn exited {} but socket {} is not active",
+            status.code().unwrap_or(-1),
+            sock
+        ))
+    }
+}
+
 // ── Cache ──
 
 /// A single cached value with an expiration time.
@@ -531,6 +581,331 @@ impl Drop for WinSshExecChannel {
     }
 }
 
+// ── Unix Persistent SSH Exec Channel ──
+// macOS/Linux mirror of WinSshExecChannel. Even with a live ControlMaster
+// socket, every per-call `ssh` subprocess pays a fork+exec+channel-open cost
+// (~50-200ms on macOS). This holds one `ssh -T ... bash -l` process per host
+// and pipes commands through stdin/stdout via the same delimiter-framed
+// protocol the Windows path uses. When ControlMaster is available the
+// in-process channel itself multiplexes through the socket, so the spawn is
+// effectively instant.
+
+#[cfg(not(target_os = "windows"))]
+struct UnixSshExecChannel {
+    stdin: std::process::ChildStdin,
+    rx: std::sync::mpsc::Receiver<String>,
+    child: std::process::Child,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl UnixSshExecChannel {
+    const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+    fn spawn(profile: &SSHProfile) -> Result<Self, String> {
+        use std::io::{BufRead, Read, Write};
+
+        let mut cmd = std::process::Command::new("ssh");
+        cmd.args([
+            "-T",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-o",
+            "ConnectTimeout=15",
+            "-o",
+            "LogLevel=ERROR",
+        ]);
+
+        // Do NOT multiplex over the existing ControlMaster socket here.
+        // The master is shared with terminal sessions, claude tails, scp, etc.,
+        // and sshd's MaxSessions cap (default 10) routinely refuses new
+        // channels on busy HPC hosts ("Session open refused by peer"). The
+        // persistent channel pays one TCP+auth handshake at spawn time, then
+        // every subsequent command rides the same long-lived bash process.
+        cmd.args(["-o", "ControlMaster=no", "-o", "ControlPath=none"]);
+
+        cmd.args(["-p", &profile.port.to_string()]);
+        if let Some(key) = &profile.key_file {
+            if std::path::Path::new(key).exists() {
+                cmd.args(["-i", key]);
+            }
+        }
+        cmd.arg(format!("{}@{}", profile.user, profile.host));
+        // Skip login files (~/.bash_profile, ~/.bashrc) — on HPC clusters those
+        // do conda init, module load, etc. and can take 15-60s before the shell
+        // is responsive. The channel only runs ls/cat/mkdir/base64, all in the
+        // default PATH that sshd's PAM session sets up. No user env needed.
+        cmd.arg("bash --noprofile --norc");
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn persistent SSH channel: {}", e))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or("Failed to capture SSH channel stdin")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("Failed to capture SSH channel stdout")?;
+        let stderr = child.stderr.take();
+
+        // Detect early auth failure: give ssh a moment to die, then poll.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let err_msg = if let Some(mut se) = stderr {
+                    let mut buf = String::new();
+                    let _ = se.read_to_string(&mut buf);
+                    buf
+                } else {
+                    String::new()
+                };
+                eprintln!(
+                    "[operon-ssh] Unix exec channel auth failed (exit {}): {}",
+                    status,
+                    err_msg.trim()
+                );
+                return Err(format!(
+                    "SSH auth failed for exec channel (exit {}): {}",
+                    status.code().unwrap_or(-1),
+                    err_msg.trim()
+                ));
+            }
+            Ok(None) => {
+                eprintln!(
+                    "[operon-ssh] Unix exec channel opened for {}@{}:{}",
+                    profile.user, profile.host, profile.port
+                );
+            }
+            Err(e) => return Err(format!("Failed to check SSH channel status: {}", e)),
+        }
+
+        // Stderr drain — without this the pipe buffer can fill and block
+        // remote ssh from writing more output.
+        if let Some(se) = stderr {
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(se);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let lt = line.trim();
+                            if lt.is_empty() {
+                                continue;
+                            }
+                            // Filter the usual OpenSSH noise (post-quantum
+                            // warnings, host-key announcements) and only log
+                            // signal-bearing lines.
+                            if lt.starts_with("Warning: Permanently added")
+                                || lt.contains("sntrup")
+                                || lt.contains("mlkem")
+                            {
+                                continue;
+                            }
+                            eprintln!("[operon-ssh-stderr] {}", lt);
+                        }
+                    }
+                }
+            });
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            let mut reader = std::io::BufReader::new(stdout);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        if tx.send(line.clone()).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        let mut channel = Self { stdin, rx, child };
+
+        let probe_delim = "__OPERON_READY__";
+        channel
+            .stdin
+            .write_all(format!("echo {}\n", probe_delim).as_bytes())
+            .map_err(|e| format!("Failed to send probe: {}", e))?;
+        channel
+            .stdin
+            .flush()
+            .map_err(|e| format!("Failed to flush probe: {}", e))?;
+
+        let probe_deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let remaining = probe_deadline
+                .checked_duration_since(std::time::Instant::now())
+                .unwrap_or_default();
+            if remaining.is_zero() {
+                return Err("Exec channel probe timed out — shell not responding".to_string());
+            }
+            match channel.rx.recv_timeout(remaining) {
+                Ok(line) => {
+                    if line.trim() == probe_delim {
+                        break;
+                    }
+                    // Discard MOTD / login banner lines.
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err("Exec channel probe timed out — shell not responding".to_string());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("Exec channel closed during probe".to_string());
+                }
+            }
+        }
+
+        eprintln!("[operon-ssh] Unix exec channel ready (probe OK)");
+        Ok(channel)
+    }
+
+    fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// Run a remote command and return (stdout, exit_code).
+    fn exec(&mut self, remote_cmd: &str) -> Result<(String, i32), String> {
+        use std::io::Write;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let delim = format!("__OPERON_DONE_{}_{}__", std::process::id(), ts);
+
+        // Same `{ … } </dev/null 2>&1` wrapper as Windows so commands that
+        // would otherwise read stdin (npx prompts, etc.) get an immediate EOF
+        // and can't steal the next command from the channel's stdin stream.
+        // `echo "{delim}$?"` appends the exit code right after the delimiter
+        // so callers can recover non-zero exits without a second round-trip.
+        let wrapped = format!(
+            "{{ {}\n}} </dev/null 2>&1\necho \"{}$?\"\n",
+            remote_cmd, delim
+        );
+
+        self.stdin.write_all(wrapped.as_bytes()).map_err(|e| {
+            format!(
+                "SSH channel write failed (connection may have dropped): {}",
+                e
+            )
+        })?;
+        self.stdin
+            .flush()
+            .map_err(|e| format!("SSH channel flush failed: {}", e))?;
+
+        let per_call_timeout = std::time::Duration::from_secs(30);
+        let mut output = String::new();
+        loop {
+            match self
+                .rx
+                .recv_timeout(per_call_timeout.min(Self::IDLE_TIMEOUT))
+            {
+                Ok(line) => {
+                    let trimmed = line.trim_end_matches(['\r', '\n']);
+                    if let Some(code_str) = trimmed.strip_prefix(delim.as_str()) {
+                        let code = code_str.trim().parse::<i32>().unwrap_or(-1);
+                        return Ok((output, code));
+                    }
+                    // Delimiter fused onto a no-trailing-newline final line.
+                    if let Some(idx) = trimmed.find(delim.as_str()) {
+                        let (prefix, suffix) = trimmed.split_at(idx);
+                        let code_str = &suffix[delim.len()..];
+                        let code = code_str.trim().parse::<i32>().unwrap_or(-1);
+                        output.push_str(prefix);
+                        return Ok((output, code));
+                    }
+                    output.push_str(&line);
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    return Err(format!(
+                        "SSH channel stalled — no output for {}s. The connection will be rebuilt.",
+                        per_call_timeout.as_secs()
+                    ));
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("SSH channel closed unexpectedly".to_string());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl Drop for UnixSshExecChannel {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_unix_channel(
+    profile: &SSHProfile,
+) -> Result<std::sync::Arc<Mutex<Option<UnixSshExecChannel>>>, String> {
+    use std::sync::{Arc, OnceLock};
+
+    type ChannelSlot = Arc<Mutex<Option<UnixSshExecChannel>>>;
+    static UNIX_CHANNELS: OnceLock<Mutex<HashMap<String, ChannelSlot>>> = OnceLock::new();
+    let map_mutex = UNIX_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
+
+    let mut map = map_mutex
+        .lock()
+        .map_err(|e| format!("channel map poisoned: {}", e))?;
+    Ok(map
+        .entry(key)
+        .or_insert_with(|| Arc::new(Mutex::new(None)))
+        .clone())
+}
+
+/// Tracks recent persistent-channel spawn failures per host so a hard-failing
+/// channel doesn't get respawned on every single ssh_exec call (which would
+/// pay the 15s probe timeout every time AND risk tripping sshd's MaxStartups
+/// rate limit). Once a host has failed, we silently use the oneshot path for
+/// 60s before trying again.
+#[cfg(not(target_os = "windows"))]
+fn unix_channel_failures() -> &'static Mutex<HashMap<String, std::time::Instant>> {
+    use std::sync::OnceLock;
+    static FAILURES: OnceLock<Mutex<HashMap<String, std::time::Instant>>> = OnceLock::new();
+    FAILURES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unix_channel_spawn_blocked(key: &str) -> bool {
+    let cooldown = std::time::Duration::from_secs(60);
+    let guard = match unix_channel_failures().lock() {
+        Ok(g) => g,
+        Err(_) => return false,
+    };
+    guard
+        .get(key)
+        .map(|t| std::time::Instant::now().duration_since(*t) < cooldown)
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unix_channel_mark_spawn_failed(key: &str) {
+    if let Ok(mut guard) = unix_channel_failures().lock() {
+        guard.insert(key.to_string(), std::time::Instant::now());
+    }
+}
+
 // ── Profile CRUD Commands ──
 
 #[tauri::command]
@@ -612,7 +987,17 @@ pub async fn reorder_ssh_profiles(
 /// On Windows: uses a persistent SSH exec channel (single TCP connection reused
 /// for all commands — the Windows equivalent of ControlMaster).
 pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
-    let _has_mux = crate::platform::supports_ssh_mux();
+    #[allow(unused_mut)]
+    let mut _has_mux = crate::platform::supports_ssh_mux();
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if profile.use_control_master && _has_mux && !control_master_active(profile) {
+            if let Ok(true) = ensure_control_master(profile) {
+                _has_mux = true;
+            }
+        }
+    }
 
     // ── Windows: persistent exec channel (replaces ControlMaster) ──
     // Maintains one SSH connection per server and pipes all commands through it.
@@ -670,10 +1055,104 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         }
     }
 
-    // ── macOS/Linux: use shell_exec with ControlMaster ──
+    // ── macOS/Linux: persistent in-process channel, fall back to one-shot fork ──
+    // Even with ControlMaster active, every `ssh` subprocess pays fork+exec+
+    // channel-open (~50-200ms on macOS). The persistent channel keeps one
+    // `ssh ... bash -l` alive per host and pipes commands through it, mirroring
+    // the Windows path.
     #[cfg(not(target_os = "windows"))]
+    {
+        let channel_key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
+
+        // If a recent spawn failed for this host, skip the channel path
+        // entirely for the cooldown window — don't keep hammering sshd
+        // with reconnect attempts that will just time out again.
+        if unix_channel_spawn_blocked(&channel_key) {
+            return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+        }
+
+        let slot = match get_unix_channel(profile) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[operon-ssh] channel slot unavailable: {}", e);
+                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+            }
+        };
+
+        let mut guard = match slot.lock() {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("[operon-ssh] channel lock poisoned: {}", e);
+                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+            }
+        };
+
+        let need_new = match guard.as_mut() {
+            Some(ch) => !ch.is_alive(),
+            None => true,
+        };
+        if need_new {
+            eprintln!(
+                "[operon-ssh] Opening persistent exec channel for {}",
+                channel_key
+            );
+            match UnixSshExecChannel::spawn(profile) {
+                Ok(ch) => *guard = Some(ch),
+                Err(e) => {
+                    eprintln!(
+                        "[operon-ssh] Persistent channel spawn failed ({}); falling back to per-call ssh for 60s",
+                        e
+                    );
+                    unix_channel_mark_spawn_failed(&channel_key);
+                    drop(guard);
+                    return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                }
+            }
+        }
+
+        match guard.as_mut().unwrap().exec(remote_cmd) {
+            Ok((stdout, exit_code)) => {
+                if exit_code != 0 && stdout.trim().is_empty() {
+                    return Err(format!(
+                        "SSH command failed (exit code {}). This may be a transient connection issue — try clicking Retry.",
+                        exit_code
+                    ));
+                }
+                return Ok(stdout);
+            }
+            Err(e) => {
+                eprintln!(
+                    "[operon-ssh] Exec channel error: {}. Dropping and falling back to one-shot.",
+                    e
+                );
+                *guard = None;
+                drop(guard);
+                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+            }
+        }
+    }
+
+    // Unreachable on non-Windows, but needed for Windows cfg where the function
+    // returns early from the #[cfg(target_os = "windows")] block above.
+    #[cfg(target_os = "windows")]
+    #[allow(unreachable_code)]
+    {
+        unreachable!()
+    }
+}
+
+/// Per-call fork fallback for macOS/Linux. Used when the persistent channel
+/// can't be opened (auth fail, network down) or when an in-flight call errors
+/// out. Preserves the original `shell_exec` based code path verbatim so the
+/// behaviour matches what users had before the channel optimisation landed.
+#[cfg(not(target_os = "windows"))]
+fn ssh_exec_oneshot(
+    profile: &SSHProfile,
+    remote_cmd: &str,
+    has_mux: bool,
+) -> Result<String, String> {
     let output = {
-        let mut ssh_args = if _has_mux {
+        let mut ssh_args = if has_mux {
             format!(
                 "ssh -o BatchMode=yes -o ConnectTimeout=5 -o ServerAliveInterval=30 {}@{} -p {}",
                 profile.user, profile.host, profile.port
@@ -689,8 +1168,6 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         ssh_args.push_str(&control_master_args(profile, false));
         if let Some(key) = &profile.key_file {
             if std::path::Path::new(key).exists() {
-                // Single-quote: this string is run through a shell, so an
-                // unquoted path with spaces or backslashes would break.
                 ssh_args.push_str(&format!(" -i '{}'", key.replace('\'', "'\\''")));
             }
         }
@@ -701,13 +1178,9 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
             .map_err(|e| format!("Failed to run SSH: {}", e))?
     };
 
-    #[cfg(not(target_os = "windows"))]
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    #[cfg(not(target_os = "windows"))]
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    // Filter out common SSH noise from stderr (post-quantum warnings, MOTD, etc.)
-    #[cfg(not(target_os = "windows"))]
     let filtered_stderr: String = stderr
         .lines()
         .filter(|l| {
@@ -722,13 +1195,11 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         .collect::<Vec<_>>()
         .join("\n");
 
-    #[cfg(not(target_os = "windows"))]
     if !output.status.success() && stdout.trim().is_empty() {
-        // Check if ControlMaster socket exists
         let mux_active = control_master_active(profile);
         let sock_path = control_socket_path(profile);
 
-        if _has_mux && !mux_active {
+        if has_mux && !mux_active {
             return Err(format!(
                 "SSH connection not ready for file browsing. The SSH multiplexing socket is not active \
                  (expected at {}). Try disconnecting and reconnecting the SSH terminal, or set up SSH keys \
@@ -747,13 +1218,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         return Err(format!("SSH command failed: {}", filtered_stderr));
     }
 
-    #[cfg(not(target_os = "windows"))]
-    return Ok(stdout);
-
-    // Unreachable on non-Windows, but needed for Windows cfg where the function
-    // returns early from the #[cfg(target_os = "windows")] block above.
-    #[cfg(target_os = "windows")]
-    unreachable!()
+    Ok(stdout)
 }
 
 /// Async wrapper around the blocking [`ssh_exec`]. Runs the SSH call on a
@@ -806,53 +1271,44 @@ pub async fn list_remote_directory(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let ls_flag = if show_hidden { "-1aFL" } else { "-1FL" };
-    let la_flag = if show_hidden { "-laL" } else { "-lL" };
-    let cmd = format!(
-        "ls {} {} 2>/dev/null && echo '---SEPARATOR---' && ls {} {} 2>/dev/null",
-        ls_flag,
-        shell_escape_inner(&path),
-        la_flag,
-        shell_escape_inner(&path)
-    );
+    let ls_flag = if show_hidden { "-lLA" } else { "-lL" };
+    let cmd = format!("ls {} {} 2>/dev/null", ls_flag, shell_escape_inner(&path));
 
     let output = ssh_exec_async(profile, cmd).await?;
 
-    let parts: Vec<&str> = output.splitn(2, "---SEPARATOR---").collect();
-    let names_output = parts.first().unwrap_or(&"");
-    let long_output = parts.get(1).unwrap_or(&"");
-
-    let mut size_map: HashMap<String, u64> = HashMap::new();
-    for line in long_output.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() >= 9 {
-            if let Ok(size) = fields[4].parse::<u64>() {
-                let name = fields[8..].join(" ");
-                size_map.insert(name, size);
-            }
-        }
-    }
-
-    let mut entries: Vec<FileEntry> = Vec::new();
     let base_path = if path.ends_with('/') {
         path.clone()
     } else {
         format!("{}/", path)
     };
 
-    for line in names_output.lines() {
-        let line = line.trim();
-        if line.is_empty() {
+    let mut entries: Vec<FileEntry> = Vec::new();
+
+    for line in output.lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with("total ") {
             continue;
         }
 
-        let clean = line.trim_end_matches(['/', '*', '@', '=', '|']);
-        if clean == "." || clean == ".." {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 9 {
             continue;
         }
 
-        let is_dir = line.ends_with('/');
-        let name = clean.to_string();
+        let perms = fields[0];
+        let size = fields[4].parse::<u64>().unwrap_or(0);
+        let raw_name = fields[8..].join(" ");
+
+        let name_no_link = raw_name.split(" -> ").next().unwrap_or(&raw_name);
+        let name = name_no_link
+            .trim_end_matches(['/', '*', '@', '=', '|'])
+            .to_string();
+
+        if name.is_empty() || name == "." || name == ".." {
+            continue;
+        }
+
+        let is_dir = perms.starts_with('d');
         let full_path = format!("{}{}", base_path, name);
 
         let extension = if !is_dir {
@@ -862,8 +1318,6 @@ pub async fn list_remote_directory(
         } else {
             None
         };
-
-        let size = size_map.get(&name).copied().unwrap_or(0);
 
         entries.push(FileEntry {
             name,
@@ -1007,6 +1461,7 @@ pub async fn delete_remote_file(
         }
         _ => return Err("Path does not exist".to_string()),
     }
+    state.cache.invalidate_path(&profile_id, &path);
     Ok(())
 }
 
@@ -1033,6 +1488,8 @@ pub async fn rename_remote_path(
         shell_escape_inner(&new_path)
     );
     ssh_exec(&profile, &cmd)?;
+    state.cache.invalidate_path(&profile_id, &old_path);
+    state.cache.invalidate_path(&profile_id, &new_path);
     Ok(())
 }
 

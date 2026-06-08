@@ -13,12 +13,13 @@ import {
 } from 'lucide-react';
 import { XlsxViewer } from './XlsxViewer';
 import { PptxViewer } from './PptxViewer';
+import { DocxViewer } from './DocxViewer';
 
 interface FileViewerProps {
   filePath: string;
   base64Content: string;
   mimeType: string;
-  binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx';
+  binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx';
 }
 
 // Separate PDF viewer that uses Blob URL instead of data: URI.
@@ -205,6 +206,16 @@ export function FileViewer({ filePath, base64Content, mimeType, binaryType }: Fi
   if (binaryType === 'pptx') {
     return (
       <PptxViewer
+        filePath={filePath}
+        base64Content={base64Content}
+        mimeType={mimeType}
+      />
+    );
+  }
+
+  if (binaryType === 'docx') {
+    return (
+      <DocxViewer
         filePath={filePath}
         base64Content={base64Content}
         mimeType={mimeType}
