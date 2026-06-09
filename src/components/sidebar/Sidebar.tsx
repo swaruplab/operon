@@ -26,12 +26,15 @@ import { ProtocolsView } from './ProtocolsView';
 import { GitPanel } from './GitPanel';
 import { ExtensionsView } from './ExtensionsView';
 import { JobsView } from './JobsView';
+import { JobSubmissionPanel } from '../chat/JobSubmissionPanel';
 import { dockerExtension } from './DockerPanel';
 import { singularityExtension } from './SingularityPanel';
+import { X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
+import { batchDeleteFiles } from '../../lib/files';
 
 const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
@@ -71,9 +74,12 @@ interface TreeNodeProps {
   isPinned?: boolean;
   onTogglePin?: (path: string, name: string, isDir: boolean) => void;
   onContextMenu?: (e: React.MouseEvent, entry: FileEntry) => void;
+  isSelected?: boolean;
+  selectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent, entry: FileEntry) => void;
 }
 
-function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContextMenu }: TreeNodeProps) {
+function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContextMenu, isSelected, selectionMode, onSelect }: TreeNodeProps) {
   const [hovered, setHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
@@ -129,7 +135,12 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
     }
   };
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    const modified = e.shiftKey || e.metaKey || e.ctrlKey;
+    if (modified || (selectionMode && onSelect)) {
+      onSelect?.(e, entry);
+      return;
+    }
     if (entry.is_dir) {
       toggle();
     } else {
@@ -182,7 +193,9 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
         onMouseLeave={() => setHovered(false)}
       >
         <button
-          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group"
+          className={`w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group ${
+            isSelected ? 'bg-blue-500/15' : ''
+          }`}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -244,7 +257,7 @@ function TreeNode({ entry, depth, onNavigateDir, isPinned, onTogglePin, onContex
       {entry.is_dir &&
         expanded &&
         children.map((child) => (
-          <TreeNode key={child.path} entry={child} depth={depth + 1} onNavigateDir={onNavigateDir} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} />
+          <TreeNode key={child.path} entry={child} depth={depth + 1} onNavigateDir={onNavigateDir} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} isSelected={onSelect ? false : undefined} selectionMode={selectionMode} onSelect={onSelect} />
         ))}
     </div>
   );
@@ -303,6 +316,48 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   const [renaming, setRenaming] = useState<FileEntry | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const renameRef = useRef<HTMLInputElement>(null);
+
+  // Bulk selection — anchor is the last clicked row, used for shift-range
+  // across the visible top-level entries (we don't flatten expanded subtrees).
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const lastAnchorRef = useRef<string | null>(null);
+
+  const handleSelect = useCallback((e: React.MouseEvent, entry: FileEntry) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (e.shiftKey && lastAnchorRef.current) {
+        const anchor = lastAnchorRef.current;
+        const flat = entries.map(x => x.path);
+        const i = flat.indexOf(anchor);
+        const j = flat.indexOf(entry.path);
+        if (i >= 0 && j >= 0) {
+          const [lo, hi] = i < j ? [i, j] : [j, i];
+          for (let k = lo; k <= hi; k++) next.add(flat[k]);
+          return next;
+        }
+      }
+      if (e.metaKey || e.ctrlKey) {
+        if (next.has(entry.path)) next.delete(entry.path);
+        else next.add(entry.path);
+      } else {
+        next.clear();
+        next.add(entry.path);
+      }
+      lastAnchorRef.current = entry.path;
+      return next;
+    });
+  }, [entries]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedPaths(new Set());
+    lastAnchorRef.current = null;
+  }, []);
+
+  const copySelectedPaths = useCallback(() => {
+    const paths = Array.from(selectedPaths).join('\n');
+    navigator.clipboard.writeText(paths).catch(() => {});
+  }, [selectedPaths]);
 
   const addToChat = useCallback((entry: FileEntry) => {
     window.dispatchEvent(new CustomEvent('chat-add-context', {
@@ -420,6 +475,20 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
     },
     [],
   );
+
+  const performBulkDelete = async () => {
+    const paths = Array.from(selectedPaths);
+    if (paths.length === 0) return;
+    try {
+      await batchDeleteFiles(paths);
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+    }
+    clearSelection();
+    setBulkDeleteConfirm(false);
+    setRefreshKey(k => k + 1);
+    if (projectPath) loadDir(projectPath);
+  };
 
   // Track whether we've already attempted to restore from settings
   const restoredRef = useRef(false);
@@ -676,6 +745,9 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
               isPinned={isPinned(entry.path)}
               onTogglePin={togglePin}
               onContextMenu={handleContextMenu}
+              isSelected={selectedPaths.has(entry.path)}
+              selectionMode={selectedPaths.size > 0}
+              onSelect={handleSelect}
             />
           ))
         )}
@@ -805,6 +877,61 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
           </div>
         </div>
       )}
+
+      {/* Bulk-selection action bar */}
+      {selectedPaths.size > 0 && !deleteConfirm && (
+        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2 rounded-lg text-xs bg-surface/95 text-secondary border border-border-strong/60 shadow-lg">
+          {bulkDeleteConfirm ? (
+            <div className="flex items-center gap-2">
+              <span className="text-red-700 dark:text-red-300 flex-1 truncate">
+                Delete {selectedPaths.size} item{selectedPaths.size === 1 ? '' : 's'}?
+              </span>
+              <button
+                onClick={performBulkDelete}
+                className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setBulkDeleteConfirm(false)}
+                className="px-2 py-0.5 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-primary shrink-0">
+                {selectedPaths.size} selected
+              </span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setBulkDeleteConfirm(true)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-red-600/90 hover:bg-red-600 text-white transition-colors"
+                title="Delete selected"
+              >
+                <Trash2 className="w-3 h-3 pointer-events-none" />
+                Delete
+              </button>
+              <button
+                onClick={copySelectedPaths}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-elevated hover:bg-hover text-secondary transition-colors"
+                title="Copy paths"
+              >
+                <Copy className="w-3 h-3 pointer-events-none" />
+                Copy Paths
+              </button>
+              <button
+                onClick={clearSelection}
+                className="p-0.5 text-muted hover:text-secondary transition-colors"
+                title="Clear selection"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -860,7 +987,7 @@ function FileExplorerView({ sshConnection, localTerminalId }: FileExplorerViewPr
               onClick={() => setExplorerMode('remote')}
               className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
                 explorerMode === 'remote'
-                  ? 'bg-green-900/60 text-green-700 dark:text-green-300'
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300'
                   : 'text-muted hover:text-secondary'
               }`}
               title={`Remote: ${sshConnection?.profileName}`}
@@ -1251,6 +1378,9 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         <SSHView onConnectSSH={() => {}} connectedProfileId={sshConnection?.profileId ?? null} />
       )}
       {activeView === 'jobs' && <JobsView />}
+      {activeView === 'submit' && (
+        <JobSubmissionPanel initialProfileId={sshConnection?.profileId ?? null} />
+      )}
       {activeView === 'protocols' && (
         <ProtocolsView
           activeProtocolIds={activeProtocolIds}

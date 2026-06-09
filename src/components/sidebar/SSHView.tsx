@@ -65,6 +65,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   // Available SSH keys from ~/.ssh/
   const [availableKeys, setAvailableKeys] = useState<string[]>([]);
 
+  // Per-profile connect-button feedback. CONNECTING (amber spinner) shows the
+  // moment the user clicks until parent flips `connectedProfileId`; FAILED
+  // (red, click to retry) shows for 4s after an exception or 60s timeout.
+  const [connectingIds, setConnectingIds] = useState<Set<string>>(new Set());
+  const [connectErrors, setConnectErrors] = useState<Map<string, string>>(new Map());
+
   // Parsed entries from ~/.ssh/config — used to preload the form for
   // advanced users who already maintain a client config.
   const [configHosts, setConfigHosts] = useState<SSHConfigHost[]>([]);
@@ -137,6 +143,53 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   useEffect(() => {
     loadProfiles();
   }, [loadProfiles]);
+
+  // Parent confirms connection success by setting connectedProfileId to the
+  // profile's id — clear the local "CONNECTING" spinner the moment that fires.
+  useEffect(() => {
+    if (!connectedProfileId) return;
+    setConnectingIds((prev) => {
+      if (!prev.has(connectedProfileId)) return prev;
+      const next = new Set(prev);
+      next.delete(connectedProfileId);
+      return next;
+    });
+  }, [connectedProfileId]);
+
+  // Listen for SSH early-exit failures dispatched by TerminalArea. When the
+  // ssh process dies within ~15 s of spawn with a non-zero exit (auth failure,
+  // network black hole, bad host key…) TerminalArea fires this DOM event with
+  // the profileId, exit code, and a human-readable message. We flip the
+  // CONNECT button to red "FAILED · RETRY" so the user can see what happened
+  // and re-try without hunting through the now-closed terminal tab.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ profileId: string; exitCode: number | null; message: string }>).detail;
+      if (!detail?.profileId) return;
+      const { profileId, exitCode, message } = detail;
+      const label = exitCode !== null && exitCode !== undefined
+        ? `${message} (exit ${exitCode})`
+        : message;
+      setConnectingIds((prev) => {
+        if (!prev.has(profileId)) return prev;
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      });
+      setConnectErrors((prev) => new Map(prev).set(profileId, label));
+      // Mirror handleConnect's flash-clear timeout so the red state isn't sticky.
+      setTimeout(() => {
+        setConnectErrors((prev) => {
+          if (!prev.has(profileId)) return prev;
+          const next = new Map(prev);
+          next.delete(profileId);
+          return next;
+        });
+      }, 8000);
+    };
+    window.addEventListener('ssh-spawn-failed', handler);
+    return () => window.removeEventListener('ssh-spawn-failed', handler);
+  }, []);
 
   const resetForm = () => {
     setName('');
@@ -268,6 +321,52 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   }, [handleReorder]);
 
   const handleConnect = async (profile: SSHProfile) => {
+    // Tactile feedback: flip the button to the CONNECTING state immediately so
+    // the user knows the click registered. Cleared either by `connectedProfileId`
+    // flipping (success), the catch block (sync exception), or the 60s timeout.
+    setConnectingIds((prev) => new Set(prev).add(profile.id));
+    setConnectErrors((prev) => {
+      if (!prev.has(profile.id)) return prev;
+      const next = new Map(prev);
+      next.delete(profile.id);
+      return next;
+    });
+
+    const clearConnectingFor = (id: string) => {
+      setConnectingIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    };
+    const flashError = (id: string, message: string) => {
+      setConnectErrors((prev) => new Map(prev).set(id, message));
+      setTimeout(() => {
+        setConnectErrors((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 4000);
+    };
+
+    // Safety net: if connection never establishes (network black hole, hung
+    // MFA prompt, sshd dropped), clear the spinner after 60s and show a
+    // retryable error rather than leaving the user staring at a perpetual
+    // spinner.
+    const timeoutId = setTimeout(() => {
+      setConnectingIds((prev) => {
+        if (!prev.has(profile.id)) return prev;
+        clearConnectingFor(profile.id);
+        flashError(profile.id, 'Connection timed out after 60s');
+        return prev;
+      });
+    }, 60000);
+
+    try {
+
     const terminalId = crypto.randomUUID();
 
     // Test SSH connection with key before using -i flag
@@ -352,6 +451,12 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
           // Detection failed silently — user can still configure manually
         }
       }, 5000);
+    }
+
+    } catch (err) {
+      clearTimeout(timeoutId);
+      clearConnectingFor(profile.id);
+      flashError(profile.id, err instanceof Error ? err.message : 'Connection failed');
     }
   };
 
@@ -887,6 +992,8 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
         <div className="flex-1 overflow-y-auto py-1">
           {profiles.map((profile, idx) => {
             const isConnected = connectedProfileId === profile.id;
+            const isConnecting = connectingIds.has(profile.id);
+            const connectError = connectErrors.get(profile.id);
             const isDragging = dragIndex === idx;
             // Blue insert line: above the hovered row when dragging upward,
             // below it when dragging downward.
@@ -927,7 +1034,7 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                   </div>
                 </div>
                 <div className={`flex items-center gap-1 transition-opacity ${
-                  isConnected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  isConnected || isConnecting || connectError ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                 }`}>
                   {isConnected ? (
                     <span
@@ -936,10 +1043,27 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                     >
                       connected
                     </span>
+                  ) : isConnecting ? (
+                    <button
+                      disabled
+                      className="flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-semibold tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 cursor-wait"
+                      title="Establishing SSH connection…"
+                    >
+                      <Loader2 className="w-3 h-3 animate-spin pointer-events-none" />
+                      CONNECTING…
+                    </button>
+                  ) : connectError ? (
+                    <button
+                      onClick={() => handleConnect(profile)}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded text-[11px] font-semibold tracking-wider text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors active:scale-95"
+                      title={connectError}
+                    >
+                      FAILED · RETRY
+                    </button>
                   ) : (
                     <button
                       onClick={() => handleConnect(profile)}
-                      className="px-3 py-1 rounded text-[11px] font-semibold tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                      className="px-3 py-1 rounded text-[11px] font-semibold tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-800 dark:hover:text-blue-300 transition-colors active:scale-95"
                       title="Connect to this server"
                     >
                       CONNECT

@@ -124,7 +124,11 @@ interface TerminalInstanceProps {
    *  line with the HPC watchdog for this profile. */
   sshProfileId?: string;
   onTitleChange?: (title: string) => void;
-  onExit?: () => void;
+  /** Called when the PTY process exits. Receives the OS exit code (null if it
+   *  couldn't be captured). Non-zero on an SSH terminal means auth/network
+   *  failure; the parent uses this + the spawn timestamp to gate the
+   *  connected-state flip. */
+  onExit?: (exitCode: number | null) => void;
   onCwdChange?: (cwd: string) => void;
 }
 
@@ -386,10 +390,12 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       unlistenOutputRef.current = unlisten;
     });
 
-    // Listen for process exit
-    listen(`pty-exit-${terminalId}`, () => {
+    // Listen for process exit. Payload carries the OS exit code (or null if
+    // the backend couldn't reap the child) — forwarded to the parent so it
+    // can distinguish ssh auth failure (255) from a clean logout (0).
+    listen<{ exit_code: number | null }>(`pty-exit-${terminalId}`, (event) => {
       term.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
-      onExitRef.current?.();
+      onExitRef.current?.(event.payload?.exit_code ?? null);
     }).then((unlisten) => {
       unlistenExitRef.current = unlisten;
     });

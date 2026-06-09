@@ -4,6 +4,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalInstance } from './TerminalInstance';
 import { Tooltip } from '../ui/Tooltip';
+import { saveSessionState, type SessionTerminal } from '../../lib/session';
 
 interface TerminalTab {
   id: string;
@@ -15,13 +16,27 @@ interface TerminalTab {
   sshArgs?: string[];
   /** SSH profile id — present for SSH tabs, enables HPC watchdog auto-register. */
   sshProfileId?: string;
+  /** Wall-clock ms when this tab was added. Used to gate the SSH
+   *  early-exit watchdog: a non-zero exit within ~15 s of spawn is treated
+   *  as a connection failure (auth/network), not a user-initiated logout. */
+  spawnedAt: number;
   exited: boolean;
+}
+
+/** Window of time after SSH tab spawn during which a non-zero exit is treated
+ *  as connection failure (vs user-initiated `exit`/Ctrl-D). */
+const SSH_EARLY_EXIT_MS = 15_000;
+
+function describeSshExit(exitCode: number | null): string {
+  if (exitCode === null) return 'SSH connection terminated unexpectedly';
+  if (exitCode === 255) return 'SSH connection failed (auth, network, or unknown host)';
+  return `SSH connection failed (exit code ${exitCode})`;
 }
 
 export function TerminalArea() {
   const [tabs, setTabs] = useState<TerminalTab[]>(() => {
     const id = crypto.randomUUID();
-    return [{ id, title: 'Terminal', type: 'local', exited: false }];
+    return [{ id, title: 'Terminal', type: 'local', exited: false, spawnedAt: Date.now() }];
   });
   const [activeTab, setActiveTab] = useState<string>(() => tabs[0].id);
 
@@ -35,6 +50,7 @@ export function TerminalArea() {
         type: 'ssh',
         sshArgs,
         sshProfileId: profileId,
+        spawnedAt: Date.now(),
         exited: false,
       };
       setTabs((prev) => [...prev, newTab]);
@@ -76,6 +92,7 @@ export function TerminalArea() {
         title,
         type: 'local',
         initialCommand: command,
+        spawnedAt: Date.now(),
         exited: false,
       };
       setTabs((prev) => [...prev, newTab]);
@@ -97,9 +114,41 @@ export function TerminalArea() {
   const lastCwd = useRef<string>('');
   const lastRemoteCwd = useRef<string>('');
 
+  // Per-terminal cwd map for session persistence — kept off React state to
+  // avoid re-rendering every TerminalInstance on every OSC 7 emission.
+  const cwdByTerminal = useRef<Map<string, string>>(new Map());
+  const persistTimer = useRef<number | null>(null);
+  const schedulePersist = useCallback(() => {
+    if (persistTimer.current !== null) {
+      window.clearTimeout(persistTimer.current);
+    }
+    persistTimer.current = window.setTimeout(() => {
+      const terminalTabs: SessionTerminal[] = tabs
+        .filter((t) => t.type === 'local' && !t.exited)
+        .map((t) => ({
+          id: t.id,
+          cwd: cwdByTerminal.current.get(t.id) ?? '',
+          is_remote: false,
+        }));
+      saveSessionState({ terminal_tabs: terminalTabs }).catch(() => {});
+    }, 500);
+  }, [tabs]);
+
+  useEffect(() => {
+    schedulePersist();
+    return () => {
+      if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
+    };
+  }, [tabs, schedulePersist]);
+
   const handleCwdChange = useCallback((id: string, cwd: string) => {
     const tab = tabs.find((t) => t.id === id);
     if (!tab || !cwd) return;
+    const prev = cwdByTerminal.current.get(id);
+    if (prev !== cwd) {
+      cwdByTerminal.current.set(id, cwd);
+      schedulePersist();
+    }
     if (tab.type === 'local') {
       if (cwd !== lastCwd.current) {
         lastCwd.current = cwd;
@@ -111,7 +160,7 @@ export function TerminalArea() {
         emit('remote-terminal-cwd-changed', { terminalId: id, cwd });
       }
     }
-  }, [tabs]);
+  }, [tabs, schedulePersist]);
 
   // Fallback: poll via lsof for shells that don't emit OSC 7
   useEffect(() => {
@@ -142,6 +191,7 @@ export function TerminalArea() {
       id,
       title: type === 'local' ? 'Terminal' : 'SSH',
       type,
+      spawnedAt: Date.now(),
       exited: false,
     };
     setTabs((prev) => [...prev, newTab]);
@@ -169,9 +219,56 @@ export function TerminalArea() {
     );
   }, []);
 
-  const handleExit = useCallback((id: string) => {
-    setTabs((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, exited: true } : t)),
+  // SSH early-exit watchdog: if an SSH-spawned terminal exits with a non-zero
+  // status within SSH_EARLY_EXIT_MS of spawn, treat it as a connection failure
+  // (auth, network, host key — anything that kills `ssh` before the user could
+  // realistically type `exit`). We then:
+  //   1. Auto-close the empty dead tab (no value in keeping it around).
+  //   2. Emit `disconnect-remote` so the Sidebar clears `sshConnection` and
+  //      the SSHView green dot reverts off.
+  //   3. Dispatch the `ssh-spawn-failed` window event so SSHView can flip its
+  //      CONNECT button to "FAILED · RETRY" with the exit code in the tooltip.
+  // Exits AFTER the window are treated as user-initiated (Ctrl-D, `exit`,
+  // logout) and just leave the tab struck-through, as before.
+  const handleExit = useCallback((id: string, exitCode: number | null) => {
+    let dyingTab: TerminalTab | undefined;
+    setTabs((prev) => {
+      dyingTab = prev.find((t) => t.id === id);
+      return prev.map((t) => (t.id === id ? { ...t, exited: true } : t));
+    });
+
+    if (!dyingTab || dyingTab.type !== 'ssh' || !dyingTab.sshProfileId) return;
+
+    const aliveMs = Date.now() - dyingTab.spawnedAt;
+    const isFailure = exitCode === null || exitCode !== 0;
+    if (aliveMs > SSH_EARLY_EXIT_MS || !isFailure) return;
+
+    const failedProfileId = dyingTab.sshProfileId;
+    const message = describeSshExit(exitCode);
+
+    // Auto-close the dead tab so the user isn't left with a struck-through
+    // empty terminal that they have to manually close.
+    invoke('kill_terminal', { terminalId: id }).catch(() => {});
+    setTabs((prev) => {
+      const filtered = prev.filter((t) => t.id !== id);
+      setActiveTab((curr) =>
+        curr === id ? filtered[filtered.length - 1]?.id ?? curr : curr,
+      );
+      return filtered;
+    });
+
+    // Tell the Sidebar to drop its `sshConnection` (which is what drives
+    // `connectedProfileId` in SSHView — the green dot / "connected" badge).
+    emit('disconnect-remote', { profileId: failedProfileId }).catch(() => {});
+
+    // Surface the failure to SSHView so the CONNECT button flips to red
+    // FAILED · RETRY with the exit code in the tooltip. `window.dispatchEvent`
+    // matches the existing pattern used by ExtensionsView → Sidebar
+    // (`open-tool-panel`) for cross-component DOM signaling.
+    window.dispatchEvent(
+      new CustomEvent('ssh-spawn-failed', {
+        detail: { profileId: failedProfileId, exitCode, message },
+      }),
     );
   }, []);
 
@@ -254,7 +351,7 @@ export function TerminalArea() {
               sshArgs={tab.sshArgs}
               sshProfileId={tab.sshProfileId}
               onTitleChange={(title) => handleTitleChange(tab.id, title)}
-              onExit={() => handleExit(tab.id)}
+              onExit={(exitCode) => handleExit(tab.id, exitCode)}
               onCwdChange={(cwd) => handleCwdChange(tab.id, cwd)}
             />
           </div>

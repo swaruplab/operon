@@ -23,6 +23,7 @@ export function AppShell() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>(undefined);
   const [helpOpen, setHelpOpen] = useState(false);
   const [activeView, setActiveView] = useState<string>('files');
+  const [wakeToastVisible, setWakeToastVisible] = useState(false);
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
   const toggleChat = useCallback(() => setChatVisible((v) => !v), []);
@@ -79,6 +80,21 @@ export function AppShell() {
       setHelpOpen(true);
     });
     return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  // Wake-from-sleep toast: backend has already torn down stale SSH channels
+  // and the next remote op will rebuild — this is purely a heads-up.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unlisten = listen('ssh-wake-reconnect', () => {
+      setWakeToastVisible(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setWakeToastVisible(false), 3000);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten.then((u) => u());
+    };
   }, []);
 
   // Window-level event from ChatPanel model picker → open Settings to a specific section
@@ -206,6 +222,13 @@ export function AppShell() {
           }
         }}
       />
+
+      {/* Wake-from-sleep reconnect toast */}
+      {wakeToastVisible && (
+        <div className="fixed bottom-10 right-4 z-50 px-3 py-2 text-xs rounded border border-amber-500/40 bg-zinc-900/95 text-amber-300 shadow-lg pointer-events-none">
+          Reconnecting after sleep&hellip;
+        </div>
+      )}
     </div>
   );
 }

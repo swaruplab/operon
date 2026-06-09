@@ -1099,7 +1099,7 @@ pub async fn check_remote_claude(
             .iter()
             .find(|p| p.id == profile_id)
             .cloned()
-            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+            .ok_or_else(|| format!("TRANSIENT: SSH profile {} not found", profile_id))?
     };
 
     // Check all deps in one SSH call for efficiency.
@@ -1132,9 +1132,13 @@ echo "CLAUDE:$CLAUDE_VER"
 echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev/null || echo MISSING)"
 "#;
 
+    // Any failure from ssh_exec_async at this stage is a connection / auth /
+    // transport problem (we never even reached the remote claude binary). Tag
+    // it with TRANSIENT: so the frontend can render a "Reconnect SSH" banner
+    // instead of misleading the user into reinstalling Claude Code.
     let result = super::ssh::ssh_exec_async(profile, check_script.to_string())
         .await
-        .map_err(|e| format!("SSH check failed: {}", e))?;
+        .map_err(|e| format!("TRANSIENT: SSH check failed: {}", e))?;
 
     let node_line = result
         .lines()

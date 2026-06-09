@@ -1,6 +1,7 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { saveSessionState, type SessionTab } from '../lib/session';
 
 export type BinaryFileType = 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx' | null;
 
@@ -233,6 +234,31 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       ),
     );
   }, []);
+
+  // Debounced persist of tabs + project path slice to ~/.operon/last_session.json.
+  // Skips remote tabs entirely — v1 restore is local-only.
+  const persistTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (persistTimer.current !== null) {
+      window.clearTimeout(persistTimer.current);
+    }
+    persistTimer.current = window.setTimeout(() => {
+      const editorTabs: SessionTab[] = tabs
+        .filter((t) => !t.remoteProfileId && t.binaryType === null)
+        .map((t) => ({
+          file_path: t.filePath,
+          is_remote: false,
+        }));
+      saveSessionState({
+        project_path: projectPath,
+        editor_tabs: editorTabs,
+        active_tab_id: activeTabId,
+      }).catch(() => {});
+    }, 500);
+    return () => {
+      if (persistTimer.current !== null) window.clearTimeout(persistTimer.current);
+    };
+  }, [tabs, activeTabId, projectPath]);
 
   // Listen for open-file events (e.g. from plan mode, file clicks)
   // Supports both local ({ path }) and remote ({ path, profileId }) files.

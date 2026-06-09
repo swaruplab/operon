@@ -83,6 +83,28 @@ export async function stopControlMaster(profileId: string): Promise<void> {
   return invoke('stop_control_master', { profileId });
 }
 
+export interface SshDiagnostics {
+  rtt_ms: number | null;
+  channels_alive: number;
+  channels_total: number;
+  pool_max: number;
+  total_calls: number;
+  cache_hits: number;
+  respawns: number;
+  in_cooldown: boolean;
+  last_error: string | null;
+}
+
+/** Snapshot the SSH channel pool for the given profile (RTT + slot stats). */
+export async function getSshDiagnostics(profileId: string): Promise<SshDiagnostics> {
+  return invoke('get_ssh_diagnostics', { profileId });
+}
+
+/** Reset diagnostic counters and tear down all persistent channels for the profile. */
+export async function resetSshDiagnostics(profileId: string): Promise<void> {
+  return invoke('reset_ssh_diagnostics', { profileId });
+}
+
 /** Auto-detect server environment (SLURM, conda, paths) via SSH */
 export async function detectServerConfig(profileId: string): Promise<Record<string, string>> {
   return invoke('detect_server_config', { profileId });
@@ -118,6 +140,10 @@ export async function scpBatchUpload(profileId: string, localPaths: string[], re
 /** Clear the SSH remote file/directory cache. Forces fresh data on next load. */
 export async function clearSshCache(): Promise<void> {
   return invoke('clear_ssh_cache');
+}
+
+export async function batchDeleteRemoteFiles(profileId: string, paths: string[]): Promise<number> {
+  return invoke('batch_delete_remote_files', { profileId, paths });
 }
 
 import type { FileEntry } from './files';

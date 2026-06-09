@@ -160,6 +160,34 @@ pub async fn rename_path(old_path: String, new_path: String) -> Result<(), Strin
     std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string())
 }
 
+/// Sequentially delete a batch of local paths (files or directories).
+/// Returns the count of paths that were successfully deleted. Per-path
+/// errors are logged to stderr; the call only fails if iteration itself
+/// cannot start.
+#[tauri::command]
+pub async fn batch_delete_files(paths: Vec<String>) -> Result<usize, String> {
+    let mut succeeded = 0usize;
+    for path in &paths {
+        let meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("batch_delete_files: stat {} failed: {}", path, e);
+                continue;
+            }
+        };
+        let res = if meta.is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+        match res {
+            Ok(()) => succeeded += 1,
+            Err(e) => eprintln!("batch_delete_files: rm {} failed: {}", path, e),
+        }
+    }
+    Ok(succeeded)
+}
+
 // --- Project File Index ---
 
 #[derive(Serialize, Clone)]

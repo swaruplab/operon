@@ -40,6 +40,10 @@ export async function deletePath(path: string): Promise<void> {
   return invoke('delete_path', { path });
 }
 
+export async function batchDeleteFiles(paths: string[]): Promise<number> {
+  return invoke('batch_delete_files', { paths });
+}
+
 export async function renamePath(oldPath: string, newPath: string): Promise<void> {
   return invoke('rename_path', { oldPath, newPath });
 }

@@ -48,13 +48,22 @@ import {
   ScanLine,
   Bot,
   Copy,
+  Clock,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import { scanProjectFiles, scanRemoteProjectFiles, batchReadFilePreviews, batchReadRemoteFilePreviews } from '../../lib/report';
 import { ReportFileSelector } from '../report/ReportFileSelector';
+import { ProtocolParamForm } from '../protocols/ProtocolParamForm';
 import type { ProjectScan, ScanTreeNode, ScannedFile } from '../../types/report';
+import {
+  searchProtocols,
+  loadRecentProtocolIds,
+  pushRecentProtocolId,
+  loadActiveCategories,
+  saveActiveCategories,
+} from '../../lib/protocolSearch';
 
 interface ProtocolEntry {
   id: string;
@@ -168,6 +177,25 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [activeCategories, setActiveCategories] = useState<Set<string>>(() => loadActiveCategories());
+  const [recentIds, setRecentIds] = useState<string[]>(() => loadRecentProtocolIds());
+
+  useEffect(() => {
+    saveActiveCategories(activeCategories);
+  }, [activeCategories]);
+
+  const toggleActiveCategory = (cat: string) => {
+    setActiveCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  const recordRecent = (id: string) => {
+    setRecentIds(pushRecentProtocolId(id));
+  };
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -251,30 +279,45 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
     loadProtocols();
   }, []);
 
+  // Distinct categories present in the loaded catalog, in canonical order.
+  const availableCategories = useMemo(() => {
+    const present = new Set<string>();
+    for (const p of protocols) present.add(p.category || 'other');
+    const ordered = CATEGORY_ORDER.filter(c => present.has(c));
+    for (const c of present) if (!ordered.includes(c)) ordered.push(c);
+    return ordered;
+  }, [protocols]);
+
   // --- Filtered & grouped protocols ---
   const filteredProtocols = useMemo(() => {
     let list = protocols;
 
-    // Source filter
     if (filterTab === 'user') {
       list = list.filter(p => p.source === 'user');
     } else if (filterTab === 'bundled') {
       list = list.filter(p => p.source === 'bundled');
     }
 
-    // Search filter
+    if (activeCategories.size > 0) {
+      list = list.filter(p => activeCategories.has(p.category || 'other'));
+    }
+
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.id.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
-      );
+      list = searchProtocols(list, searchQuery);
     }
 
     return list;
-  }, [protocols, filterTab, searchQuery]);
+  }, [protocols, filterTab, searchQuery, activeCategories]);
+
+  const hasActiveSearch = searchQuery.trim().length > 0;
+
+  const recentProtocols = useMemo(() => {
+    if (hasActiveSearch) return [];
+    const byId = new Map(protocols.map(p => [p.id, p] as const));
+    return recentIds
+      .map(id => byId.get(id))
+      .filter((p): p is ProtocolEntry => Boolean(p));
+  }, [recentIds, protocols, hasActiveSearch]);
 
   const groupedProtocols = useMemo(() => {
     const groups: Record<string, ProtocolEntry[]> = {};
@@ -305,6 +348,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       return;
     }
     setExpandedId(p.id);
+    recordRecent(p.id);
     try {
       const content = await invoke<string>('read_protocol', { protocolId: p.id });
       setPreviewContent(content);
@@ -315,6 +359,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
 
   const handleActivate = (p: ProtocolEntry) => {
     const isActive = activeProtocolIds.includes(p.id);
+    if (!isActive) recordRecent(p.id);
     let newActive: { id: string; name: string }[];
     if (isActive) {
       // Deactivate this protocol
@@ -953,6 +998,38 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
             </button>
           ))}
         </div>
+
+        {/* Category filter chips */}
+        {availableCategories.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {availableCategories.map(cat => {
+              const meta = CATEGORY_META[cat] ?? CATEGORY_META.other;
+              const isOn = activeCategories.has(cat);
+              return (
+                <button
+                  key={cat}
+                  onClick={() => toggleActiveCategory(cat)}
+                  className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium transition-colors ${
+                    isOn
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-surface text-muted hover:bg-elevated hover:text-secondary'
+                  }`}
+                  title={meta.label}
+                >
+                  {meta.label}
+                </button>
+              );
+            })}
+            {activeCategories.size > 0 && (
+              <button
+                onClick={() => setActiveCategories(new Set())}
+                className="px-1.5 py-0.5 rounded-full text-[9px] font-medium text-subtle hover:text-secondary"
+              >
+                clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Limit warning */}
@@ -1006,170 +1083,212 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
             )}
           </div>
         ) : (
-          <div className="py-1">
-            {CATEGORY_ORDER
-              .filter(cat => groupedProtocols[cat]?.length)
-              .map(cat => {
-                const meta = CATEGORY_META[cat];
-                const items = groupedProtocols[cat];
-                const isCollapsed = collapsedCategories.has(cat);
-                const CatIcon = meta.icon;
+          (() => {
+            const renderItem = (p: ProtocolEntry) => {
+              const isActive = activeProtocolIds.includes(p.id);
+              const atLimit = activeProtocolIds.length >= MAX_ACTIVE_PROTOCOLS && !isActive;
+              const isExpanded = expandedId === p.id;
+              const isDeleting = deletingId === p.id;
 
-                return (
-                  <div key={cat}>
-                    {/* Category header */}
-                    <button
-                      onClick={() => toggleCategory(cat)}
-                      className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-hover/30 transition-colors group"
-                    >
-                      <ChevronRight
-                        className={`w-3 h-3 text-subtle transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
-                      />
-                      <CatIcon className={`w-3 h-3 ${meta.color}`} />
-                      <span className={`text-[10px] font-semibold uppercase tracking-wider ${meta.color}`}>
-                        {meta.label}
-                      </span>
-                      <span className="text-[9px] text-subtle ml-auto">
-                        {items.length}
-                      </span>
-                    </button>
+              return (
+                <div key={p.id} className="border-b border-border-default/30">
+                  {isDeleting ? (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-red-950/20">
+                      <p className="text-[10px] text-red-700 dark:text-red-300 flex-1">Delete "{p.name}"?</p>
+                      <button
+                        onClick={() => handleDelete(p.id)}
+                        className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setDeletingId(null)}
+                        className="px-2 py-0.5 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className={`flex items-start gap-2 px-3 py-1.5 ml-2 hover:bg-hover/50 transition-colors cursor-pointer ${
+                          isActive ? 'bg-teal-950/30' : ''
+                        }`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({ x: e.clientX, y: e.clientY, protocol: p });
+                        }}
+                      >
+                        <button
+                          onClick={() => handleActivate(p)}
+                          disabled={atLimit}
+                          className={`mt-0.5 w-4.5 h-4.5 rounded flex items-center justify-center shrink-0 transition-colors ${
+                            isActive
+                              ? 'bg-teal-600 text-white'
+                              : atLimit
+                                ? 'bg-surface/50 text-subtle cursor-not-allowed'
+                                : 'bg-surface text-muted hover:bg-elevated hover:text-secondary'
+                          }`}
+                          style={{ width: '18px', height: '18px' }}
+                          title={isActive ? 'Deactivate protocol' : 'Activate protocol'}
+                        >
+                          {isActive ? <Check className="w-2.5 h-2.5" /> : null}
+                        </button>
 
-                    {/* Protocol items */}
-                    {!isCollapsed && items.map(p => {
-                      const isActive = activeProtocolIds.includes(p.id);
-                      const atLimit = activeProtocolIds.length >= MAX_ACTIVE_PROTOCOLS && !isActive;
-                      const isExpanded = expandedId === p.id;
-                      const isDeleting = deletingId === p.id;
+                        <div className="flex-1 min-w-0" onClick={() => handleTogglePreview(p)}>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[11px] font-medium ${isActive ? 'text-teal-700 dark:text-teal-300' : 'text-secondary'}`}>
+                              {p.name}
+                            </span>
+                            {isActive && (
+                              <span className="text-[8px] bg-teal-800/50 text-teal-700 dark:text-teal-300 px-1 py-0 rounded-full">
+                                active
+                              </span>
+                            )}
+                            {p.source === 'user' && (
+                              <span className="text-[8px] bg-surface text-muted px-1 py-0 rounded-full">
+                                custom
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted truncate mt-0.5">
+                            {p.description}
+                            {p.is_folder && (
+                              <span className="text-subtle ml-1">({p.file_count} files)</span>
+                            )}
+                          </p>
+                        </div>
 
-                      return (
-                        <div key={p.id} className="border-b border-border-default/30">
-                          {isDeleting ? (
-                            <div className="flex items-center gap-2 px-3 py-2 bg-red-950/20">
-                              <p className="text-[10px] text-red-700 dark:text-red-300 flex-1">Delete "{p.name}"?</p>
-                              <button
-                                onClick={() => handleDelete(p.id)}
-                                className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setDeletingId(null)}
-                                className="px-2 py-0.5 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div
-                                className={`flex items-start gap-2 px-3 py-1.5 ml-2 hover:bg-hover/50 transition-colors cursor-pointer ${
-                                  isActive ? 'bg-teal-950/30' : ''
-                                }`}
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setContextMenu({ x: e.clientX, y: e.clientY, protocol: p });
+                        <div className="flex items-center gap-0.5 shrink-0 mt-0.5">
+                          {p.source === 'user' && !p.is_folder && (
+                            <button
+                              onClick={() => handleEdit(p)}
+                              className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
+                              title="Edit protocol"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
+                          {p.source === 'user' && (
+                            <button
+                              onClick={() => setDeletingId(p.id)}
+                              className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors"
+                              title="Delete protocol"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDownload(p)}
+                            className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
+                            title="Download protocol"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => handleTogglePreview(p)}
+                            className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
+                            title="Preview protocol"
+                          >
+                            <Info className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="px-3 pb-2 ml-2 space-y-2">
+                          <details className="bg-canvas rounded border border-border-default" open>
+                            <summary className="cursor-pointer px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:bg-hover/40 select-none">
+                              Configure &amp; Run
+                            </summary>
+                            <div className="p-2 border-t border-border-default">
+                              <ProtocolParamForm
+                                slug={p.id}
+                                onRun={(paramsByVar) => {
+                                  const { __template__, ...env } = paramsByVar;
+                                  window.dispatchEvent(
+                                    new CustomEvent('run-protocol', {
+                                      detail: { slug: p.id, env, template: __template__ || '' },
+                                    }),
+                                  );
+                                  emit('show-notification', {
+                                    message: `Queued ${p.name} with ${Object.keys(env).length} parameters`,
+                                  });
                                 }}
-                              >
-                                {/* Activate button */}
-                                <button
-                                  onClick={() => handleActivate(p)}
-                                  disabled={atLimit}
-                                  className={`mt-0.5 w-4.5 h-4.5 rounded flex items-center justify-center shrink-0 transition-colors ${
-                                    isActive
-                                      ? 'bg-teal-600 text-white'
-                                      : atLimit
-                                        ? 'bg-surface/50 text-subtle cursor-not-allowed'
-                                        : 'bg-surface text-muted hover:bg-elevated hover:text-secondary'
-                                  }`}
-                                  style={{ width: '18px', height: '18px' }}
-                                  title={isActive ? 'Deactivate protocol' : 'Activate protocol'}
-                                >
-                                  {isActive ? <Check className="w-2.5 h-2.5" /> : null}
-                                </button>
+                              />
+                            </div>
+                          </details>
 
-                                {/* Content */}
-                                <div className="flex-1 min-w-0" onClick={() => handleTogglePreview(p)}>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className={`text-[11px] font-medium ${isActive ? 'text-teal-700 dark:text-teal-300' : 'text-secondary'}`}>
-                                      {p.name}
-                                    </span>
-                                    {isActive && (
-                                      <span className="text-[8px] bg-teal-800/50 text-teal-700 dark:text-teal-300 px-1 py-0 rounded-full">
-                                        active
-                                      </span>
-                                    )}
-                                    {p.source === 'user' && (
-                                      <span className="text-[8px] bg-surface text-muted px-1 py-0 rounded-full">
-                                        custom
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-[10px] text-muted truncate mt-0.5">
-                                    {p.description}
-                                    {p.is_folder && (
-                                      <span className="text-subtle ml-1">({p.file_count} files)</span>
-                                    )}
-                                  </p>
-                                </div>
-
-                                {/* Action buttons */}
-                                <div className="flex items-center gap-0.5 shrink-0 mt-0.5">
-                                  {p.source === 'user' && !p.is_folder && (
-                                    <button
-                                      onClick={() => handleEdit(p)}
-                                      className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
-                                      title="Edit protocol"
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                  {p.source === 'user' && (
-                                    <button
-                                      onClick={() => setDeletingId(p.id)}
-                                      className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors"
-                                      title="Delete protocol"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => handleDownload(p)}
-                                    className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
-                                    title="Download protocol"
-                                  >
-                                    <Download className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleTogglePreview(p)}
-                                    className="p-0.5 rounded hover:bg-elevated text-subtle hover:text-secondary transition-colors"
-                                    title="Preview protocol"
-                                  >
-                                    <Info className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Expanded preview */}
-                              {isExpanded && previewContent && (
-                                <div className="px-3 pb-2 ml-2">
-                                  <div className="bg-canvas rounded border border-border-default p-2 max-h-48 overflow-y-auto">
-                                    <pre className="text-[10px] text-secondary whitespace-pre-wrap leading-relaxed font-mono">
-                                      {previewContent.slice(0, 2000)}
-                                      {previewContent.length > 2000 ? '\n...' : ''}
-                                    </pre>
-                                  </div>
-                                </div>
-                              )}
-                            </>
+                          {previewContent && (
+                            <div className="bg-canvas rounded border border-border-default p-2 max-h-48 overflow-y-auto">
+                              <pre className="text-[10px] text-secondary whitespace-pre-wrap leading-relaxed font-mono">
+                                {previewContent.slice(0, 2000)}
+                                {previewContent.length > 2000 ? '\n...' : ''}
+                              </pre>
+                            </div>
                           )}
                         </div>
-                      );
-                    })}
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            };
+
+            return (
+              <div className="py-1">
+                {recentProtocols.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5">
+                      <Clock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        Recently used
+                      </span>
+                      <span className="text-[9px] text-subtle ml-auto">
+                        {recentProtocols.length}
+                      </span>
+                    </div>
+                    {recentProtocols.map(renderItem)}
                   </div>
-                );
-              })}
-          </div>
+                )}
+
+                {hasActiveSearch ? (
+                  filteredProtocols.map(renderItem)
+                ) : (
+                  CATEGORY_ORDER
+                    .filter(cat => groupedProtocols[cat]?.length)
+                    .map(cat => {
+                      const meta = CATEGORY_META[cat] ?? CATEGORY_META.other;
+                      const items = groupedProtocols[cat];
+                      const isCollapsed = collapsedCategories.has(cat);
+                      const CatIcon = meta.icon;
+
+                      return (
+                        <div key={cat}>
+                          <button
+                            onClick={() => toggleCategory(cat)}
+                            className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-hover/30 transition-colors group"
+                          >
+                            <ChevronRight
+                              className={`w-3 h-3 text-subtle transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                            />
+                            <CatIcon className={`w-3 h-3 ${meta.color}`} />
+                            <span className={`text-[10px] font-semibold uppercase tracking-wider ${meta.color}`}>
+                              {meta.label}
+                            </span>
+                            <span className="text-[9px] text-subtle ml-auto">
+                              {items.length}
+                            </span>
+                          </button>
+                          {!isCollapsed && items.map(renderItem)}
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            );
+          })()
         )}
       </div>
 

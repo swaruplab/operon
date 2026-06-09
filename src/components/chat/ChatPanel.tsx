@@ -1262,8 +1262,17 @@ export function ChatPanel() {
   // TODO: Re-enable once session persistence is reliable.
   const [resumeChecked, setResumeChecked] = useState(true);
   // Remote Claude Code status
+  // status state machine:
+  //   'ok'            — check_remote_claude returned Ok; use hasNode/hasClaude/hasAuth
+  //   'unreachable'   — SSH transport/auth/profile error (Rust returned "TRANSIENT: ..."
+  //                     or the error string matches a known SSH-transient pattern).
+  //                     Render "Remote server not reachable" + Retry. DO NOT show install UI.
+  //   'check-error'   — Unrecognized error talking to the remote. Render generic error
+  //                     + Retry. DO NOT show install UI by default.
+  //   'install-needed'— Ok response with claude_code === false. Show install-Claude UI.
   const [remoteDeps, setRemoteDeps] = useState<{
     checked: boolean;
+    status: 'ok' | 'unreachable' | 'check-error' | 'install-needed';
     hasNode: boolean;
     hasClaude: boolean;
     hasAuth: boolean | null; // null = not checked yet
@@ -1869,6 +1878,80 @@ export function ChatPanel() {
     return () => { unlisten.then((u) => u()); };
   }, [resetChat]);
 
+  // Classify an error string from check_remote_claude. Any failure here means
+  // we never confirmed whether the remote claude binary exists — so we must
+  // NOT show the install-Claude UI based on a transport failure. We treat
+  // anything matching a known SSH-transient pattern (or the explicit
+  // "TRANSIENT:" prefix emitted by the Rust handler) as "unreachable".
+  const isTransientSshError = useCallback((errMsg: string): boolean => {
+    if (!errMsg) return false;
+    if (errMsg.includes('TRANSIENT:')) return true;
+    // Patterns drawn from src-tauri/src/commands/ssh.rs error sites.
+    const transientRe = /SSH check failed|SSH channel|Exec channel|SSH key auth|spawn persistent|SSH profile .* not found|Permission denied|Connection (refused|timed out)|timed out|no route to host|Could not resolve hostname|Session open refused|channel (map|lock) poisoned|MFA|Authentication failed|connection may have dropped|Duo|Persistent channel spawn failed/i;
+    return transientRe.test(errMsg);
+  }, []);
+
+  // Run the remote check and return a fully-typed remoteDeps value.
+  // Centralised so the auto-check effect and the manual Retry button share
+  // identical classification logic.
+  const runRemoteCheck = useCallback(async (profileId: string) => {
+    try {
+      const status = await invoke<{
+        xcode_cli: boolean;
+        node: boolean;
+        node_version: string | null;
+        npm: boolean;
+        npm_version: string | null;
+        claude_code: boolean;
+        claude_version: string | null;
+      }>('check_remote_claude', { profileId });
+
+      // Ok response — the remote was reachable and we know whether claude exists.
+      let hasAuth: boolean | null = null;
+      if (status.claude_code) {
+        try {
+          const authResult = await invoke<string>('check_remote_claude_auth', { profileId });
+          hasAuth = authResult === 'authenticated';
+          if (!hasAuth) {
+            const localAuth = await invoke<{ authenticated: boolean; method: string }>('check_auth_status');
+            if (localAuth.authenticated && localAuth.method === 'api_key') {
+              hasAuth = true;
+            }
+          }
+        } catch {
+          hasAuth = null;
+        }
+      }
+
+      const installNeeded = !status.claude_code;
+      return {
+        checked: true,
+        status: (installNeeded ? 'install-needed' : 'ok') as 'ok' | 'install-needed',
+        hasNode: status.node,
+        hasClaude: status.claude_code,
+        hasAuth,
+        installing: false,
+        error: null,
+      };
+    } catch (err) {
+      const errMsg = String(err);
+      const transient = isTransientSshError(errMsg);
+      return {
+        checked: true,
+        status: (transient ? 'unreachable' : 'check-error') as 'unreachable' | 'check-error',
+        hasNode: false,
+        // CRITICAL: hasClaude is unknown when the check fails. Setting it
+        // false (as the old code did) is what caused the install-Claude UI to
+        // show up for SSH errors. Keep it true here so the install banner's
+        // `!remoteDeps.hasClaude` guard does not trigger.
+        hasClaude: true,
+        hasAuth: null,
+        installing: false,
+        error: errMsg,
+      };
+    }
+  }, [isTransientSshError]);
+
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
     if (!remoteInfo?.profileId) {
@@ -1877,66 +1960,14 @@ export function ChatPanel() {
     }
 
     let cancelled = false;
-    const checkRemote = async () => {
-      try {
-        const status = await invoke<{
-          xcode_cli: boolean;
-          node: boolean;
-          node_version: string | null;
-          npm: boolean;
-          npm_version: string | null;
-          claude_code: boolean;
-          claude_version: string | null;
-        }>('check_remote_claude', { profileId: remoteInfo.profileId });
-
-        if (cancelled) return;
-
-        // If Claude Code is installed, check authentication on the remote server
-        let hasAuth: boolean | null = null;
-        if (status.claude_code) {
-          try {
-            // Always check remote auth first
-            const authResult = await invoke<string>('check_remote_claude_auth', { profileId: remoteInfo.profileId });
-            hasAuth = authResult === 'authenticated';
-            // If remote has no auth, check for a local API key that gets forwarded
-            if (!hasAuth) {
-              const localAuth = await invoke<{ authenticated: boolean; method: string }>('check_auth_status');
-              if (localAuth.authenticated && localAuth.method === 'api_key') {
-                hasAuth = true;
-              }
-            }
-          } catch {
-            hasAuth = null; // couldn't determine
-          }
-        }
-
-        if (!cancelled) {
-          setRemoteDeps({
-            checked: true,
-            hasNode: status.node,
-            hasClaude: status.claude_code,
-            hasAuth,
-            installing: false,
-            error: null,
-          });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRemoteDeps({
-            checked: true,
-            hasNode: false,
-            hasClaude: false,
-            hasAuth: null,
-            installing: false,
-            error: `Could not check server: ${err}`,
-          });
-        }
-      }
+    const run = async () => {
+      const result = await runRemoteCheck(remoteInfo.profileId);
+      if (!cancelled) setRemoteDeps(result);
     };
 
-    checkRemote();
+    run();
     return () => { cancelled = true; };
-  }, [remoteInfo?.profileId]);
+  }, [remoteInfo?.profileId, runRemoteCheck]);
 
   // Build project file index when project path changes
   useEffect(() => {
@@ -2846,6 +2877,7 @@ export function ChatPanel() {
       const hasAuth = result.hasAuth === true ? true : false;
       const newDeps = {
         checked: true,
+        status: (result.claude_code ? 'ok' : 'install-needed') as 'ok' | 'install-needed',
         hasNode: result.node,
         hasClaude: result.claude_code,
         hasAuth,
@@ -2865,6 +2897,15 @@ export function ChatPanel() {
     }
   };
 
+  // Manual retry from the new "unreachable" / "check-error" banners.
+  // Re-runs the same classified check used by the auto-effect.
+  const retryRemoteCheck = async () => {
+    if (!remoteInfo?.profileId) return;
+    setRemoteDeps((prev) => prev ? { ...prev, installing: true, error: null } : prev);
+    const result = await runRemoteCheck(remoteInfo.profileId);
+    setRemoteDeps(result);
+  };
+
   // Re-check remote dependencies (manual trigger)
   const recheckRemoteDeps = async () => {
     if (!remoteInfo?.profileId) return;
@@ -2874,6 +2915,7 @@ export function ChatPanel() {
       console.log('[Operon] Remote check result:', JSON.stringify(result));
       setRemoteDeps({
         checked: true,
+        status: (result.claude_code ? 'ok' : 'install-needed') as 'ok' | 'install-needed',
         hasNode: result.node,
         hasClaude: result.claude_code,
         hasAuth: result.hasAuth,
@@ -3801,8 +3843,80 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         </div>
       )}
 
-      {/* Remote Claude Code setup banner — Step 1: Not installed */}
-      {remoteInfo && remoteDeps && remoteDeps.checked && !remoteDeps.hasClaude && (
+      {/* Remote not reachable — SSH transport / auth failed BEFORE we could
+          decide whether claude is installed. Show "Reconnect" guidance
+          instead of misleading the user into reinstalling Claude Code. */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'unreachable' && (
+        <div className="px-3 py-2 border-b border-red-800/30 shrink-0 bg-red-950/30">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-red-600 dark:text-red-300 font-medium">
+                Remote server not reachable
+              </p>
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                Could not connect to {remoteInfo.profileName}. Click CONNECT in the SSH sidebar to retry, then click Retry below.
+              </p>
+              {remoteDeps.error && (
+                <details className="mt-1 text-[9px] text-subtle">
+                  <summary className="cursor-pointer hover:text-secondary transition-colors">Show error details</summary>
+                  <pre className="mt-1 text-[9px] text-red-500 dark:text-red-400/70 whitespace-pre-wrap break-all bg-panel/50 rounded p-1.5 border border-border-default/50 max-h-24 overflow-y-auto">{remoteDeps.error.replace(/^TRANSIENT:\s*/, '')}</pre>
+                </details>
+              )}
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={retryRemoteCheck}
+                  disabled={remoteDeps.installing}
+                  className="flex items-center gap-1 px-2 py-1 bg-surface hover:bg-elevated disabled:opacity-50 rounded text-[11px] text-secondary transition-colors"
+                >
+                  {remoteDeps.installing ? (
+                    <><Loader2 className="w-3 h-3 animate-spin" /> Retrying...</>
+                  ) : (
+                    <><RefreshCw className="w-3 h-3" /> Retry</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Generic check error — talked to the remote but got an unrecognized
+          failure. Show a retry, NOT the install-Claude UI. */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'check-error' && (
+        <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/30">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                Could not check Claude installation
+              </p>
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed whitespace-pre-wrap break-words">
+                {remoteDeps.error}
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  onClick={retryRemoteCheck}
+                  disabled={remoteDeps.installing}
+                  className="flex items-center gap-1 px-2 py-1 bg-surface hover:bg-elevated disabled:opacity-50 rounded text-[11px] text-secondary transition-colors"
+                >
+                  {remoteDeps.installing ? (
+                    <><Loader2 className="w-3 h-3 animate-spin" /> Retrying...</>
+                  ) : (
+                    <><RefreshCw className="w-3 h-3" /> Retry</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Remote Claude Code setup banner — Step 1: Not installed.
+          Only renders when the remote check succeeded AND reported claude is
+          missing (status === 'install-needed'). SSH transport errors are
+          handled by the 'unreachable' branch above. */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'install-needed' && (
         <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/30">
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -3885,8 +3999,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       )}
 
       {/* Remote Claude Code setup banner — Step 2: Installed but not authenticated */}
-      {/* Show when hasAuth is false OR null (null = couldn't determine, so prompt user) */}
-      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.hasClaude && remoteDeps.hasAuth !== true && (
+      {/* Show when hasAuth is false OR null (null = couldn't determine, so prompt user).
+          Gated on status === 'ok' so it does not flash alongside the
+          unreachable / check-error banners (where hasClaude is unknown). */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'ok' && remoteDeps.hasClaude && remoteDeps.hasAuth !== true && (
         <div className="px-3 py-2 border-b border-blue-800/30 shrink-0 bg-blue-950/30">
           <div className="flex items-start gap-2">
             <Key className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
@@ -4190,14 +4306,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
       {/* Plan workflow banner */}
       {existingPlan && (
-        <div className={`px-3 py-1.5 border-b shrink-0 ${planReady ? 'bg-amber-950/30 border-amber-800/30' : 'bg-blue-950/30 border-border-default/30'}`}>
+        <div className={`px-3 py-1.5 border-b shrink-0 ${planReady ? 'bg-amber-100 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/30' : 'bg-blue-100 dark:bg-blue-950/30 border-blue-300 dark:border-border-default/30'}`}>
           <div className="flex items-center gap-1.5">
             <ClipboardList className={`w-3 h-3 shrink-0 ${planReady ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`} />
             <span className={`text-[10px] font-medium ${planReady ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-400'}`}>
               {planReady ? 'Plan ready for review' : 'Plan detected'}
             </span>
             <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
-            <span className="text-[10px] text-muted truncate">
+            <span className="text-[10px] text-secondary truncate">
               implementation_plan.md ({existingPlan.split('\n').length} lines)
             </span>
             {/* Plan date extracted from content */}
@@ -4206,7 +4322,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               return dateMatch ? (
                 <>
                   <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
-                  <span className="text-[10px] text-subtle">{dateMatch[1].trim()}</span>
+                  <span className="text-[10px] text-muted">{dateMatch[1].trim()}</span>
                 </>
               ) : null;
             })()}

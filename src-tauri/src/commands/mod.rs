@@ -7,9 +7,12 @@ pub mod knowledge;
 pub mod mcp;
 pub mod models;
 pub mod portkey;
+pub mod protocols;
 pub mod proxy;
 pub mod report;
+pub mod session;
 pub mod settings;
+pub mod slurm;
 pub mod ssh;
 pub mod terminal;
 pub mod watchdog;
@@ -39,12 +42,13 @@ pub use extensions::{
     update_extension_settings, validate_extension_install,
 };
 pub use files::{
-    check_remote_ripgrep, create_directory, create_file, delete_path, delete_protocol,
-    generate_protocol, generate_protocol_from_files, get_home_dir, get_protocols_dir,
-    index_project, index_remote_project, install_remote_ripgrep, list_directory,
-    list_files_matching_regex, list_protocols, list_remote_files_matching_regex, read_file,
-    read_file_base64, read_protocol, rename_path, save_attachment_file, save_clipboard_image,
-    save_protocol, search_in_directory, search_in_remote_directory, write_file,
+    batch_delete_files, check_remote_ripgrep, create_directory, create_file, delete_path,
+    delete_protocol, generate_protocol, generate_protocol_from_files, get_home_dir,
+    get_protocols_dir, index_project, index_remote_project, install_remote_ripgrep,
+    list_directory, list_files_matching_regex, list_protocols, list_remote_files_matching_regex,
+    read_file, read_file_base64, read_protocol, rename_path, save_attachment_file,
+    save_clipboard_image, save_protocol, search_in_directory, search_in_remote_directory,
+    write_file,
 };
 pub use git::{
     gh_add_remote, gh_check_auth, gh_create_repo, gh_install, gh_list_repos, gh_login, git_amend,
@@ -65,23 +69,27 @@ pub use mcp::{
 };
 pub use models::{fetch_anthropic_models, get_cached_models, refresh_models_if_stale};
 pub use portkey::{fetch_portkey_models, list_portkey_presets, refresh_portkey_presets};
+pub use protocols::get_protocol_template_params;
 pub use proxy::{start_translation_proxy, stop_translation_proxy, translation_proxy_status};
 pub use report::{
     batch_read_file_previews, batch_read_remote_file_previews, extract_methods_info,
     generate_report_pdf, read_csv_for_report, scan_project_files, scan_remote_project_files,
 };
+pub use session::{clear_session_state, load_session_state, save_session_state};
 pub use settings::{
     detect_custom_models, get_settings, start_dictation, stop_dictation, test_custom_endpoint,
     update_settings,
 };
+pub use slurm::{slurm_cancel_job, slurm_query_jobs, slurm_submit_job};
 pub use ssh::{
-    check_control_master, clear_ssh_cache, create_remote_directory, delete_remote_file,
-    delete_ssh_profile, detect_server_config, get_remote_home, get_server_config,
+    batch_delete_remote_files, check_control_master, clear_ssh_cache, create_remote_directory,
+    delete_remote_file, delete_ssh_profile, detect_server_config, get_remote_home,
+    get_server_config, get_ssh_diagnostics,
     list_remote_directory, list_ssh_config_hosts, list_ssh_profiles, read_remote_file,
-    read_remote_file_base64, rename_remote_path, reorder_ssh_profiles, save_ssh_profile,
-    scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key,
-    sftp_dir_download_with_progress, sftp_download_with_progress, stop_control_master,
-    test_ssh_connection, write_remote_file,
+    read_remote_file_base64, rename_remote_path, reorder_ssh_profiles, reset_ssh_diagnostics,
+    save_ssh_profile, scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote,
+    setup_ssh_key, sftp_dir_download_with_progress, sftp_download_with_progress,
+    stop_control_master, test_ssh_connection, write_remote_file,
 };
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,

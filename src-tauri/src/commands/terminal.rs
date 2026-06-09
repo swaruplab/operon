@@ -143,6 +143,10 @@ pub async fn spawn_terminal(
         child: Arc::new(Mutex::new(child)),
     };
 
+    // Keep a clone of the child Arc for the reader thread so it can wait()
+    // on the process after EOF and surface the real exit code.
+    let child_for_reader = handle.child.clone();
+
     state
         .terminals
         .lock()
@@ -169,8 +173,21 @@ pub async fn spawn_terminal(
             }
         }
 
-        // Process exited — notify frontend
-        let _ = app_handle.emit(&format!("pty-exit-{}", tid), serde_json::json!({}));
+        // Process exited — wait() to reap and capture the real exit code so the
+        // frontend can distinguish ssh auth failure (255) from a clean logout (0).
+        // Holds the child mutex briefly; safe because we never .await here.
+        let exit_code: Option<i32> = match child_for_reader.lock() {
+            Ok(mut child) => match child.wait() {
+                Ok(status) => status.exit_code().try_into().ok(),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        };
+
+        let _ = app_handle.emit(
+            &format!("pty-exit-{}", tid),
+            serde_json::json!({ "exit_code": exit_code }),
+        );
     });
 
     Ok(())

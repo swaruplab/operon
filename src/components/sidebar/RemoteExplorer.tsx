@@ -31,8 +31,9 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
-import { listRemoteDirectoryCached, invalidateRemotePath, clearRemoteCache } from '../../lib/ssh';
+import { listRemoteDirectoryCached, invalidateRemotePath, clearRemoteCache, batchDeleteRemoteFiles } from '../../lib/ssh';
 import { RegexAddDialog } from './Sidebar';
+import { Copy } from 'lucide-react';
 
 const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
@@ -75,6 +76,9 @@ interface RemoteTreeNodeProps {
   isPinned?: boolean;
   onTogglePin?: (path: string, name: string, isDir: boolean) => void;
   onContextMenu?: (e: React.MouseEvent, entry: FileEntry) => void;
+  isSelected?: boolean;
+  selectionMode?: boolean;
+  onSelect?: (e: React.MouseEvent, entry: FileEntry) => void;
 }
 
 interface ContextMenuState {
@@ -83,7 +87,7 @@ interface ContextMenuState {
   entry: FileEntry;
 }
 
-function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPinned, onTogglePin, onContextMenu }: RemoteTreeNodeProps) {
+function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPinned, onTogglePin, onContextMenu, isSelected, selectionMode, onSelect }: RemoteTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,7 +154,12 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
     setLoading(false);
   };
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    const modified = e.shiftKey || e.metaKey || e.ctrlKey;
+    if (modified || (selectionMode && onSelect)) {
+      onSelect?.(e, entry);
+      return;
+    }
     if (entry.is_dir) {
       toggle();
     } else {
@@ -214,7 +223,9 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
         onMouseLeave={() => setHovered(false)}
       >
         <button
-          className="w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group"
+          className={`w-full flex items-center gap-1 h-[26px] px-2 text-[13px] text-secondary hover:bg-hover/80 transition-colors group ${
+            isSelected ? 'bg-blue-500/15' : ''
+          }`}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -281,7 +292,7 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
       {entry.is_dir &&
         expanded &&
         children.map((child) => (
-          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} />
+          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} isSelected={onSelect ? false : undefined} selectionMode={selectionMode} onSelect={onSelect} />
         ))}
     </div>
   );
@@ -355,6 +366,50 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   // Regex bulk-add dialog (Part C) — open from the context menu for folders
   const [regexDialogRoot, setRegexDialogRoot] = useState<FileEntry | null>(null);
+
+  // Bulk selection state — anchor tracks the last clicked row for shift-range.
+  // The flat list used for shift-range is just the visible top-level entries;
+  // we don't try to flatten expanded children since the user typically selects
+  // siblings at one level anyway.
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const lastAnchorRef = useRef<string | null>(null);
+
+  const handleSelect = useCallback((e: React.MouseEvent, entry: FileEntry) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev);
+      if (e.shiftKey && lastAnchorRef.current) {
+        const anchor = lastAnchorRef.current;
+        const flat = entries.map(x => x.path);
+        const i = flat.indexOf(anchor);
+        const j = flat.indexOf(entry.path);
+        if (i >= 0 && j >= 0) {
+          const [lo, hi] = i < j ? [i, j] : [j, i];
+          for (let k = lo; k <= hi; k++) next.add(flat[k]);
+          return next;
+        }
+      }
+      if (e.metaKey || e.ctrlKey) {
+        if (next.has(entry.path)) next.delete(entry.path);
+        else next.add(entry.path);
+      } else {
+        next.clear();
+        next.add(entry.path);
+      }
+      lastAnchorRef.current = entry.path;
+      return next;
+    });
+  }, [entries]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedPaths(new Set());
+    lastAnchorRef.current = null;
+  }, []);
+
+  const copySelectedPaths = useCallback(() => {
+    const paths = Array.from(selectedPaths).join('\n');
+    navigator.clipboard.writeText(paths).catch(() => {});
+  }, [selectedPaths]);
 
   const addToChat = useCallback((entry: FileEntry) => {
     window.dispatchEvent(new CustomEvent('chat-add-context', {
@@ -752,6 +807,82 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     }
   };
 
+  const performBulkDelete = async () => {
+    const paths = Array.from(selectedPaths);
+    if (paths.length === 0) return;
+    try {
+      const succeeded = await batchDeleteRemoteFiles(profileId, paths);
+      for (const p of paths) invalidateRemotePath(profileId, p);
+      clearSelection();
+      setBulkDeleteConfirm(false);
+      if (remotePath) {
+        const items = await listRemoteDirectoryCached(profileId, remotePath, showHidden);
+        setEntries(items);
+      }
+      setTransfer({
+        completed: succeeded,
+        total: paths.length,
+        current_file: '',
+        errors: paths.length - succeeded,
+        status: succeeded === paths.length ? 'done' : 'error',
+        message: succeeded === paths.length
+          ? `${succeeded} item${succeeded === 1 ? '' : 's'} deleted`
+          : `${succeeded}/${paths.length} deleted (${paths.length - succeeded} failed)`,
+      });
+    } catch (err) {
+      setBulkDeleteConfirm(false);
+      setTransfer({
+        completed: 0,
+        total: paths.length,
+        current_file: '',
+        errors: paths.length,
+        status: 'error',
+        message: `Delete failed: ${err}`,
+      });
+    }
+  };
+
+  const downloadSelectedToLocal = async () => {
+    const paths = Array.from(selectedPaths);
+    if (paths.length === 0) return;
+    const homeDir = await invoke<string>('get_home_dir');
+    const downloadsDir = `${homeDir}/Downloads`;
+    let done = 0;
+    let errors = 0;
+    setTransfer({
+      completed: 0,
+      total: paths.length,
+      current_file: paths[0].split('/').pop() || '',
+      errors: 0,
+      status: 'downloading',
+    });
+    for (const p of paths) {
+      const name = p.split('/').pop() || 'file';
+      const localDest = `${downloadsDir}/${name}`;
+      // Look up the entry to decide file vs dir; default to file.
+      const ent = entries.find(e => e.path === p);
+      const cmd = ent?.is_dir ? 'sftp_dir_download_with_progress' : 'sftp_download_with_progress';
+      try {
+        await invoke(cmd, { profileId, remotePath: p, localPath: localDest });
+        done += 1;
+      } catch {
+        errors += 1;
+      }
+      setTransfer(prev => prev ? { ...prev, completed: done, errors, current_file: name } : prev);
+    }
+    setTransfer({
+      completed: done,
+      total: paths.length,
+      current_file: '',
+      errors,
+      status: errors === 0 ? 'done' : 'error',
+      message: errors === 0
+        ? `Downloaded ${done} item${done === 1 ? '' : 's'} to ~/Downloads`
+        : `${done}/${paths.length} downloaded (${errors} failed)`,
+    });
+    clearSelection();
+  };
+
   return (
     <div
       ref={containerRef}
@@ -768,8 +899,71 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
         </div>
       )}
 
+      {/* Bulk-selection action bar — takes the toast slot when ≥1 row is selected. */}
+      {selectedPaths.size > 0 && (
+        <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2 rounded-lg text-xs bg-surface/95 text-secondary border border-border-strong/60 shadow-lg">
+          {bulkDeleteConfirm ? (
+            <div className="flex items-center gap-2">
+              <span className="text-red-700 dark:text-red-300 flex-1 truncate">
+                Delete {selectedPaths.size} item{selectedPaths.size === 1 ? '' : 's'}?
+              </span>
+              <button
+                onClick={performBulkDelete}
+                className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white text-[10px] rounded transition-colors"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setBulkDeleteConfirm(false)}
+                className="px-2 py-0.5 bg-elevated hover:bg-elevated text-secondary text-[10px] rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-primary shrink-0">
+                {selectedPaths.size} selected
+              </span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setBulkDeleteConfirm(true)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-red-600/90 hover:bg-red-600 text-white transition-colors"
+                title="Delete selected"
+              >
+                <Trash2 className="w-3 h-3 pointer-events-none" />
+                Delete
+              </button>
+              <button
+                onClick={copySelectedPaths}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-elevated hover:bg-hover text-secondary transition-colors"
+                title="Copy remote paths"
+              >
+                <Copy className="w-3 h-3 pointer-events-none" />
+                Copy Paths
+              </button>
+              <button
+                onClick={downloadSelectedToLocal}
+                className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-blue-600/90 hover:bg-blue-600 text-white transition-colors"
+                title="Download selected to ~/Downloads"
+              >
+                <Download className="w-3 h-3 pointer-events-none" />
+                Download
+              </button>
+              <button
+                onClick={clearSelection}
+                className="p-0.5 text-muted hover:text-secondary transition-colors"
+                title="Clear selection"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Transfer progress toast */}
-      {transfer && (
+      {transfer && selectedPaths.size === 0 && (
         <div className={`absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 rounded-lg text-xs border shadow-lg ${
           transfer.status === 'done'
             ? 'bg-green-900/80 text-green-700 dark:text-green-300 border-green-800/60'
@@ -1115,7 +1309,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           <div className="px-4 py-8 text-center text-subtle text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
-            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} />
+            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} isSelected={selectedPaths.has(entry.path)} selectionMode={selectedPaths.size > 0} onSelect={handleSelect} />
           ))
         )}
       </div>

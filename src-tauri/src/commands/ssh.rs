@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::ToSocketAddrs;
 use std::sync::Mutex;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::commands::files::FileEntry;
 
@@ -592,9 +592,21 @@ impl Drop for WinSshExecChannel {
 
 #[cfg(not(target_os = "windows"))]
 struct UnixSshExecChannel {
-    stdin: std::process::ChildStdin,
+    stdin: std::sync::Arc<Mutex<std::process::ChildStdin>>,
     rx: std::sync::mpsc::Receiver<String>,
-    child: std::process::Child,
+    child: std::sync::Arc<Mutex<std::process::Child>>,
+    /// Set true on Drop so the heartbeat thread exits cleanly.
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Millis since spawn instant; reader thread bumps this on every line
+    /// (including ping acks) so the heartbeat can confirm liveness without
+    /// stealing bytes from exec()'s receiver.
+    last_seen_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    spawn_instant: std::time::Instant,
+    /// True while an exec() call is in flight. Heartbeat must NOT kill the
+    /// channel during chunked file uploads (silent on the remote for several
+    /// seconds — looks identical to "wedged shell" from the heartbeat's POV).
+    busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    heartbeat_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -719,7 +731,15 @@ impl UnixSshExecChannel {
             });
         }
 
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let spawn_instant = std::time::Instant::now();
+        let last_seen_ms = Arc::new(AtomicU64::new(0));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
         let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let reader_last_seen = last_seen_ms.clone();
         std::thread::spawn(move || {
             let mut reader = std::io::BufReader::new(stdout);
             let mut line = String::new();
@@ -728,6 +748,8 @@ impl UnixSshExecChannel {
                 match reader.read_line(&mut line) {
                     Ok(0) | Err(_) => break,
                     Ok(_) => {
+                        let ms = spawn_instant.elapsed().as_millis() as u64;
+                        reader_last_seen.store(ms, Ordering::Relaxed);
                         if tx.send(line.clone()).is_err() {
                             break;
                         }
@@ -736,17 +758,35 @@ impl UnixSshExecChannel {
             }
         });
 
-        let mut channel = Self { stdin, rx, child };
+        let stdin = Arc::new(Mutex::new(stdin));
+        let child = Arc::new(Mutex::new(child));
+
+        let busy = Arc::new(AtomicBool::new(false));
+
+        let mut channel = Self {
+            stdin,
+            rx,
+            child,
+            shutdown,
+            last_seen_ms,
+            spawn_instant,
+            busy,
+            heartbeat_handle: None,
+        };
 
         let probe_delim = "__OPERON_READY__";
-        channel
-            .stdin
-            .write_all(format!("echo {}\n", probe_delim).as_bytes())
-            .map_err(|e| format!("Failed to send probe: {}", e))?;
-        channel
-            .stdin
-            .flush()
-            .map_err(|e| format!("Failed to flush probe: {}", e))?;
+        {
+            let mut stdin_guard = channel
+                .stdin
+                .lock()
+                .map_err(|e| format!("stdin lock poisoned: {}", e))?;
+            stdin_guard
+                .write_all(format!("echo {}\n", probe_delim).as_bytes())
+                .map_err(|e| format!("Failed to send probe: {}", e))?;
+            stdin_guard
+                .flush()
+                .map_err(|e| format!("Failed to flush probe: {}", e))?;
+        }
 
         let probe_deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         loop {
@@ -772,17 +812,126 @@ impl UnixSshExecChannel {
             }
         }
 
-        eprintln!("[operon-ssh] Unix exec channel ready (probe OK)");
+        // Heartbeat: every 60s, IF the channel is idle AND has had no output
+        // for a while, send `echo __OPERON_PING__` and require a response in
+        // 10s. If still nothing, kill the child so the next is_alive() returns
+        // false. Skips entirely when busy (chunked uploads are silent for 5-30s
+        // by design — looks identical to "wedged shell" from the heartbeat's
+        // POV; killing them then is what broke v0.7.5 chat). TCP-level liveness
+        // is already handled by ServerAliveInterval=30 on the ssh command line.
+        let hb_stdin = channel.stdin.clone();
+        let hb_child = channel.child.clone();
+        let hb_shutdown = channel.shutdown.clone();
+        let hb_last_seen = channel.last_seen_ms.clone();
+        let hb_busy = channel.busy.clone();
+        let hb_spawn = channel.spawn_instant;
+        let hb_handle = std::thread::spawn(move || {
+            let interval = std::time::Duration::from_secs(60);
+            let response_window = std::time::Duration::from_secs(10);
+            let recent_activity_window_ms: u64 = 45_000;
+            let tick = std::time::Duration::from_millis(200);
+            loop {
+                let wake = std::time::Instant::now() + interval;
+                while std::time::Instant::now() < wake {
+                    if hb_shutdown.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let now = std::time::Instant::now();
+                    let nap = (wake - now).min(tick);
+                    std::thread::sleep(nap);
+                }
+                if hb_shutdown.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Skip ping if an exec call is in flight — chunked uploads
+                // produce no remote stdout for seconds at a stretch.
+                if hb_busy.load(Ordering::Relaxed) {
+                    continue;
+                }
+
+                // Skip ping if the channel has emitted any line recently —
+                // recent activity already proves liveness; no need to probe.
+                let now_ms = hb_spawn.elapsed().as_millis() as u64;
+                let last_ms = hb_last_seen.load(Ordering::Relaxed);
+                if last_ms > 0 && now_ms.saturating_sub(last_ms) < recent_activity_window_ms {
+                    continue;
+                }
+
+                let send_ms = now_ms;
+                let write_ok = match hb_stdin.lock() {
+                    Ok(mut s) => s
+                        .write_all(b"echo __OPERON_PING__\n")
+                        .and_then(|_| s.flush())
+                        .is_ok(),
+                    Err(_) => false,
+                };
+                if !write_ok {
+                    eprintln!("[operon-ssh] Heartbeat write failed; killing channel.");
+                    if let Ok(mut c) = hb_child.lock() {
+                        let _ = c.kill();
+                    }
+                    return;
+                }
+
+                let deadline = std::time::Instant::now() + response_window;
+                let mut got_pong = false;
+                while std::time::Instant::now() < deadline {
+                    if hb_shutdown.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if hb_last_seen.load(Ordering::Relaxed) >= send_ms {
+                        got_pong = true;
+                        break;
+                    }
+                    // If exec() started mid-wait, abandon this probe — don't
+                    // kill an actively-working channel just because its ping
+                    // happens to be queued behind a slow command.
+                    if hb_busy.load(Ordering::Relaxed) {
+                        got_pong = true;
+                        break;
+                    }
+                    std::thread::sleep(tick);
+                }
+                if !got_pong {
+                    eprintln!(
+                        "[operon-ssh] Heartbeat: no output {}s after ping; killing channel.",
+                        response_window.as_secs()
+                    );
+                    if let Ok(mut c) = hb_child.lock() {
+                        let _ = c.kill();
+                    }
+                    return;
+                }
+            }
+        });
+        channel.heartbeat_handle = Some(hb_handle);
+
+        eprintln!("[operon-ssh] Unix exec channel ready (probe OK, heartbeat armed)");
         Ok(channel)
     }
 
     fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        match self.child.lock() {
+            Ok(mut c) => matches!(c.try_wait(), Ok(None)),
+            Err(_) => false,
+        }
     }
 
     /// Run a remote command and return (stdout, exit_code).
     fn exec(&mut self, remote_cmd: &str) -> Result<(String, i32), String> {
         use std::io::Write;
+
+        // RAII guard: heartbeat must not kill this channel mid-call, even if
+        // exec returns early via `?`.
+        struct BusyGuard<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for BusyGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        self.busy.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _busy_guard = BusyGuard(&self.busy);
 
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -800,15 +949,21 @@ impl UnixSshExecChannel {
             remote_cmd, delim
         );
 
-        self.stdin.write_all(wrapped.as_bytes()).map_err(|e| {
-            format!(
-                "SSH channel write failed (connection may have dropped): {}",
-                e
-            )
-        })?;
-        self.stdin
-            .flush()
-            .map_err(|e| format!("SSH channel flush failed: {}", e))?;
+        {
+            let mut stdin_guard = self
+                .stdin
+                .lock()
+                .map_err(|e| format!("stdin lock poisoned: {}", e))?;
+            stdin_guard.write_all(wrapped.as_bytes()).map_err(|e| {
+                format!(
+                    "SSH channel write failed (connection may have dropped): {}",
+                    e
+                )
+            })?;
+            stdin_guard
+                .flush()
+                .map_err(|e| format!("SSH channel flush failed: {}", e))?;
+        }
 
         let per_call_timeout = std::time::Duration::from_secs(30);
         let mut output = String::new();
@@ -818,6 +973,10 @@ impl UnixSshExecChannel {
                 .recv_timeout(per_call_timeout.min(Self::IDLE_TIMEOUT))
             {
                 Ok(line) => {
+                    // Heartbeat ping ack — never part of exec output.
+                    if line.contains("__OPERON_PING__") {
+                        continue;
+                    }
                     let trimmed = line.trim_end_matches(['\r', '\n']);
                     if let Some(code_str) = trimmed.strip_prefix(delim.as_str()) {
                         let code = code_str.trim().parse::<i32>().unwrap_or(-1);
@@ -850,60 +1009,302 @@ impl UnixSshExecChannel {
 #[cfg(not(target_os = "windows"))]
 impl Drop for UnixSshExecChannel {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut c) = self.child.lock() {
+            let _ = c.kill();
+        }
+        if let Some(h) = self.heartbeat_handle.take() {
+            let _ = h.join();
+        }
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn get_unix_channel(
-    profile: &SSHProfile,
-) -> Result<std::sync::Arc<Mutex<Option<UnixSshExecChannel>>>, String> {
-    use std::sync::{Arc, OnceLock};
+type UnixChannelSlot = std::sync::Arc<Mutex<Option<UnixSshExecChannel>>>;
 
-    type ChannelSlot = Arc<Mutex<Option<UnixSshExecChannel>>>;
-    static UNIX_CHANNELS: OnceLock<Mutex<HashMap<String, ChannelSlot>>> = OnceLock::new();
-    let map_mutex = UNIX_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()));
+/// Cap on parallel persistent channels per host. Stays well under the typical
+/// sshd MaxSessions=10 (each channel rides its own TCP+auth handshake) while
+/// still giving us 3-way parallelism so a slow `ls` on one channel can't gate
+/// a fast `cat` waiting behind it.
+#[cfg(not(target_os = "windows"))]
+// Was 3 — set to 1 because parallel pool spawns triggered sshd MaxStartups
+// rate-limiting (server refuses connections after N parallel auth attempts),
+// which then cascaded across all profiles. With size=1 the single slot's
+// mutex naturally serializes spawn attempts. Cyberduck achieves its speed
+// with a single TCP connection too — channel pool is over-engineered here.
+const CHANNEL_POOL_SIZE: usize = 1;
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) struct UnixChannelPool {
+    slots: Mutex<Vec<UnixChannelSlot>>,
+    total_calls: std::sync::atomic::AtomicUsize,
+    cache_hits: std::sync::atomic::AtomicUsize,
+    respawns: std::sync::atomic::AtomicUsize,
+    last_error: Mutex<Option<String>>,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl UnixChannelPool {
+    fn new() -> Self {
+        Self {
+            slots: Mutex::new(Vec::with_capacity(CHANNEL_POOL_SIZE)),
+            total_calls: std::sync::atomic::AtomicUsize::new(0),
+            cache_hits: std::sync::atomic::AtomicUsize::new(0),
+            respawns: std::sync::atomic::AtomicUsize::new(0),
+            last_error: Mutex::new(None),
+        }
+    }
+
+    fn record_error(&self, msg: impl Into<String>) {
+        if let Ok(mut g) = self.last_error.lock() {
+            *g = Some(msg.into());
+        }
+    }
+
+    fn reset_stats(&self) {
+        use std::sync::atomic::Ordering;
+        self.total_calls.store(0, Ordering::Relaxed);
+        self.cache_hits.store(0, Ordering::Relaxed);
+        self.respawns.store(0, Ordering::Relaxed);
+        if let Ok(mut g) = self.last_error.lock() {
+            *g = None;
+        }
+    }
+
+    /// Acquire a slot. Returns the locked slot guard via the slot's Arc — the
+    /// caller still has to `.lock()` it (or, in the fast paths, already holds
+    /// the lock because we used `try_lock` to pick it). The bool indicates
+    /// whether the chosen slot already held a live channel (cache hit).
+    ///
+    /// Algorithm:
+    ///   1. Walk existing slots. First one whose try_lock succeeds AND whose
+    ///      channel is alive → cache hit.
+    ///   2. No live idle slot: first one whose try_lock succeeds (dead/empty)
+    ///      → caller spawns into it. Records a respawn.
+    ///   3. All existing slots busy AND slots.len() < CHANNEL_POOL_SIZE: push
+    ///      a fresh empty slot and return it.
+    ///   4. All slots busy and at cap: block on slot 0's mutex. This is the
+    ///      serialization fallback — acceptable under load, never under
+    ///      normal interactive use because 3 channels is more than the UI's
+    ///      typical concurrency (one file tree + one open file + one chat).
+    fn acquire(&self) -> Result<(UnixChannelSlot, bool), String> {
+        self.total_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let mut slots = self
+            .slots
+            .lock()
+            .map_err(|e| format!("pool slots lock poisoned: {}", e))?;
+
+        for slot in slots.iter() {
+            if let Ok(mut guard) = slot.try_lock() {
+                if let Some(ch) = guard.as_mut() {
+                    if ch.is_alive() {
+                        drop(guard);
+                        self.cache_hits
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        return Ok((slot.clone(), true));
+                    }
+                }
+            }
+        }
+
+        for slot in slots.iter() {
+            if let Ok(guard) = slot.try_lock() {
+                drop(guard);
+                return Ok((slot.clone(), false));
+            }
+        }
+
+        if slots.len() < CHANNEL_POOL_SIZE {
+            let fresh: UnixChannelSlot = std::sync::Arc::new(Mutex::new(None));
+            slots.push(fresh.clone());
+            return Ok((fresh, false));
+        }
+
+        let fallback = slots[0].clone();
+        Ok((fallback, false))
+    }
+
+    fn record_respawn(&self) {
+        self.respawns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unix_channels_map() -> &'static Mutex<HashMap<String, std::sync::Arc<UnixChannelPool>>> {
+    use std::sync::{Arc, OnceLock};
+    static UNIX_CHANNELS: OnceLock<Mutex<HashMap<String, Arc<UnixChannelPool>>>> = OnceLock::new();
+    UNIX_CHANNELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_unix_channel(profile: &SSHProfile) -> Result<std::sync::Arc<UnixChannelPool>, String> {
+    use std::sync::Arc;
+
     let key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
 
-    let mut map = map_mutex
+    let mut map = unix_channels_map()
         .lock()
         .map_err(|e| format!("channel map poisoned: {}", e))?;
     Ok(map
         .entry(key)
-        .or_insert_with(|| Arc::new(Mutex::new(None)))
+        .or_insert_with(|| Arc::new(UnixChannelPool::new()))
         .clone())
 }
 
-/// Tracks recent persistent-channel spawn failures per host so a hard-failing
-/// channel doesn't get respawned on every single ssh_exec call (which would
-/// pay the 15s probe timeout every time AND risk tripping sshd's MaxStartups
-/// rate limit). Once a host has failed, we silently use the oneshot path for
-/// 60s before trying again.
+/// Tracks recent persistent-channel spawn failures per host. A single failure
+/// is normal noise (transient socket drop, MFA timeout race); we only trip the
+/// oneshot-cooldown after 3 failures inside 5 minutes — that pattern indicates
+/// the host is actually unhealthy and we should stop spamming sshd. The first
+/// successful spawn clears the count.
 #[cfg(not(target_os = "windows"))]
-fn unix_channel_failures() -> &'static Mutex<HashMap<String, std::time::Instant>> {
+fn unix_channel_failures() -> &'static Mutex<HashMap<String, Vec<std::time::Instant>>> {
     use std::sync::OnceLock;
-    static FAILURES: OnceLock<Mutex<HashMap<String, std::time::Instant>>> = OnceLock::new();
+    static FAILURES: OnceLock<Mutex<HashMap<String, Vec<std::time::Instant>>>> = OnceLock::new();
     FAILURES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 #[cfg(not(target_os = "windows"))]
+const UNIX_CHANNEL_FAIL_WINDOW: std::time::Duration = std::time::Duration::from_secs(300);
+#[cfg(not(target_os = "windows"))]
+const UNIX_CHANNEL_FAIL_THRESHOLD: usize = 3;
+#[cfg(not(target_os = "windows"))]
+const UNIX_CHANNEL_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[cfg(not(target_os = "windows"))]
 fn unix_channel_spawn_blocked(key: &str) -> bool {
-    let cooldown = std::time::Duration::from_secs(60);
-    let guard = match unix_channel_failures().lock() {
+    let mut guard = match unix_channel_failures().lock() {
         Ok(g) => g,
         Err(_) => return false,
     };
-    guard
-        .get(key)
-        .map(|t| std::time::Instant::now().duration_since(*t) < cooldown)
+    let Some(stamps) = guard.get_mut(key) else {
+        return false;
+    };
+    let now = std::time::Instant::now();
+    stamps.retain(|t| now.duration_since(*t) < UNIX_CHANNEL_FAIL_WINDOW);
+    if stamps.len() < UNIX_CHANNEL_FAIL_THRESHOLD {
+        return false;
+    }
+    // Block while the MOST RECENT failure is still within the cooldown window.
+    // (Was: based on `.first()` — that meant once the oldest aged past 60s, the
+    // gate opened forever even though new failures kept arriving.)
+    stamps
+        .last()
+        .map(|t| now.duration_since(*t) < UNIX_CHANNEL_COOLDOWN)
         .unwrap_or(false)
 }
 
 #[cfg(not(target_os = "windows"))]
 fn unix_channel_mark_spawn_failed(key: &str) {
     if let Ok(mut guard) = unix_channel_failures().lock() {
-        guard.insert(key.to_string(), std::time::Instant::now());
+        let now = std::time::Instant::now();
+        let stamps = guard.entry(key.to_string()).or_default();
+        stamps.retain(|t| now.duration_since(*t) < UNIX_CHANNEL_FAIL_WINDOW);
+        stamps.push(now);
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unix_channel_reset_failures(key: &str) {
+    if let Ok(mut guard) = unix_channel_failures().lock() {
+        guard.remove(key);
+    }
+}
+
+// ── Wake-from-sleep recovery ──
+//
+// After a laptop wake the ControlMaster socket and every persistent channel
+// process is still alive from the OS's point of view, but the underlying TCP
+// connection is dead. The kernel will eventually surface this as a write
+// error, but only after the keepalive probe fails — a several-minute window
+// during which every SSH op stalls. We instead detect wake at the source (a
+// >30s gap between 5s heartbeat ticks) and proactively tear everything down.
+
+/// Drop every persistent SSH channel across every host, kill ControlMaster
+/// sockets for every known profile, and clear the spawn-cooldown map. Called
+/// from the wake detector and exposed for tests / manual recovery.
+pub fn invalidate_all_unix_channels(profiles: &[SSHProfile]) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(map) = unix_channels_map().lock() {
+            for pool in map.values() {
+                if let Ok(slots) = pool.slots.lock() {
+                    for slot in slots.iter() {
+                        if let Ok(mut guard) = slot.lock() {
+                            *guard = None;
+                        }
+                    }
+                }
+                pool.reset_stats();
+            }
+        }
+        if let Ok(mut guard) = unix_channel_failures().lock() {
+            guard.clear();
+        }
+    }
+
+    if crate::platform::supports_ssh_mux() {
+        for profile in profiles {
+            let sock = control_socket_path(profile);
+            let cmd = format!(
+                "ssh -o \"ControlPath={}\" -O exit {}@{} -p {} 2>/dev/null",
+                sock, profile.user, profile.host, profile.port
+            );
+            let _ = crate::platform::shell_exec(&cmd).output();
+        }
+    }
+}
+
+/// Spawn a single OS thread that detects sleep/wake by watching for large
+/// gaps in wall-clock time between 5s ticks. On wake, drop every channel +
+/// ControlMaster and notify the frontend via `ssh-wake-reconnect`.
+pub fn start_wake_detector(app: tauri::AppHandle) {
+    // 30s gap = definitely slept; >5s of normal scheduling jitter would never
+    // come close. SystemTime is wall-clock so it reflects sleep on every OS;
+    // Instant is monotonic on macOS/Linux and may freeze across sleep.
+    const TICK: std::time::Duration = std::time::Duration::from_secs(5);
+    const WAKE_GAP: std::time::Duration = std::time::Duration::from_secs(30);
+
+    std::thread::spawn(move || {
+        let mut last_wall = std::time::SystemTime::now();
+        let mut last_mono = std::time::Instant::now();
+        loop {
+            std::thread::sleep(TICK);
+            let now_wall = std::time::SystemTime::now();
+            let now_mono = std::time::Instant::now();
+
+            let elapsed = match now_wall.duration_since(last_wall) {
+                Ok(d) => d,
+                Err(_) => now_mono.duration_since(last_mono),
+            };
+
+            if elapsed >= WAKE_GAP {
+                eprintln!(
+                    "[operon-ssh] Wake detected ({}s gap) — invalidating channels",
+                    elapsed.as_secs()
+                );
+                let profiles: Vec<SSHProfile> =
+                    if let Some(state) = app.try_state::<SSHManager>() {
+                        state
+                            .profiles
+                            .lock()
+                            .ok()
+                            .map(|g| g.clone())
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+                invalidate_all_unix_channels(&profiles);
+                let _ = app.emit("ssh-wake-reconnect", ());
+            }
+
+            last_wall = now_wall;
+            last_mono = now_mono;
+        }
+    });
 }
 
 // ── Profile CRUD Commands ──
@@ -1071,10 +1472,18 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
             return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
         }
 
-        let slot = match get_unix_channel(profile) {
+        let pool = match get_unix_channel(profile) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[operon-ssh] channel pool unavailable: {}", e);
+                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+            }
+        };
+
+        let (slot, _was_hit) = match pool.acquire() {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("[operon-ssh] channel slot unavailable: {}", e);
+                eprintln!("[operon-ssh] pool acquire failed: {}", e);
                 return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
             }
         };
@@ -1097,20 +1506,33 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                 channel_key
             );
             match UnixSshExecChannel::spawn(profile) {
-                Ok(ch) => *guard = Some(ch),
+                Ok(ch) => {
+                    *guard = Some(ch);
+                    pool.record_respawn();
+                    unix_channel_reset_failures(&channel_key);
+                }
                 Err(e) => {
-                    eprintln!(
-                        "[operon-ssh] Persistent channel spawn failed ({}); falling back to per-call ssh for 60s",
-                        e
-                    );
                     unix_channel_mark_spawn_failed(&channel_key);
+                    pool.record_error(&e);
+                    let blocked_now = unix_channel_spawn_blocked(&channel_key);
+                    eprintln!(
+                        "[operon-ssh] Persistent channel spawn failed ({}); {}",
+                        e,
+                        if blocked_now {
+                            "cooldown tripped — falling back to per-call ssh for 60s"
+                        } else {
+                            "will retry on next call"
+                        }
+                    );
                     drop(guard);
                     return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
                 }
             }
         }
 
-        match guard.as_mut().unwrap().exec(remote_cmd) {
+        // First attempt on the (possibly long-lived) channel.
+        let first = guard.as_mut().unwrap().exec(remote_cmd);
+        match first {
             Ok((stdout, exit_code)) => {
                 if exit_code != 0 && stdout.trim().is_empty() {
                     return Err(format!(
@@ -1121,13 +1543,54 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                 return Ok(stdout);
             }
             Err(e) => {
+                // Channel died mid-call (heartbeat killed it, sshd MaxSessions,
+                // network blip). Drop, respawn synchronously, replay the same
+                // command once. Only if THAT also fails do we mark the host
+                // unhealthy and fall back to the per-call oneshot path.
                 eprintln!(
-                    "[operon-ssh] Exec channel error: {}. Dropping and falling back to one-shot.",
+                    "[operon-ssh] Exec channel error: {}. Respawning channel and retrying once.",
                     e
                 );
                 *guard = None;
-                drop(guard);
-                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                match UnixSshExecChannel::spawn(profile) {
+                    Ok(fresh) => {
+                        unix_channel_reset_failures(&channel_key);
+                        *guard = Some(fresh);
+                        pool.record_respawn();
+                        match guard.as_mut().unwrap().exec(remote_cmd) {
+                            Ok((stdout, exit_code)) => {
+                                if exit_code != 0 && stdout.trim().is_empty() {
+                                    return Err(format!(
+                                        "SSH command failed (exit code {}). This may be a transient connection issue — try clicking Retry.",
+                                        exit_code
+                                    ));
+                                }
+                                return Ok(stdout);
+                            }
+                            Err(e2) => {
+                                eprintln!(
+                                    "[operon-ssh] Retry on fresh channel failed: {}. Falling back to one-shot.",
+                                    e2
+                                );
+                                *guard = None;
+                                unix_channel_mark_spawn_failed(&channel_key);
+                                pool.record_error(&e2);
+                                drop(guard);
+                                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                            }
+                        }
+                    }
+                    Err(spawn_err) => {
+                        eprintln!(
+                            "[operon-ssh] Respawn after channel error failed: {}. Falling back to one-shot.",
+                            spawn_err
+                        );
+                        unix_channel_mark_spawn_failed(&channel_key);
+                        pool.record_error(&spawn_err);
+                        drop(guard);
+                        return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                    }
+                }
             }
         }
     }
@@ -1463,6 +1926,53 @@ pub async fn delete_remote_file(
     }
     state.cache.invalidate_path(&profile_id, &path);
     Ok(())
+}
+
+/// Delete a batch of remote paths in a single SSH round-trip.
+/// Uses one compound `rm -rf` so it handles a mix of files and directories
+/// without per-path stat probes. Returns the number of paths whose removal
+/// the remote shell reported as successful (best-effort: rm exits 0 if all
+/// args were removed; on any failure we fall back to a per-path probe).
+#[tauri::command]
+pub async fn batch_delete_remote_files(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    paths: Vec<String>,
+) -> Result<usize, String> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
+
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    let escaped: Vec<String> = paths.iter().map(|p| shell_escape_inner(p)).collect();
+    let bulk_cmd = format!("rm -rf {}; echo $?", escaped.join(" "));
+    let result = ssh_exec_async(profile.clone(), bulk_cmd).await?;
+    let exit = result.trim().lines().last().unwrap_or("1").trim();
+
+    let succeeded = if exit == "0" {
+        paths.len()
+    } else {
+        // Per-path verification — count any paths that no longer exist.
+        let probes: Vec<String> = paths
+            .iter()
+            .map(|p| format!("[ -e {} ] || echo MISSING", shell_escape_inner(p)))
+            .collect();
+        let probe_out = ssh_exec_async(profile, probes.join("; ")).await?;
+        probe_out.lines().filter(|l| l.trim() == "MISSING").count()
+    };
+
+    for p in &paths {
+        state.cache.invalidate_path(&profile_id, p);
+    }
+    Ok(succeeded)
 }
 
 /// Rename a file or directory on the remote server via SSH.
@@ -3111,6 +3621,168 @@ fn expand_include(
     }
     results.sort();
     results
+}
+
+// ── Connection Diagnostics ──
+//
+// Reports live channel-pool stats so the StatusBar pill can show a green/amber/red
+// health dot. Walks the pool with try_lock so a busy channel never blocks the
+// poll, and times one quick `echo OK` for RTT on the first idle alive channel.
+
+#[derive(serde::Serialize, Clone)]
+pub struct SshDiagnostics {
+    pub rtt_ms: Option<u64>,
+    pub channels_alive: usize,
+    pub channels_total: usize,
+    pub pool_max: usize,
+    pub total_calls: usize,
+    pub cache_hits: usize,
+    pub respawns: usize,
+    pub in_cooldown: bool,
+    pub last_error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_ssh_diagnostics(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+) -> Result<SshDiagnostics, String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        // Windows uses a single per-host slot, not a pool; report a minimal
+        // snapshot so the UI pill still renders.
+        let _ = profile; // unused on Windows for now
+        return Ok(SshDiagnostics {
+            rtt_ms: None,
+            channels_alive: 0,
+            channels_total: 0,
+            pool_max: 1,
+            total_calls: 0,
+            cache_hits: 0,
+            respawns: 0,
+            in_cooldown: false,
+            last_error: None,
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::sync::atomic::Ordering;
+
+        let channel_key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
+        let pool = get_unix_channel(&profile)?;
+
+        let total_calls = pool.total_calls.load(Ordering::Relaxed);
+        let cache_hits = pool.cache_hits.load(Ordering::Relaxed);
+        let respawns = pool.respawns.load(Ordering::Relaxed);
+        let in_cooldown = unix_channel_spawn_blocked(&channel_key);
+        let last_error = pool.last_error.lock().ok().and_then(|g| g.clone());
+
+        // Snapshot slots + RTT probe. We hold the slots lock only long enough
+        // to clone the Arcs, then walk them with try_lock so a stalled
+        // channel can't block the poll.
+        let slot_arcs: Vec<UnixChannelSlot> = {
+            let slots = pool
+                .slots
+                .lock()
+                .map_err(|e| format!("pool slots lock poisoned: {}", e))?;
+            slots.clone()
+        };
+
+        let channels_total = slot_arcs.len();
+        let mut channels_alive = 0usize;
+        let mut rtt_ms: Option<u64> = None;
+
+        for slot in &slot_arcs {
+            // Spend only the RTT probe budget on the *first* idle alive channel
+            // so the poll itself stays cheap (<1ms when nothing is alive).
+            if let Ok(mut guard) = slot.try_lock() {
+                if let Some(ch) = guard.as_mut() {
+                    if ch.is_alive() {
+                        channels_alive += 1;
+                        if rtt_ms.is_none() {
+                            let start = std::time::Instant::now();
+                            if let Ok((_out, code)) = ch.exec("echo OK") {
+                                if code == 0 {
+                                    rtt_ms = Some(start.elapsed().as_millis() as u64);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(SshDiagnostics {
+            rtt_ms,
+            channels_alive,
+            channels_total,
+            pool_max: CHANNEL_POOL_SIZE,
+            total_calls,
+            cache_hits,
+            respawns,
+            in_cooldown,
+            last_error,
+        })
+    }
+}
+
+/// Reset diagnostic counters and tear down all persistent channels for a
+/// profile so the next call rebuilds from scratch. Used by the StatusBar
+/// "Reconnect" / "Reset stats" actions.
+#[tauri::command]
+pub async fn reset_ssh_diagnostics(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let channel_key = format!("{}@{}:{}", profile.user, profile.host, profile.port);
+        let pool = get_unix_channel(&profile)?;
+        pool.reset_stats();
+        unix_channel_reset_failures(&channel_key);
+
+        // Drop every live channel so the next exec rebuilds. We grab each
+        // slot's mutex without try_lock so an in-flight call gets to finish
+        // first — a fresh respawn under our feet would be worse than waiting.
+        let slot_arcs: Vec<UnixChannelSlot> = {
+            let slots = pool
+                .slots
+                .lock()
+                .map_err(|e| format!("pool slots lock poisoned: {}", e))?;
+            slots.clone()
+        };
+        for slot in slot_arcs {
+            if let Ok(mut guard) = slot.lock() {
+                *guard = None;
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = profile;
+    }
+
+    Ok(())
 }
 
 /// Very small glob matcher: supports `*` (any substring) and `?` (single

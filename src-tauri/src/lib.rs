@@ -24,6 +24,9 @@ use commands::{
     check_remote_mcp_dependencies,
     check_remote_ripgrep,
     check_session_files,
+    clear_session_state,
+    batch_delete_files,
+    batch_delete_remote_files,
     clear_ssh_cache,
     create_directory,
     create_file,
@@ -54,6 +57,7 @@ use commands::{
     generate_protocol_from_files,
     generate_report_pdf,
     get_api_key,
+    get_protocol_template_params,
     get_cached_models,
     get_extension_config_schema,
     get_extension_details,
@@ -71,6 +75,7 @@ use commands::{
     get_protocols_dir,
     get_remote_home,
     get_server_config,
+    get_ssh_diagnostics,
     // Settings & System
     get_settings,
     // Terminal
@@ -136,6 +141,7 @@ use commands::{
     list_remote_directory,
     list_remote_files_matching_regex,
     list_sessions,
+    load_session_state,
     list_ssh_config_hosts,
     list_ssh_profiles,
     list_watched_jobs,
@@ -166,12 +172,14 @@ use commands::{
     rename_session,
     reorder_ssh_profiles,
     request_user_attention,
+    reset_ssh_diagnostics,
     resize_terminal,
     save_attachment_file,
     save_clipboard_image,
     save_protocol,
     // Session Management
     save_session_metadata,
+    save_session_state,
     // SSH
     save_ssh_profile,
     // Report
@@ -197,6 +205,10 @@ use commands::{
     singularity_action,
     singularity_list_images,
     singularity_list_instances,
+    // SLURM/PBS submission
+    slurm_cancel_job,
+    slurm_query_jobs,
+    slurm_submit_job,
     // Terminal
     spawn_terminal,
     start_claude_session,
@@ -238,6 +250,7 @@ use commands::claude::ClaudeManager;
 use commands::extensions::ExtensionManager;
 use commands::job_notify::JobNotifyManager;
 use commands::proxy::ProxyManager;
+use commands::session::SessionStateManager;
 use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
 use commands::terminal::TerminalManager;
@@ -257,6 +270,7 @@ pub fn run() {
         .manage(ProxyManager::new())
         .manage(WatchdogManager::new())
         .manage(JobNotifyManager::new())
+        .manage(SessionStateManager::new())
         .setup(|app| {
             // Build platform-appropriate menu
             let menu = platform::build_menu(app)
@@ -271,6 +285,8 @@ pub fn run() {
                     }
                 }
             });
+
+            commands::ssh::start_wake_detector(app.handle().clone());
 
             Ok(())
         })
@@ -293,6 +309,7 @@ pub fn run() {
             create_file,
             create_directory,
             delete_path,
+            batch_delete_files,
             rename_path,
             index_project,
             index_remote_project,
@@ -310,6 +327,7 @@ pub fn run() {
             delete_protocol,
             generate_protocol,
             generate_protocol_from_files,
+            get_protocol_template_params,
             // Claude Code
             check_claude_installed,
             install_claude,
@@ -365,6 +383,7 @@ pub fn run() {
             read_remote_file_base64,
             create_remote_directory,
             delete_remote_file,
+            batch_delete_remote_files,
             rename_remote_path,
             write_remote_file,
             scp_to_remote,
@@ -378,6 +397,8 @@ pub fn run() {
             test_ssh_connection,
             check_control_master,
             stop_control_master,
+            get_ssh_diagnostics,
+            reset_ssh_diagnostics,
             // Settings
             get_settings,
             update_settings,
@@ -511,6 +532,14 @@ pub fn run() {
             list_pending_completions,
             mark_completion_seen,
             request_user_attention,
+            // Last-session restore (Operon 0.7.x — task #72)
+            save_session_state,
+            load_session_state,
+            clear_session_state,
+            // SLURM / PBS job submission (task #71)
+            slurm_submit_job,
+            slurm_query_jobs,
+            slurm_cancel_job,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
