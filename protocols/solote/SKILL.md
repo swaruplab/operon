@@ -1,5 +1,6 @@
 ---
 name: solote
+display_name: SoloTE
 description: Locus-specific transposable element quantification from single-cell RNA-seq BAMs, producing a gene+TE 10x-style count matrix.
 license: GPL-3.0
 metadata:

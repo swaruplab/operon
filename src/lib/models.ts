@@ -82,3 +82,40 @@ export async function fetchAnthropicModels(apiKey: string): Promise<ModelInfo[]>
 export async function refreshModelsIfStale(apiKey: string | null): Promise<boolean> {
   return invoke<boolean>('refresh_models_if_stale', { apiKey });
 }
+
+// Fable 5 has an Anthropic-defined billing cutover on 2026-06-23: included on
+// Pro / Max / Team / seat-Enterprise through Jun 22; usage credits required
+// after. The badge surfaces the current state directly in the model picker so
+// users don't get surprised by their first credits charge.
+export interface ModelBadge {
+  label: string;
+  textClass: string;
+  bgClass: string;
+  tooltip: string;
+}
+
+const FABLE5_CUTOFF_UTC = Date.parse('2026-06-23T00:00:00Z');
+
+export function getFable5Badge(now: number = Date.now()): ModelBadge {
+  if (now < FABLE5_CUTOFF_UTC) {
+    return {
+      label: 'FREE · through Jun 22',
+      textClass: 'text-green-700 dark:text-green-300',
+      bgClass: 'bg-green-100 dark:bg-green-900/40',
+      tooltip:
+        'Included on Pro, Max, Team, and seat-based Enterprise plans through June 22, 2026. After that, calls require usage credits ($10 / $50 per million tokens). The developer API is unaffected.',
+    };
+  }
+  return {
+    label: 'CREDITS REQUIRED',
+    textClass: 'text-amber-700 dark:text-amber-300',
+    bgClass: 'bg-amber-100 dark:bg-amber-900/40',
+    tooltip:
+      'No longer included on subscription plans. Calls bill against usage credits at $10/M input, $50/M output. Without credits, Claude falls back to your default model (typically Opus 4.8).',
+  };
+}
+
+export function fable5OptionSuffix(modelId: string, now: number = Date.now()): string {
+  if (modelId !== 'claude-fable-5') return '';
+  return `  ·  ${getFable5Badge(now).label}`;
+}

@@ -1,5 +1,6 @@
 ---
 name: scte
+display_name: scTE
 description: Quantify transposable element expression from single-cell RNA/ATAC-seq BAM files at locus or family level.
 license: MIT
 metadata:

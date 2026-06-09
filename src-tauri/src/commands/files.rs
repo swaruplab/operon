@@ -1020,30 +1020,37 @@ fn id_to_display_name(id: &str) -> String {
 ///
 /// Without frontmatter awareness, the legacy "first # heading" scan grabs the
 /// `# COPYRIGHT NOTICE` line *inside* the HTML comment as the protocol title.
-fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>) {
+fn parse_frontmatter(content: &str) -> (Option<String>, Option<String>, Option<String>) {
     // Skip any HTML comment block(s) before the frontmatter.
     let cursor = strip_leading_html_comments(content);
     let mut lines = cursor.lines();
     // First non-blank line must be `---`.
     let first = match lines.by_ref().find(|l| !l.trim().is_empty()) {
         Some(l) if l.trim() == "---" => l,
-        _ => return (None, None),
+        _ => return (None, None, None),
     };
     let _ = first;
     let mut name = None;
     let mut desc = None;
+    // display_name is the verbatim label to show in the UI. Bypasses the
+    // slug-style title-casing in id_to_display_name, so protocols whose
+    // canonical names use non-standard casing (scTE, SoloTE, scRNA-seq,
+    // ChIP-seq, MACS2, ATAC-seq, etc.) can render as written.
+    let mut display = None;
     for line in lines {
         let trimmed = line.trim();
         if trimmed == "---" {
             break;
         }
-        if let Some(rest) = trimmed.strip_prefix("name:") {
+        if let Some(rest) = trimmed.strip_prefix("display_name:") {
+            display = Some(rest.trim().trim_matches(['"', '\'']).to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("name:") {
             name = Some(rest.trim().trim_matches(['"', '\'']).to_string());
         } else if let Some(rest) = trimmed.strip_prefix("description:") {
             desc = Some(rest.trim().trim_matches(['"', '\'']).to_string());
         }
     }
-    (name, desc)
+    (name, desc, display)
 }
 
 /// Return the slice of `content` after any leading whitespace-only lines and
@@ -1081,7 +1088,7 @@ fn extract_first_heading(content: &str) -> Option<String> {
 
 fn extract_description(content: &str) -> String {
     // Try YAML frontmatter description first.
-    if let (_, Some(d)) = parse_frontmatter(content) {
+    if let (_, Some(d), _) = parse_frontmatter(content) {
         if !d.is_empty() {
             return truncate_120(&d);
         }
@@ -1188,9 +1195,11 @@ fn scan_protocols_in_dir(
             let content = std::fs::read_to_string(&entry_point).unwrap_or_default();
             // Title priority: YAML frontmatter `name:` → first `# heading`
             // (after HTML-comment / frontmatter preamble) → id-derived label.
-            let (fm_name, _) = parse_frontmatter(&content);
-            let display_name = fm_name
-                .map(|n| id_to_display_name(&n))
+            let (fm_name, _, fm_display) = parse_frontmatter(&content);
+            // Frontmatter `display_name:` wins verbatim. Falls back to
+            // title-cased `name:`, then the first `# heading`, then the slug.
+            let display_name = fm_display
+                .or_else(|| fm_name.map(|n| id_to_display_name(&n)))
                 .or_else(|| extract_first_heading(&content))
                 .unwrap_or_else(|| id_to_display_name(&id));
             let description = extract_description(&content);
@@ -1219,9 +1228,11 @@ fn scan_protocols_in_dir(
             seen_ids.insert(id.clone());
 
             let content = std::fs::read_to_string(&path).unwrap_or_default();
-            let (fm_name, _) = parse_frontmatter(&content);
-            let display_name = fm_name
-                .map(|n| id_to_display_name(&n))
+            let (fm_name, _, fm_display) = parse_frontmatter(&content);
+            // Frontmatter `display_name:` wins verbatim. Falls back to
+            // title-cased `name:`, then the first `# heading`, then the slug.
+            let display_name = fm_display
+                .or_else(|| fm_name.map(|n| id_to_display_name(&n)))
                 .or_else(|| extract_first_heading(&content))
                 .unwrap_or_else(|| id_to_display_name(&id));
             let description = extract_description(&content);

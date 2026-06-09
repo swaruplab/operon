@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
-import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
+import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, getFable5Badge, fable5OptionSuffix, type ModelInfo } from '../../lib/models';
 import {
   listPortkeyPresets, fetchPortkeyModels,
   groupPortkeyModelsByFamily, familyLabel, pickBestPortkeyModel,
@@ -974,7 +974,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                               <optgroup key={label} label={label}>
                                 {list.map((m) => (
                                   <option key={m.id} value={m.id}>
-                                    {m.display_name || m.id}
+                                    {m.display_name || m.id}{fable5OptionSuffix(m.id)}
                                   </option>
                                 ))}
                               </optgroup>
@@ -995,6 +995,20 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </button>
                 </div>
               </div>
+
+              {settings.model === 'claude-fable-5' && (() => {
+                const b = getFable5Badge();
+                return (
+                  <div className="flex justify-end -mt-1">
+                    <span
+                      title={b.tooltip}
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide cursor-help ${b.textClass} ${b.bgClass}`}
+                    >
+                      {b.label}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {(() => {
                 const currentModel = anthropicModels.find((m) => m.id === settings.model);

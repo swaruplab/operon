@@ -61,7 +61,7 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
-import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
+import { getCachedModels, groupAndSort, supportedEffortLevels, getFable5Badge, fable5OptionSuffix, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import {
@@ -3724,7 +3724,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     <optgroup key={label} label={label}>
                       {list.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.id}
+                          {m.id}{fable5OptionSuffix(m.id)}
                         </option>
                       ))}
                     </optgroup>
@@ -3758,6 +3758,17 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <option value="__configure_provider__">Configure provider…</option>
           </optgroup>
         </select>
+        {model === 'claude-fable-5' && (() => {
+          const b = getFable5Badge();
+          return (
+            <span
+              title={b.tooltip}
+              className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wide cursor-help ${b.textClass} ${b.bgClass}`}
+            >
+              {b.label}
+            </span>
+          );
+        })()}
         {(() => {
           const currentModel = anthropicModels.find((m) => m.id === model);
           const levels = supportedEffortLevels(currentModel);
