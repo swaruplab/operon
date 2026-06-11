@@ -5,8 +5,8 @@ import { isMac, isWindows } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
-import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
-import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, getFable5Badge, fable5OptionSuffix, type ModelInfo } from '../../lib/models';
+import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, testCustomEndpointViaProxy, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
+import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
 import {
   listPortkeyPresets, fetchPortkeyModels,
   groupPortkeyModelsByFamily, familyLabel, pickBestPortkeyModel,
@@ -974,7 +974,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                               <optgroup key={label} label={label}>
                                 {list.map((m) => (
                                   <option key={m.id} value={m.id}>
-                                    {m.display_name || m.id}{fable5OptionSuffix(m.id)}
+                                    {m.display_name || m.id}
                                   </option>
                                 ))}
                               </optgroup>
@@ -995,20 +995,6 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </button>
                 </div>
               </div>
-
-              {settings.model === 'claude-fable-5' && (() => {
-                const b = getFable5Badge();
-                return (
-                  <div className="flex justify-end -mt-1">
-                    <span
-                      title={b.tooltip}
-                      className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide cursor-help ${b.textClass} ${b.bgClass}`}
-                    >
-                      {b.label}
-                    </span>
-                  </div>
-                );
-              })()}
 
               {(() => {
                 const currentModel = anthropicModels.find((m) => m.id === settings.model);
@@ -1346,12 +1332,26 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                         setProviderTesting(true);
                         setProviderTestResult(null);
                         try {
-                          const msg = await testCustomEndpoint(
-                            settings.custom_base_url,
-                            settings.custom_api_key || undefined,
-                            settings.custom_model,
-                          );
+                          // When the proxy is enabled, test the REAL chat path
+                          // (Anthropic → proxy → endpoint), not just the raw
+                          // OpenAI surface — otherwise this passes while chats
+                          // still fail because the proxy is down.
+                          const msg = settings.use_translation_proxy
+                            ? await testCustomEndpointViaProxy(
+                                settings.custom_base_url,
+                                settings.custom_api_key || undefined,
+                                settings.custom_model,
+                              )
+                            : await testCustomEndpoint(
+                                settings.custom_base_url,
+                                settings.custom_api_key || undefined,
+                                settings.custom_model,
+                              );
                           setProviderTestResult({ ok: true, msg });
+                          // The via-proxy test starts the proxy — refresh the chip.
+                          if (settings.use_translation_proxy) {
+                            translationProxyStatus().then(setProxyStatus).catch(() => {});
+                          }
                         } catch (e: any) {
                           setProviderTestResult({ ok: false, msg: String(e) });
                         } finally {

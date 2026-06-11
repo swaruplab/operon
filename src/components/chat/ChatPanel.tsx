@@ -18,7 +18,6 @@ import {
   MessageCircle,
   Server,
   RotateCcw,
-  Trash2,
   X,
   FolderOpen,
   FileText,
@@ -51,8 +50,6 @@ import type {
   ThinkingBlock,
   ToolUseBlock,
   ClaudeEvent,
-  SessionMetadata,
-  SessionFileStatus,
 } from '../../types/chat';
 import type { ReportPhase, ProjectScan, MethodsInfo, FilePreview } from '../../types/report';
 import { scanProjectFiles, scanRemoteProjectFiles, extractMethodsInfo, generateReportPdf, generateReportFilename, batchReadFilePreviews, batchReadRemoteFilePreviews } from '../../lib/report';
@@ -61,7 +58,7 @@ import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
 import { getSettings, type AppSettings } from '../../lib/settings';
-import { getCachedModels, groupAndSort, supportedEffortLevels, getFable5Badge, fable5OptionSuffix, type ModelInfo, type EffortLevel } from '../../lib/models';
+import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import {
@@ -471,83 +468,6 @@ function ToolUseDisplay({ block }: { block: ToolUseBlock }) {
   const mcpInfo = getMCPInfo(block.name);
   if (mcpInfo) return <MCPToolDisplay block={block} mcpInfo={mcpInfo} />;
   return <MinorToolDisplay block={block} />;
-}
-
-// --- Session Row with click-to-rename ---
-
-function SessionRow({ session, displayName, ageStr, onResume, onDelete, onRename }: {
-  session: SessionMetadata;
-  displayName: string;
-  ageStr: string;
-  onResume: () => void;
-  onDelete: () => void;
-  onRename: (name: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState(displayName);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  return (
-    <div className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-indigo-900/30 transition-colors group">
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-        session.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-muted'
-      }`} />
-
-      {editing ? (
-        <input
-          ref={inputRef}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && editValue.trim()) {
-              onRename(editValue.trim());
-              setEditing(false);
-            }
-            if (e.key === 'Escape') {
-              setEditValue(displayName);
-              setEditing(false);
-            }
-          }}
-          onBlur={() => {
-            if (editValue.trim() && editValue.trim() !== displayName) {
-              onRename(editValue.trim());
-            }
-            setEditing(false);
-          }}
-          className="flex-1 bg-surface border border-indigo-500/50 rounded px-1.5 py-0.5 text-[11px] text-primary outline-none"
-        />
-      ) : (
-        <span
-          onClick={() => { setEditValue(displayName); setEditing(true); }}
-          className="text-[11px] text-secondary truncate flex-1 cursor-pointer hover:text-indigo-800 dark:hover:text-indigo-700 transition-colors"
-          title="Click to rename session"
-        >
-          {displayName}
-          <span className="text-subtle ml-1">{'\u00B7'} {ageStr}</span>
-          {session.status === 'running' && (
-            <span className="text-green-600 dark:text-green-400 ml-1">(running)</span>
-          )}
-        </span>
-      )}
-
-      <button
-        onClick={onResume}
-        className="text-[10px] bg-indigo-700/60 text-indigo-200 px-2 py-0.5 rounded hover:bg-indigo-600/60 transition-colors shrink-0"
-      >
-        Resume
-      </button>
-      <button
-        onClick={onDelete}
-        className="text-subtle hover:text-red-700 dark:hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
-    </div>
-  );
 }
 
 // --- Collapsible "Working" section that groups thinking + tool blocks ---
@@ -1255,12 +1175,6 @@ export function ChatPanel() {
   const [protocolContents, setProtocolContents] = useState<Map<string, string>>(new Map());
   const [useTerminal, setUseTerminal] = useState(true); // Default ON for HPC use
   const [sshTerminalId, setSshTerminalId] = useState<string | null>(null);
-  const [previousSessions, setPreviousSessions] = useState<SessionMetadata[]>([]);
-  const [showResumeModal, setShowResumeModal] = useState(false);
-  // Session resume is disabled — it consistently fails for both local and remote modes.
-  // The output files are often missing, stale, or the SSH connection times out.
-  // TODO: Re-enable once session persistence is reliable.
-  const [resumeChecked, setResumeChecked] = useState(true);
   // Remote Claude Code status
   // status state machine:
   //   'ok'            — check_remote_claude returned Ok; use hasNode/hasClaude/hasAuth
@@ -1435,9 +1349,6 @@ export function ChatPanel() {
     setMentions([]);
     setMentionActive(false);
     setMentionItems([]);
-    setShowResumeModal(false);
-    setPreviousSessions([]);
-    setResumeChecked(true); // Don't re-check sessions immediately — user explicitly started fresh
     setActiveProtocols([]);
     setProtocolContents(new Map());
     setExistingPlan(null);
@@ -1529,174 +1440,6 @@ export function ChatPanel() {
     // Refocus textarea
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [input, mentionCursorStart]);
-
-  // Check for previous sessions that can be resumed
-  useEffect(() => {
-    if (resumeChecked) return;
-    const checkPreviousSessions = async () => {
-      try {
-        const sessions = await invoke<SessionMetadata[]>('list_sessions', {
-          projectPath: remoteInfo?.remotePath || projectPath || null,
-          profileId: remoteInfo?.profileId || null,
-        });
-        // Only show sessions that are recently running (<48h) or recently completed (<24h).
-        // A "running" session older than ~48h is almost certainly orphaned: the agent
-        // died without writing the .done marker, and HPC scratch retention has likely
-        // wiped the .operon-*.jsonl file — reconnecting just surfaces a confusing
-        // "Output file not found" error.
-        const recent = sessions.filter((s) => {
-          const age = Date.now() - s.last_activity;
-          if (s.status === 'running') return age < 48 * 60 * 60 * 1000;
-          if (s.status === 'completed') return age < 24 * 60 * 60 * 1000;
-          return false;
-        });
-        if (recent.length > 0) {
-          setPreviousSessions(recent);
-          setShowResumeModal(true);
-        }
-        setResumeChecked(true);
-      } catch {
-        setResumeChecked(true);
-      }
-    };
-    if (remoteInfo || projectPath) {
-      checkPreviousSessions();
-    }
-  }, [remoteInfo, projectPath, resumeChecked]);
-
-  // Resume a previous session
-  const handleResumeSession = useCallback(async (meta: SessionMetadata) => {
-    setShowResumeModal(false);
-    setIsStreaming(true);
-
-    // Restore the claude session ID for --resume on next message
-    if (meta.claude_session_id) {
-      setClaudeSessionId(meta.claude_session_id);
-    }
-
-    try {
-      const remote = meta.remote_path && meta.profile_id
-        ? { profileId: meta.profile_id, remotePath: meta.remote_path }
-        : undefined;
-
-      // Check file status first (with timeout to avoid hanging on stale SSH)
-      const statusTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timed out checking session status')), 15000)
-      );
-      const status = await Promise.race([
-        invoke<SessionFileStatus>('check_session_files', {
-          sessionId: meta.session_id,
-          remote: remote ?? null,
-        }),
-        statusTimeout,
-      ]);
-
-      if (status.is_running) {
-        // Agent still running — reconnect the tail stream
-        // Pass both old session ID (to find files) and current session ID (for event channels)
-        await invoke('reconnect_session', {
-          sessionId: meta.session_id,
-          eventSessionId: sessionId,
-          remote: remote ?? null,
-        });
-      } else if (status.is_completed) {
-        // Agent finished — read all output and hydrate messages
-        const output = await invoke<string>('read_session_output', {
-          sessionId: meta.session_id,
-          remote: remote ?? null,
-        });
-        // Parse each JSONL line and emit as events to reuse existing handler
-        for (const line of output.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line) as ClaudeEvent;
-            if (data.type === 'system' && 'session_id' in data && data.session_id) {
-              setClaudeSessionId(data.session_id);
-            }
-            if (data.type === 'assistant' && 'message' in data) {
-              const usage = data.message.usage;
-              if (usage && typeof usage.input_tokens === 'number') {
-                setContextTokens(usage.input_tokens);
-                setCacheReadTokens(usage.cache_read_input_tokens ?? 0);
-              }
-              const msgId = data.message.id || crypto.randomUUID();
-              const blocks: ContentBlock[] = data.message.content.map((c) => {
-                if (c.type === 'text') return { type: 'text' as const, text: c.text };
-                if (c.type === 'thinking' && 'thinking' in c) return { type: 'thinking' as const, thinking: (c as { type: 'thinking'; thinking: string }).thinking };
-                return {
-                  type: 'tool_use' as const,
-                  id: (c as { id: string }).id,
-                  name: (c as { name: string }).name,
-                  input: (c as { input: Record<string, unknown> }).input,
-                  status: 'complete' as const,
-                };
-              });
-              // Add each unique message
-              if (!seenMsgIds.current.has(msgId)) {
-                seenMsgIds.current.add(msgId);
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: msgId,
-                    role: 'assistant' as const,
-                    content: blocks,
-                    timestamp: Date.now(),
-                  },
-                ]);
-              } else {
-                // Update existing message with latest content
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === msgId ? { ...m, content: blocks } : m
-                  )
-                );
-              }
-            }
-          } catch {
-            // Skip non-JSON lines
-          }
-        }
-        setIsStreaming(false);
-        // Add a system message indicating this is a resumed session
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'system' as const,
-            content: [{ type: 'text' as const, text: 'Previous session loaded. Send a message to continue the conversation.' }],
-            timestamp: Date.now(),
-          },
-        ]);
-      } else {
-        setIsStreaming(false);
-        // No output file found
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'system' as const,
-            content: [{ type: 'text' as const, text: 'Previous session output not found. Starting a new session.' }],
-            timestamp: Date.now(),
-          },
-        ]);
-      }
-    } catch (e) {
-      setIsStreaming(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: 'system' as const,
-          content: [{ type: 'text' as const, text: `Failed to resume session: ${e}` }],
-          timestamp: Date.now(),
-        },
-      ]);
-    }
-  }, [sessionId]);
-
-  const handleDismissResume = () => {
-    setShowResumeModal(false);
-  };
 
   // Check for existing implementation_plan.md whenever path changes
   useEffect(() => {
@@ -3724,7 +3467,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     <optgroup key={label} label={label}>
                       {list.map((m) => (
                         <option key={m.id} value={m.id}>
-                          {m.id}{fable5OptionSuffix(m.id)}
+                          {m.id}
                         </option>
                       ))}
                     </optgroup>
@@ -3758,17 +3501,6 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <option value="__configure_provider__">Configure provider…</option>
           </optgroup>
         </select>
-        {model === 'claude-fable-5' && (() => {
-          const b = getFable5Badge();
-          return (
-            <span
-              title={b.tooltip}
-              className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wide cursor-help ${b.textClass} ${b.bgClass}`}
-            >
-              {b.label}
-            </span>
-          );
-        })()}
         {(() => {
           const currentModel = anthropicModels.find((m) => m.id === model);
           const levels = supportedEffortLevels(currentModel);
@@ -4498,60 +4230,9 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         </div>
       )}
 
-      {/* Session Resume Banner */}
-      {showResumeModal && previousSessions.length > 0 && (
-        <div className="mx-3 mt-2 p-3 bg-indigo-950/40 border border-indigo-800/40 rounded-lg shrink-0">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <RotateCcw className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">Previous Sessions</span>
-            </div>
-            <button
-              onClick={handleDismissResume}
-              className="text-muted hover:text-secondary transition-colors"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          {previousSessions.slice(0, 5).map((s) => {
-            const age = Date.now() - s.last_activity;
-            const ageStr = age < 60000 ? 'just now'
-              : age < 3600000 ? `${Math.floor(age / 60000)}m ago`
-              : age < 86400000 ? `${Math.floor(age / 3600000)}h ago`
-              : `${Math.floor(age / 86400000)}d ago`;
-            const displayName = s.name || `${s.mode} session`;
-            return (
-              <SessionRow
-                key={s.session_id}
-                session={s}
-                displayName={displayName}
-                ageStr={ageStr}
-                onResume={() => handleResumeSession(s)}
-                onDelete={() => {
-                  invoke('delete_session', { sessionId: s.session_id, remote: null, deleteOutput: false }).catch(() => {});
-                  setPreviousSessions((prev) => prev.filter((p) => p.session_id !== s.session_id));
-                }}
-                onRename={(newName) => {
-                  invoke('rename_session', { sessionId: s.session_id, name: newName }).catch(() => {});
-                  setPreviousSessions((prev) =>
-                    prev.map((p) => p.session_id === s.session_id ? { ...p, name: newName } : p)
-                  );
-                }}
-              />
-            );
-          })}
-          <button
-            onClick={handleDismissResume}
-            className="mt-1 text-[10px] text-muted hover:text-secondary transition-colors"
-          >
-            Start new session instead
-          </button>
-        </div>
-      )}
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.length === 0 && !showResumeModal && (
+        {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full px-6">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-blue-500/10 flex items-center justify-center mb-4">
               <Sparkles className="w-7 h-7 text-blue-600 dark:text-blue-400/80" />

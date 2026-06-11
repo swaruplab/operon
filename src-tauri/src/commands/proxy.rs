@@ -82,12 +82,13 @@ async fn wait_for_port(port: u16, timeout: Duration) -> bool {
     false
 }
 
-/// Start (or restart) the translation proxy. Returns the local URL Claude Code should use.
-#[tauri::command]
-pub async fn start_translation_proxy(
-    app: AppHandle,
-    state: tauri::State<'_, ProxyManager>,
-    upstream_base_url: String,
+/// Spawn the `anthropic-proxy` sidecar bound to `upstream` on a fresh port and
+/// store the handle, killing any existing proxy first. `upstream` must already
+/// be trimmed/normalized. Returns the local URL Claude Code should use.
+async fn start_proxy_inner(
+    app: &AppHandle,
+    state: &ProxyManager,
+    upstream: String,
     upstream_api_key: Option<String>,
 ) -> Result<String, String> {
     // Upstream `anthropic-proxy-rs` depends on Unix-only `daemonize` and does
@@ -96,7 +97,7 @@ pub async fn start_translation_proxy(
     // race with a probe timeout.
     #[cfg(target_os = "windows")]
     {
-        let _ = (&app, &state, &upstream_base_url, &upstream_api_key);
+        let _ = (app, state, &upstream, &upstream_api_key);
         return Err(
             "Translation proxy is not supported on Windows. Point Operon at a remote \
              Anthropic-compatible endpoint (e.g. LiteLLM, OpenRouter) instead."
@@ -104,70 +105,121 @@ pub async fn start_translation_proxy(
         );
     }
 
-    // Kill any existing proxy first.
-    state.stop()?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Kill any existing proxy first.
+        state.stop()?;
 
+        let port = pick_free_port()?;
+
+        let shell = app.shell();
+        let mut cmd = shell
+            .sidecar("anthropic-proxy")
+            .map_err(|e| format!("Failed to locate anthropic-proxy sidecar: {}", e))?
+            .env("UPSTREAM_BASE_URL", &upstream)
+            .env("PORT", port.to_string());
+
+        if let Some(key) = upstream_api_key.as_ref() {
+            if !key.is_empty() {
+                cmd = cmd.env("UPSTREAM_API_KEY", key);
+            }
+        }
+
+        let (mut rx, child) = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn anthropic-proxy sidecar: {}", e))?;
+
+        // Drain stdout/stderr so the child doesn't block. Emit log lines to the
+        // frontend so a status panel can surface them.
+        let app_for_logs = app.clone();
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
+                        let line = String::from_utf8_lossy(&bytes).to_string();
+                        let _ = app_for_logs.emit("translation-proxy-log", line);
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        let _ = app_for_logs.emit("translation-proxy-exit", payload.code);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        // Give the server up to 5s to bind.
+        if !wait_for_port(port, Duration::from_secs(5)).await {
+            // Best-effort cleanup — child should be dead or dying.
+            let _ = child.kill();
+            return Err(format!(
+                "Translation proxy failed to bind to 127.0.0.1:{} within 5s",
+                port
+            ));
+        }
+
+        let mut guard = state.handle.lock().map_err(|e| e.to_string())?;
+        *guard = Some(ProxyHandle {
+            child,
+            port,
+            upstream_base_url: upstream,
+        });
+
+        Ok(format!("http://127.0.0.1:{}", port))
+    }
+}
+
+/// Ensure a translation proxy is running for `upstream`, reusing an existing one
+/// whose upstream matches and whose port still accepts connections; otherwise
+/// (re)start it. Called from the session-start path so custom/local-runtime
+/// chats work even if the user never clicked "Start proxy" or the app was
+/// restarted (the proxy is killed on window close). Returns the local URL.
+pub async fn ensure_proxy(
+    app: &AppHandle,
+    state: &ProxyManager,
+    upstream_base_url: &str,
+    upstream_api_key: Option<&str>,
+) -> Result<String, String> {
     let upstream = upstream_base_url.trim().trim_end_matches('/').to_string();
     if upstream.is_empty() {
         return Err("Upstream base URL is required".to_string());
     }
 
-    let port = pick_free_port()?;
-
-    let shell = app.shell();
-    let mut cmd = shell
-        .sidecar("anthropic-proxy")
-        .map_err(|e| format!("Failed to locate anthropic-proxy sidecar: {}", e))?
-        .env("UPSTREAM_BASE_URL", &upstream)
-        .env("PORT", port.to_string());
-
-    if let Some(key) = upstream_api_key.as_ref() {
-        if !key.is_empty() {
-            cmd = cmd.env("UPSTREAM_API_KEY", key);
-        }
-    }
-
-    let (mut rx, child) = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn anthropic-proxy sidecar: {}", e))?;
-
-    // Drain stdout/stderr so the child doesn't block. Emit log lines to the
-    // frontend so a status panel can surface them.
-    let app_for_logs = app.clone();
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes).to_string();
-                    let _ = app_for_logs.emit("translation-proxy-log", line);
-                }
-                CommandEvent::Terminated(payload) => {
-                    let _ = app_for_logs.emit("translation-proxy-exit", payload.code);
-                    break;
-                }
-                _ => {}
+    // Reuse a healthy proxy already bound to the same upstream — avoids
+    // killing/respawning the sidecar on every chat message.
+    {
+        let guard = state.handle.lock().map_err(|e| e.to_string())?;
+        if let Some(h) = guard.as_ref() {
+            if h.upstream_base_url == upstream
+                && std::net::TcpStream::connect(("127.0.0.1", h.port)).is_ok()
+            {
+                return Ok(format!("http://127.0.0.1:{}", h.port));
             }
         }
-    });
-
-    // Give the server up to 5s to bind.
-    if !wait_for_port(port, Duration::from_secs(5)).await {
-        // Best-effort cleanup — child should be dead or dying.
-        let _ = child.kill();
-        return Err(format!(
-            "Translation proxy failed to bind to 127.0.0.1:{} within 5s",
-            port
-        ));
     }
 
-    let mut guard = state.handle.lock().map_err(|e| e.to_string())?;
-    *guard = Some(ProxyHandle {
-        child,
-        port,
-        upstream_base_url: upstream,
-    });
+    start_proxy_inner(
+        app,
+        state,
+        upstream,
+        upstream_api_key.map(|s| s.to_string()),
+    )
+    .await
+}
 
-    Ok(format!("http://127.0.0.1:{}", port))
+/// Start (or restart) the translation proxy. Returns the local URL Claude Code should use.
+#[tauri::command]
+pub async fn start_translation_proxy(
+    app: AppHandle,
+    state: tauri::State<'_, ProxyManager>,
+    upstream_base_url: String,
+    upstream_api_key: Option<String>,
+) -> Result<String, String> {
+    let upstream = upstream_base_url.trim().trim_end_matches('/').to_string();
+    if upstream.is_empty() {
+        return Err("Upstream base URL is required".to_string());
+    }
+    start_proxy_inner(&app, state.inner(), upstream, upstream_api_key).await
 }
 
 #[tauri::command]

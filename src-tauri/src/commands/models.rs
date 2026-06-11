@@ -117,16 +117,6 @@ fn bundled_models() -> Vec<ModelInfo> {
             created_at: "2026-05-01T00:00:00Z".to_string(),
             max_input_tokens: 1_000_000,
             max_tokens: 128_000,
-            capabilities: ModelCapabilities {
-                effort: all_effort.clone(),
-            },
-        },
-        ModelInfo {
-            id: "claude-fable-5".to_string(),
-            display_name: "Claude Fable 5".to_string(),
-            created_at: "2026-06-09T00:00:00Z".to_string(),
-            max_input_tokens: 1_000_000,
-            max_tokens: 128_000,
             capabilities: ModelCapabilities { effort: all_effort },
         },
         ModelInfo {

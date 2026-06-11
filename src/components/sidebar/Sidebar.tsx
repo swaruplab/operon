@@ -542,12 +542,28 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
   const navigateTo = (path: string) => {
     setProjectPath(path);
-    // Auto-cd terminal unless this navigation was triggered by terminal sync
-    if (!syncedFromTerminal.current) {
-      cdToTerminalPath(path);
-    }
-    syncedFromTerminal.current = false;
   };
+
+  // Auto-cd the local terminal whenever the explorer path changes — whether
+  // from the folder tree (navigateTo), the Go-to-folder path bar, or a pinned
+  // folder. Previously only navigateTo cd'd, so the path bar and pinned items
+  // silently didn't, unlike the remote explorer which cd's on any path change
+  // via an effect like this. Doing it in an effect also resets the
+  // terminal-sync guard on every change (the old code left it stuck after a
+  // terminal-driven sync, dropping the next manual navigation's cd).
+  const prevProjectPath = useRef(projectPath);
+  useEffect(() => {
+    if (projectPath && projectPath !== prevProjectPath.current) {
+      // Skip the echo when the change came FROM the terminal, and skip the
+      // initial population (first load / restored project).
+      if (!syncedFromTerminal.current && prevProjectPath.current) {
+        cdToTerminalPath(projectPath);
+      }
+      syncedFromTerminal.current = false;
+      prevProjectPath.current = projectPath;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, localTerminalId]);
 
   const navigateUp = () => {
     if (!projectPath || projectPath === '/') return;

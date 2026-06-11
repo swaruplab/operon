@@ -229,6 +229,7 @@ use commands::{
     store_api_key,
     teardown_remote_footprint,
     test_custom_endpoint,
+    test_custom_endpoint_via_proxy,
     test_ssh_connection,
     translation_proxy_status,
     uninstall_extension,
@@ -404,6 +405,7 @@ pub fn run() {
             update_settings,
             detect_custom_models,
             test_custom_endpoint,
+            test_custom_endpoint_via_proxy,
             // Models catalog (auto-fetched from Anthropic /v1/models)
             fetch_anthropic_models,
             get_cached_models,

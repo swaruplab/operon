@@ -385,6 +385,64 @@ pub async fn test_custom_endpoint(
     Ok(format!("OK — {} responded", model_id))
 }
 
+/// Verify the *full* path a custom-provider chat actually uses when the
+/// translation proxy is enabled: ensure the bundled `anthropic-proxy` is running
+/// and send a real Anthropic `/v1/messages` request through it — exactly what
+/// Claude Code does.
+///
+/// This is the honest counterpart to [`test_custom_endpoint`], which only probes
+/// the raw OpenAI `/chat/completions` surface and therefore reports success even
+/// when the proxy path — the one the chat depends on — is broken or down.
+#[tauri::command]
+pub async fn test_custom_endpoint_via_proxy(
+    app: tauri::AppHandle,
+    proxy_state: tauri::State<'_, super::proxy::ProxyManager>,
+    base_url: String,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<String, String> {
+    let model_id = model.unwrap_or_default();
+    if model_id.trim().is_empty() {
+        return Err("Pick a model first".to_string());
+    }
+    // Start (or reuse) the proxy bound to this upstream.
+    let proxy_url =
+        super::proxy::ensure_proxy(&app, proxy_state.inner(), &base_url, api_key.as_deref()).await?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let body = serde_json::json!({
+        "model": model_id,
+        "max_tokens": 16,
+        "messages": [{ "role": "user", "content": "ping" }],
+    });
+    let url = format!("{}/v1/messages", proxy_url);
+    let resp = client
+        .post(&url)
+        .header("x-api-key", api_key.as_deref().unwrap_or("local"))
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body_text = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "HTTP {} via proxy — {}",
+            status,
+            body_text.chars().take(200).collect::<String>()
+        ));
+    }
+    Ok(format!(
+        "OK — {} responded through the translation proxy",
+        model_id
+    ))
+}
+
 /// Stop the currently running dictation process.
 #[tauri::command]
 pub async fn stop_dictation() -> Result<(), String> {

@@ -136,11 +136,23 @@ fn ai_provider_env(
         // If the translation proxy is running and the user wants it, Claude
         // Code should hit the local proxy instead of the upstream directly.
         let effective_base = if settings.use_translation_proxy {
+            // Through the local proxy, which listens on Anthropic /v1/messages —
+            // the SDK's appended path lands correctly, so no /v1 stripping.
             proxy_state
                 .proxy_base_url()
                 .unwrap_or_else(|| upstream.to_string())
         } else {
-            upstream.to_string()
+            // Direct Anthropic path (OpenRouter, Anthropic-compatible LiteLLM).
+            // Claude Code's SDK appends "/v1/messages" to ANTHROPIC_BASE_URL, so
+            // a base ending in "/v1" (our stored convention — the OpenAI /models
+            // + /chat/completions detection probes need it) would become
+            // "/v1/v1/messages" → 404 (verified against OpenRouter). Strip a
+            // trailing "/v1" here, exactly like the Portkey branch above.
+            upstream
+                .trim_end_matches('/')
+                .trim_end_matches("/v1")
+                .trim_end_matches('/')
+                .to_string()
         };
         let token = if !settings.custom_api_key.is_empty() {
             settings.custom_api_key.clone()
@@ -2047,6 +2059,40 @@ pub async fn start_claude_session(
         "[operon] start_claude_session: mode='{}', resume={:?}, max_turns={:?}",
         mode, resume_session, max_turns
     );
+
+    // Local custom-provider sessions need the bundled Anthropic↔OpenAI proxy
+    // running BEFORE we build the env. Ollama / LM Studio / vLLM speak only
+    // OpenAI Chat-Completions; Claude Code speaks Anthropic Messages. The proxy
+    // is killed on app close and is otherwise only started by the Settings
+    // "Start proxy" button, so without this an Ollama chat would silently fall
+    // back to the raw upstream URL (which 404s on /v1/messages) and fail with a
+    // confusing "empty response". Start (or reuse) it on demand here, and fail
+    // with a clear message if it can't bind. Local only: a 127.0.0.1 proxy is
+    // unreachable from a remote compute node (that path needs a reverse tunnel).
+    if remote.is_none() {
+        let (provider, use_proxy, upstream, up_key) = {
+            let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
+            (
+                s.ai_provider.clone(),
+                s.use_translation_proxy,
+                s.custom_base_url.trim().to_string(),
+                s.custom_api_key.clone(),
+            )
+        };
+        if provider == "custom" && use_proxy && !upstream.is_empty() {
+            let key = if up_key.is_empty() { None } else { Some(up_key) };
+            super::proxy::ensure_proxy(&app, proxy_state.inner(), &upstream, key.as_deref())
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Couldn't start the translation proxy required for the custom \
+                         endpoint ({}). Open Settings → Custom provider and verify the \
+                         Base URL, then try Start proxy.",
+                        e
+                    )
+                })?;
+        }
+    }
 
     // --- Check for existing plan files in the target directory ---
     // This gives Claude context about previous planning sessions in this folder.

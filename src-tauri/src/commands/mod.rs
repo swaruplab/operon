@@ -78,7 +78,7 @@ pub use report::{
 pub use session::{clear_session_state, load_session_state, save_session_state};
 pub use settings::{
     detect_custom_models, get_settings, start_dictation, stop_dictation, test_custom_endpoint,
-    update_settings,
+    test_custom_endpoint_via_proxy, update_settings,
 };
 pub use slurm::{slurm_cancel_job, slurm_query_jobs, slurm_submit_job};
 pub use ssh::{

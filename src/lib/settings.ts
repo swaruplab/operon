@@ -90,6 +90,14 @@ export async function testCustomEndpoint(baseUrl: string, apiKey: string | undef
   return invoke('test_custom_endpoint', { baseUrl, apiKey: apiKey || null, model });
 }
 
+/** Test the FULL path a chat uses when the translation proxy is enabled: starts
+ *  (or reuses) the bundled anthropic-proxy and sends a real Anthropic
+ *  /v1/messages request through it. Unlike {@link testCustomEndpoint}, this
+ *  actually exercises the proxy — the path Ollama/vLLM/LM-Studio chats depend on. */
+export async function testCustomEndpointViaProxy(baseUrl: string, apiKey: string | undefined, model: string): Promise<string> {
+  return invoke('test_custom_endpoint_via_proxy', { baseUrl, apiKey: apiKey || null, model });
+}
+
 export async function getSettings(): Promise<AppSettings> {
   return invoke('get_settings');
 }
