@@ -1131,6 +1131,9 @@ export function ChatPanel() {
   const [portkeyModel, setPortkeyModel] = useState<string>('');
   const [anthropicModels, setAnthropicModels] = useState<ModelInfo[]>([]);
   const [effort, setEffort] = useState<EffortLevel>('high');
+  // When on, every outgoing prompt gets the "ultrathink" keyword appended so
+  // Claude Code allocates its maximum extended-thinking budget. Off by default.
+  const [ultrathink, setUltrathink] = useState(false);
   const [pendingCompletions, setPendingCompletions] = useState<PendingCompletion[]>([]);
   // Token-usage state — `contextTokens` is the input_tokens from the latest
   // assistant turn, which equals "tokens the model saw on this turn" =
@@ -1502,6 +1505,7 @@ export function ChatPanel() {
       if (s.effort) {
         setEffort(s.effort as EffortLevel);
       }
+      setUltrathink(!!s.ultrathink);
       // Switch the active session model to match the selected provider.
       // - portkey: use the Portkey-side slug (e.g. @workspace/model-id)
       // - custom: use the custom OpenAI-compat endpoint's model
@@ -3173,7 +3177,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       }
     }
 
-    const prompt = indexPrefix + protocolPrefix + serverConfigPrefix + planPrefix + mentionPrefix + pubmedPrefix + finalText;
+    // Ultrathink: when enabled in settings, append the magic keyword so Claude
+    // Code requests its maximum extended-thinking budget. Kept out of the
+    // user-visible message (rawText) — it's only in the prompt sent to Claude.
+    // No newlines: Claude Code detects the keyword anywhere in the prompt, and a
+    // trailing space keeps it on one logical line so it can't perturb any
+    // shell/PTY-delivered command path.
+    const ultrathinkSuffix = ultrathink ? ' ultrathink' : '';
+    const prompt = indexPrefix + protocolPrefix + serverConfigPrefix + planPrefix + mentionPrefix + pubmedPrefix + finalText + ultrathinkSuffix;
 
     // Show the raw user text in the UI (without the injected context)
     const userMessage: ChatMessage = {
@@ -4059,15 +4070,29 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <span className="text-[10px] text-secondary truncate">
               implementation_plan.md ({existingPlan.split('\n').length} lines)
             </span>
-            {/* Plan date extracted from content */}
+            {/* Plan date extracted from content \u2014 keep it compact: stop at the
+                first separator (\u00B7, **, ( ) so a crammed "Date + Status" line
+                can't dump the whole paragraph into the banner, and hard-cap +
+                truncate as a final guard. */}
             {(() => {
               const dateMatch = existingPlan.match(/\*\*Date:\*\*\s*(.+)/);
-              return dateMatch ? (
+              if (!dateMatch) return null;
+              const planDate = dateMatch[1]
+                .split(/\s*(?:[\u00B7*(]| - )/)[0]
+                .trim()
+                .slice(0, 40);
+              if (!planDate) return null;
+              return (
                 <>
                   <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
-                  <span className="text-[10px] text-muted">{dateMatch[1].trim()}</span>
+                  <span
+                    className="text-[10px] text-muted truncate max-w-[140px]"
+                    title={dateMatch[1].trim()}
+                  >
+                    {planDate}
+                  </span>
                 </>
-              ) : null;
+              );
             })()}
             {/* History dropdown */}
             {planHistory.length > 0 && (

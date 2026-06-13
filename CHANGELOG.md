@@ -4,6 +4,29 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.7.8] — 2026-06-13
+
+### Added
+
+- **Ultrathink toggle** (Settings → Claude). When enabled, Operon appends the
+  `ultrathink` keyword to every prompt so Claude Code requests its maximum
+  extended-thinking budget. Off by default; independent of the Reasoning
+  Effort setting. The keyword is added to the prompt only — never shown in the
+  user's chat bubble — and carries no newlines so it can't perturb the
+  shell/PTY command path used for remote/HPC sessions.
+
+### Changed
+
+- **Removed the "Restore last session?" prompt** on startup. The session-state
+  file is still written to disk; only the restore banner was removed.
+
+### Fixed
+
+- **Plan banner no longer dumps the full status paragraph.** The `**Date:**`
+  field was captured greedily to end-of-line, so a plan that crammed its date
+  and status onto one line filled the banner. The date is now clipped at the
+  first separator, hard-capped, and truncated with a hover tooltip.
+
 ## [0.7.3] — 2026-06-05
 
 Stops stale shell-profile env vars from hijacking provider routing — the

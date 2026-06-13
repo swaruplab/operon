@@ -1025,6 +1025,26 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                 );
               })()}
 
+              <div className="flex items-center justify-between">
+                <div className="pr-4">
+                  <div className="text-sm text-secondary">Ultrathink</div>
+                  <p className="text-[11px] text-muted mt-0.5 leading-relaxed">
+                    Append the <code>ultrathink</code> keyword to every prompt, requesting Claude's maximum extended-thinking budget. Off by default — uses more tokens and is slower, but reasons harder on difficult problems.
+                  </p>
+                </div>
+                <button
+                  onClick={() => saveSettings({ ...settings, ultrathink: !settings.ultrathink })}
+                  className={`shrink-0 relative inline-flex items-center w-9 h-5 rounded-full transition-colors duration-200 ${
+                    settings.ultrathink ? 'bg-purple-500' : 'bg-elevated'
+                  }`}
+                  aria-label="Toggle ultrathink"
+                >
+                  <span className={`inline-block w-3.5 h-3.5 bg-white rounded-full transition-transform duration-200 ${
+                    settings.ultrathink ? 'translate-x-5' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
               <label className="flex items-center justify-between">
                 <span className="text-sm text-secondary">Max Turns</span>
                 <input

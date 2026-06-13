@@ -70,6 +70,11 @@ pub struct AppSettings {
     /// degrades to no --effort flag rather than erroring).
     #[serde(default = "default_effort")]
     pub effort: String,
+    /// When true, Operon appends the "ultrathink" keyword to each prompt it
+    /// sends to Claude Code, requesting the maximum extended-thinking token
+    /// budget. Off by default; orthogonal to `effort` (the API reasoning level).
+    #[serde(default)]
+    pub ultrathink: bool,
     pub max_turns: u32,
     pub max_budget_usd: f64,
     /// Permission level: "full_auto", "safe_mode", or "supervised"
@@ -161,6 +166,7 @@ impl Default for AppSettings {
             minimap_enabled: true,
             model: "claude-opus-4-8".to_string(),
             effort: default_effort(),
+            ultrathink: false,
             max_turns: 25,
             max_budget_usd: 5.0,
             permission_mode: "full_auto".to_string(),

@@ -12,6 +12,10 @@ export interface AppSettings {
   /** Anthropic effort/reasoning level: 'low' | 'medium' | 'high' | 'max' | 'xhigh'.
    *  Skipped at command-build time if the chosen model doesn't support the level. */
   effort: string;
+  /** When true, Operon appends the "ultrathink" keyword to every prompt sent
+   *  to Claude Code, requesting its maximum extended-thinking token budget.
+   *  Off by default. Independent of `effort` (the API reasoning level). */
+  ultrathink: boolean;
   max_turns: number;
   max_budget_usd: number;
   permission_mode: string; // 'full_auto' | 'safe_mode' | 'supervised'
@@ -59,6 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   minimap_enabled: true,
   model: 'claude-opus-4-8',
   effort: 'high',
+  ultrathink: false,
   max_turns: 25,
   max_budget_usd: 5.0,
   permission_mode: 'full_auto',
