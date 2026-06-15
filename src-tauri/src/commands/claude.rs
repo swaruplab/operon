@@ -507,6 +507,13 @@ pub struct DependencyStatus {
 /// Check all local dependencies needed for Claude Code
 #[tauri::command]
 pub async fn check_local_dependencies() -> Result<DependencyStatus, String> {
+    // Refresh PATH from the registry FIRST. On Windows, tools just installed by
+    // the elevated batch land on the system PATH / in known dirs, but this
+    // (launch-time) process still holds a stale PATH snapshot and wouldn't see
+    // them — that's why the wizard reported "could not be installed" right after
+    // a successful install (the install worked; only detection was blind). The
+    // tools become visible without restarting Operon. No-op on macOS/Linux.
+    crate::platform::refresh_path();
     // Delegate to the platform abstraction layer which handles
     // tool discovery paths and Xcode checks per-platform.
     Ok(crate::platform::check_dependencies())
@@ -695,16 +702,22 @@ pub async fn install_phase_xcode(app: tauri::AppHandle) -> Result<bool, String> 
 pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> {
     let mut all_ok = true;
 
+    // Refresh PATH from the registry first so the "any missing" gate and all
+    // detection below see tools a prior run already installed — otherwise a
+    // Retry after the elevated batch would re-launch the installer. No-op on Unix.
+    crate::platform::refresh_path();
+
     // ── Windows: one elevated, visible installer for ALL tools ──
     // Headless winget can't work here (where.exe returns the App Execution Alias,
     // a reparse point CreateProcess can't launch; machine-scope installs need
     // admin). Run a single elevated batch (one UAC prompt) that installs Git,
-    // Node, gh, Python, uv and the OpenSSH client visibly. After it finishes we
-    // refresh PATH and the per-tool sections below detect each tool as present
-    // and report "installed". If the user declines the admin prompt we fall
-    // through to the per-tool fallbacks and the manual command list.
+    // Node, gh, Python, uv and the OpenSSH client visibly. `batch_ran` records
+    // whether it completed: when true, the per-tool sections below ONLY detect
+    // and report — they never launch a second installer. (Previously the Git
+    // section re-ran the hardcoded Git download right after the batch already
+    // installed Git via winget, which double-installed Git.)
     #[cfg(target_os = "windows")]
-    {
+    let batch_ran = {
         let any_missing = crate::platform::find_git_bash_path().is_none()
             || crate::platform::check_tool("node").is_none()
             || crate::platform::find_python().is_none()
@@ -718,18 +731,38 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
                 3,
             );
             match crate::platform::windows::install_tools_elevated() {
-                Ok(()) => crate::platform::refresh_path(),
-                Err(e) => eprintln!("[install] elevated tools installer not completed: {}", e),
+                Ok(()) => {
+                    crate::platform::refresh_path();
+                    true
+                }
+                Err(e) => {
+                    eprintln!("[install] elevated tools installer not completed: {}", e);
+                    false
+                }
             }
+        } else {
+            false
         }
-    }
+    };
+    #[cfg(not(target_os = "windows"))]
+    let batch_ran = false;
 
     // ── Git Bash (Windows only, 0-10%) ──
     // Claude Code on Windows requires Git Bash. Install it first so that
     // Claude Code works after npm install.
     #[cfg(target_os = "windows")]
     {
-        if crate::platform::find_git_bash_path().is_none() {
+        if crate::platform::find_git_bash_path().is_some() {
+            crate::platform::persist_git_bash_env();
+            emit_install_progress(&app, "git", "complete", "Git installed", 10);
+        } else if batch_ran {
+            // The elevated installer already ran — do NOT launch a second Git
+            // installer (this was the double-install). Git's installer may still
+            // be open/finishing; the user finishes it and clicks Retry.
+            emit_install_progress(&app, "git", "error",
+                "Git not detected yet — if its installer window is still open, finish it, then click Retry.", 10);
+            all_ok = false;
+        } else {
             emit_install_progress(
                 &app,
                 "git",
@@ -772,10 +805,6 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
                     all_ok = false;
                 }
             }
-        } else {
-            // Git already installed — make sure env var is persisted
-            crate::platform::persist_git_bash_env();
-            emit_install_progress(&app, "git", "skipped", "Git already installed", 10);
         }
 
         // Refresh PATH after Git install so subsequent steps find git/node/npm
@@ -834,7 +863,7 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         .unwrap_or(false)
         || operon_node_bin().is_some();
 
-    if !has_node {
+    if !has_node && !batch_ran {
         emit_install_progress(&app, "node", "installing", "Installing Node.js...", 55);
 
         match crate::platform::install_node_platform() {
@@ -853,6 +882,17 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
                 all_ok = false;
             }
         }
+    } else if !has_node {
+        // The elevated installer ran but Node isn't detected yet — don't launch
+        // a second install; the user finishes any installer window and Retries.
+        emit_install_progress(
+            &app,
+            "node",
+            "error",
+            "Node.js not detected yet — finish any installer window, then click Retry.",
+            80,
+        );
+        all_ok = false;
     } else {
         let ver = login_shell_cmd("node --version")
             .output()

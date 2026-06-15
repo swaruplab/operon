@@ -146,6 +146,9 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
     let appdata = std::env::var("APPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| home.join("AppData").join("Roaming"));
+    let localappdata = std::env::var("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| home.join("AppData").join("Local"));
     let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     vec![
         super::operon_node_dir().join("bin"),
@@ -157,6 +160,12 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
         // OpenSSH client binaries (ssh-keygen, ssh-add) live in this System32
         // SUBDIR, which isn't always on a GUI process's inherited PATH.
         std::path::PathBuf::from(format!(r"{}\System32\OpenSSH", sysroot)),
+        // winget drops package shims here (uv, uvx, gh, …). A just-installed
+        // winget package is reachable here even before the registry PATH change
+        // propagates to this process — so detection finds it without a restart.
+        localappdata.join("Microsoft").join("WinGet").join("Links"),
+        // uv's standalone-installer default location.
+        home.join(".local").join("bin"),
     ]
 }
 
@@ -198,12 +207,44 @@ pub fn find_ssh_keygen() -> Option<String> {
 /// After winget/msi installs, the system PATH is updated but our running
 /// process still has the old PATH. This reads the current User + Machine
 /// PATH values from the registry and updates the process environment.
+/// Expand `%VAR%` references using the current process environment. The
+/// registry stores PATH as REG_EXPAND_SZ (e.g. `%SystemRoot%\system32`), and
+/// `reg query` returns it UNEXPANDED — so without this, those entries (and a
+/// winget Python install under `%LOCALAPPDATA%\...`) are invalid in the process
+/// PATH and tools there aren't found. Unknown vars are left literal.
+fn expand_env_vars(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        if let Some(end) = after.find('%') {
+            let name = &after[..end];
+            match std::env::var(name) {
+                Ok(val) => out.push_str(&val),
+                Err(_) => {
+                    out.push('%');
+                    out.push_str(name);
+                    out.push('%');
+                }
+            }
+            rest = &after[end + 1..];
+        } else {
+            out.push('%');
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn refresh_path_from_registry() {
     let machine_path = read_registry_path(
         "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
         "Path",
-    );
-    let user_path = read_registry_path("HKCU\\Environment", "Path");
+    )
+    .map(|p| expand_env_vars(&p));
+    let user_path = read_registry_path("HKCU\\Environment", "Path").map(|p| expand_env_vars(&p));
 
     let extra: Vec<String> = super::extra_tool_paths()
         .iter()

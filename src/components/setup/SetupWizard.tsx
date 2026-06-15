@@ -991,7 +991,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <div>
                       <p className="text-[9px] text-muted mb-0.5">Git for Windows (required by Claude Code):</p>
                       <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                        winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements
+                        winget install -e --id Git.Git --source winget --accept-source-agreements --accept-package-agreements
                       </code>
                     </div>
                   )}
@@ -1009,7 +1009,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       {isMac
                         ? 'brew install node gh'
                         : isWindows
-                        ? 'winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements; winget install -e --id GitHub.cli --accept-source-agreements --accept-package-agreements'
+                        ? 'winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements; winget install -e --id GitHub.cli --source winget --accept-source-agreements --accept-package-agreements'
                         : 'sudo apt install -y nodejs gh'}
                     </code>
                   </div>
@@ -1026,7 +1026,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">Python:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements
+                          winget install -e --id Python.Python.3.12 --source winget --accept-source-agreements --accept-package-agreements
                         </code>
                       </div>
                       <div>
@@ -1038,7 +1038,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install -e --id astral-sh.uv --accept-source-agreements --accept-package-agreements
+                          winget install -e --id astral-sh.uv --source winget --accept-source-agreements --accept-package-agreements
                         </code>
                       </div>
                     </>

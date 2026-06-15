@@ -3398,8 +3398,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
     }
   };
 
-  // Show auth setup if needed
-  if (authState && !authState.authenticated) {
+  // Show the Anthropic "Connect to Claude" gate ONLY when the active provider is
+  // Anthropic. With Portkey or a custom provider selected, authentication is that
+  // provider's own API key (set in Settings) and is forwarded to Claude Code via
+  // ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN — so we must not block on Anthropic
+  // credentials the user doesn't have. (This was the bug: a Portkey key was
+  // configured but the chat still demanded an Anthropic sign-in.)
+  if (authState && !authState.authenticated && aiProvider === 'anthropic') {
     return (
       <div className="flex flex-col h-full bg-canvas">
         <div className="flex items-center justify-between px-3 py-2 border-b border-border-default shrink-0">
