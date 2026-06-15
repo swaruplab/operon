@@ -406,7 +406,7 @@ pub fn install_git() -> Result<(), String> {
     let installer_str = installer_path.to_string_lossy().to_string();
 
     // 64-bit standalone installer URL (works on all modern Windows)
-    let url = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe";
+    let url = "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/Git-2.54.0-64-bit.exe";
 
     eprintln!("[Git] Downloading installer from {}", url);
 
@@ -565,6 +565,74 @@ pub(crate) fn winget_install_cmd(id: &str) -> std::process::Command {
     ]);
     c.creation_flags(CREATE_NO_WINDOW);
     c
+}
+
+/// Install all developer tools in ONE elevated, visible console.
+///
+/// Headless winget does not work from a GUI app: `where.exe winget` resolves to
+/// the App Execution Alias (a reparse point that `CreateProcess` can't launch),
+/// and machine-scope installs (Node/Git/Python) need administrator rights that a
+/// non-elevated app can't obtain. So instead we write a batch script and launch
+/// it with `Start-Process -Verb RunAs` — a single UAC prompt, a real console
+/// where winget's alias resolves the way a shell does and installer UIs can
+/// render, and the user sees progress. Mirrors how a manual `winget install`
+/// works (which users confirmed succeeds). Blocks until the console is closed.
+pub fn install_tools_elevated() -> Result<(), String> {
+    let bat = super::temp_dir().join("operon-install-tools.bat");
+    // NOTE: `\"` is a literal double-quote in the .bat (for the inner PowerShell
+    // call). Each winget line accepts agreements non-interactively but is NOT
+    // `--silent`, so installer windows can render in this visible console.
+    let bat_body = "@echo off\r\n\
+        echo ============================================================\r\n\
+        echo  Operon is installing developer tools (needs administrator).\r\n\
+        echo  Let each installer finish; this window stays open at the end.\r\n\
+        echo ============================================================\r\n\
+        echo.\r\n\
+        echo [1/6] Git for Windows\r\n\
+        winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo.\r\n\
+        echo [2/6] Node.js (LTS)\r\n\
+        winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo.\r\n\
+        echo [3/6] GitHub CLI\r\n\
+        winget install --id GitHub.cli -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo.\r\n\
+        echo [4/6] Python 3.12\r\n\
+        winget install --id Python.Python.3.12 -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo.\r\n\
+        echo [5/6] uv (Python package manager)\r\n\
+        winget install --id astral-sh.uv -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo.\r\n\
+        echo [6/6] OpenSSH Client\r\n\
+        powershell -NoProfile -Command \"Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0\"\r\n\
+        echo.\r\n\
+        echo ============================================================\r\n\
+        echo  All done. Close this window and return to Operon, then Retry.\r\n\
+        echo ============================================================\r\n\
+        pause\r\n";
+    std::fs::write(&bat, bat_body)
+        .map_err(|e| format!("Failed to write installer script: {}", e))?;
+
+    // A hidden outer PowerShell elevates and runs the visible batch, waiting for
+    // it to finish. RunAs raises one UAC prompt; declining throws → exit 1.
+    let bat_str = bat.to_string_lossy().replace('\'', "''");
+    let ps = format!(
+        "try {{ Start-Process -FilePath '{}' -Verb RunAs -Wait; exit 0 }} catch {{ exit 1 }}",
+        bat_str
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| format!("Failed to launch elevated installer: {}", e))?;
+
+    let _ = std::fs::remove_file(&bat);
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Elevated installer did not complete (was the admin prompt declined?)".to_string())
+    }
 }
 
 pub fn install_node_platform() -> Result<(), String> {
@@ -738,21 +806,10 @@ pub fn has_openssh() -> bool {
 /// This requires admin privileges on older Windows 10 builds.
 /// Windows 11 typically has it enabled by default.
 pub fn install_openssh() -> Result<(), String> {
-    // Strategy 1: winget (works on Windows 11)
-    let winget = winget_install_cmd("Microsoft.OpenSSH.Beta").output();
-
-    if let Ok(o) = winget {
-        let out_text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        if o.status.success() || out_text.contains("already installed") {
-            return Ok(());
-        }
-    }
-
-    // Strategy 2: PowerShell Add-WindowsCapability (requires admin)
+    // The OpenSSH client is a Windows OPTIONAL FEATURE, not a winget package —
+    // there is no `Microsoft.OpenSSH.Beta` (winget returns "No package found").
+    // Use Add-WindowsCapability (the canonical mechanism; needs admin). Win10/11
+    // usually ship it enabled, so this is rarely needed.
     let ps = std::process::Command::new("powershell.exe")
         .args([
             "-Command",

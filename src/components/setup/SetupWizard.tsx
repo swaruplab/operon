@@ -809,7 +809,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
             {/* Windows: Git missing — show download button BEFORE install phase runs */}
             {isWindows && deps && !deps.git_bash && !phaseRunning && !phaseDone && (() => {
-              const GIT_INSTALLER_URL = 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe';
+              const GIT_INSTALLER_URL = 'https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/Git-2.54.0-64-bit.exe';
 
               return (
                 <div className="space-y-3">
@@ -842,7 +842,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                               Check your browser's download bar at the bottom of the screen. When the download finishes:
                             </p>
                             <ol className="text-xs text-secondary space-y-1 list-decimal list-inside">
-                              <li><span className="text-secondary font-medium">Open</span> the downloaded <code className="text-blue-700 dark:text-blue-300 bg-panel px-1 rounded text-[11px]">Git-2.47.1.2-64-bit.exe</code></li>
+                              <li><span className="text-secondary font-medium">Open</span> the downloaded <code className="text-blue-700 dark:text-blue-300 bg-panel px-1 rounded text-[11px]">Git-2.54.0-64-bit.exe</code></li>
                               <li><span className="text-secondary font-medium">Click Next</span> through the setup wizard (defaults are fine)</li>
                               <li><span className="text-secondary font-medium">Click Install</span> and wait for it to finish</li>
                               <li>Come back here and click the green button below</li>
@@ -991,7 +991,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <div>
                       <p className="text-[9px] text-muted mb-0.5">Git for Windows (required by Claude Code):</p>
                       <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                        winget install Git.Git
+                        winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements
                       </code>
                     </div>
                   )}
@@ -1009,7 +1009,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       {isMac
                         ? 'brew install node gh'
                         : isWindows
-                        ? 'winget install OpenJS.NodeJS.LTS GitHub.cli'
+                        ? 'winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements; winget install -e --id GitHub.cli --accept-source-agreements --accept-package-agreements'
                         : 'sudo apt install -y nodejs gh'}
                     </code>
                   </div>
@@ -1026,19 +1026,19 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">Python:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install Python.Python.3.12
+                          winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">OpenSSH Client:</p>
+                        <p className="text-[9px] text-muted mb-0.5">OpenSSH Client (usually pre-installed; run in admin PowerShell):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install Microsoft.OpenSSH.Beta
+                          Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
                         </code>
                       </div>
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install astral-sh.uv
+                          winget install -e --id astral-sh.uv --accept-source-agreements --accept-package-agreements
                         </code>
                       </div>
                     </>

@@ -695,6 +695,35 @@ pub async fn install_phase_xcode(app: tauri::AppHandle) -> Result<bool, String> 
 pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> {
     let mut all_ok = true;
 
+    // ── Windows: one elevated, visible installer for ALL tools ──
+    // Headless winget can't work here (where.exe returns the App Execution Alias,
+    // a reparse point CreateProcess can't launch; machine-scope installs need
+    // admin). Run a single elevated batch (one UAC prompt) that installs Git,
+    // Node, gh, Python, uv and the OpenSSH client visibly. After it finishes we
+    // refresh PATH and the per-tool sections below detect each tool as present
+    // and report "installed". If the user declines the admin prompt we fall
+    // through to the per-tool fallbacks and the manual command list.
+    #[cfg(target_os = "windows")]
+    {
+        let any_missing = crate::platform::find_git_bash_path().is_none()
+            || crate::platform::check_tool("node").is_none()
+            || crate::platform::find_python().is_none()
+            || !crate::platform::has_uv();
+        if any_missing {
+            emit_install_progress(
+                &app,
+                "git",
+                "installing",
+                "Opening the Windows installer — accept the admin prompt; a console will show progress...",
+                3,
+            );
+            match crate::platform::windows::install_tools_elevated() {
+                Ok(()) => crate::platform::refresh_path(),
+                Err(e) => eprintln!("[install] elevated tools installer not completed: {}", e),
+            }
+        }
+    }
+
     // ── Git Bash (Windows only, 0-10%) ──
     // Claude Code on Windows requires Git Bash. Install it first so that
     // Claude Code works after npm install.
@@ -3279,7 +3308,25 @@ pub async fn start_claude_session(
         };
         let wrapped_cmd = format!("{}{}", unset_prefix, claude_cmd);
         let mut c = AsyncCommand::new(&shell);
-        c.arg("-l").arg("-c").arg(&wrapped_cmd);
+        // On Windows the shell is Git Bash (MSYS2). It re-parses the Windows
+        // command line to rebuild argv, which mangles a complex `-c` string — the
+        // prompt and appended system prompt contain both single and double quotes,
+        // producing "unexpected EOF while looking for matching" and failing local
+        // chat. Base64-encode the command and pipe it into a fresh login bash via
+        // stdin, so the outer `-c` arg holds only the safe base64 alphabet plus a
+        // trivial decoder and MSYS has nothing to mangle (the same trick the
+        // remote path uses). macOS/Linux parse argv once and run the command as-is.
+        #[cfg(windows)]
+        {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(wrapped_cmd.as_bytes());
+            c.arg("-l")
+                .arg("-c")
+                .arg(format!("echo {} | base64 -d | bash -l -s", b64));
+        }
+        #[cfg(not(windows))]
+        {
+            c.arg("-l").arg("-c").arg(&wrapped_cmd);
+        }
         c.current_dir(&project_path);
         c
     };
