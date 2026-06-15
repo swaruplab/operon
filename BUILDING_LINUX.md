@@ -1,5 +1,22 @@
 # Building Operon on Linux
 
+## Supported distributions
+
+Operon links against **`webkit2gtk-4.1`** (Tauri 2's required WebKit ABI), which
+is only available on newer distributions. Both building **and running** Operon
+require:
+
+- **glibc 2.35+** — Ubuntu 22.04+
+- **`webkit2gtk-4.1`** — Ubuntu 22.04+ / Debian 12+ / Fedora 38+
+
+**Not supported** out of the box: **RHEL / Rocky / AlmaLinux 8–9** and
+**Debian 11** — these ship `webkit2gtk-4.0` only. You must install
+`webkit2gtk-4.1` from EPEL/backports for Operon to run there.
+
+This floor applies to every artifact, including the **AppImage** — it does
+**not** bundle WebKit (`bundleMediaFramework` only bundles GStreamer), so the
+host must still provide `webkit2gtk-4.1`.
+
 ## Prerequisites
 
 Tested on **Ubuntu 22.04 LTS** and **Fedora 38+**. Commands below are for Ubuntu/Debian; Fedora equivalents are noted where different.
@@ -146,7 +163,7 @@ chmod +x src-tauri/target/release/bundle/appimage/operon_0.4.0_amd64.AppImage
 
 ### Missing `webkit2gtk-4.1`
 
-Tauri 2 requires webkit2gtk **4.1** (not 4.0). On older Ubuntu versions (20.04), this package may not be available. Upgrade to Ubuntu 22.04 or later.
+Tauri 2 requires webkit2gtk **4.1** (not 4.0). On older Ubuntu versions (20.04), Debian 11, and RHEL/Rocky/AlmaLinux 8–9, this package is not in the base repos. Upgrade to Ubuntu 22.04+ / Debian 12+ / Fedora 38+, or install `webkit2gtk-4.1` from EPEL/backports.
 
 If you see:
 

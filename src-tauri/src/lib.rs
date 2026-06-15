@@ -26,6 +26,7 @@ use commands::{
     check_remote_mcp_dependencies,
     check_remote_ripgrep,
     check_session_files,
+    check_ssh_available,
     clear_session_state,
     clear_ssh_cache,
     create_directory,
@@ -71,6 +72,7 @@ use commands::{
     // MCP
     get_mcp_catalog,
     get_namespace_extensions,
+    get_platform_info,
     get_protocol_template_params,
     get_protocols_dir,
     get_remote_home,
@@ -331,6 +333,7 @@ pub fn run() {
             get_protocol_template_params,
             // Claude Code
             check_claude_installed,
+            check_ssh_available,
             install_claude,
             store_api_key,
             get_api_key,
@@ -515,6 +518,7 @@ pub fn run() {
             batch_read_remote_file_previews,
             // Utilities
             open_url,
+            get_platform_info,
             // Watchdog (Operon 0.6.1)
             detect_scheduler,
             install_watchdog,
@@ -555,6 +559,11 @@ pub fn run() {
                         }
                     }
                 }
+                // Kill all local Claude/node agent sessions (otherwise they
+                // orphan and keep running after the window closes).
+                window.state::<ClaudeManager>().kill_all();
+                // Kill all watchdog job tails (login-node tail helpers).
+                window.state::<WatchdogManager>().kill_all();
                 // Kill the translation proxy sidecar if running
                 let proxy = window.state::<ProxyManager>();
                 let _ = proxy.stop();

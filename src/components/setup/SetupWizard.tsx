@@ -37,6 +37,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { MCPCatalogEntry } from '../../types/mcp';
 import { getMCPCatalog, installMCPServer, checkMCPDependencies } from '../../lib/mcp';
+import { checkSshAvailable, type SshStatus } from '../../lib/claude';
 import { modKey, isMac, isWindows, isLinux } from '../../lib/platform';
 
 interface DependencyStatus {
@@ -197,6 +198,9 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
 
   // Git installer download state (Windows)
   const [gitDownloading, setGitDownloading] = useState(false);
+
+  // OpenSSH client availability (Windows only — may be disabled by default)
+  const [sshStatus, setSshStatus] = useState<SshStatus | null>(null);
 
   // Step indicator — Xcode is macOS-only
   const allSteps: { key: Step; label: string }[] = [
@@ -366,6 +370,14 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
       return () => clearTimeout(timer);
     }
   }, [installDone, installHadErrors, step]);
+
+  // Check OpenSSH client availability when reaching the tools page (Windows only).
+  // Windows 10/11 ship an OpenSSH client but it can be disabled.
+  useEffect(() => {
+    if (isWindows && step === 'install-tools' && sshStatus === null) {
+      checkSshAvailable().then(setSshStatus).catch(() => {});
+    }
+  }, [step, sshStatus]);
 
   // Reset phase state when navigating between install pages
   useEffect(() => {
@@ -580,7 +592,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
       {mode === 'modal' && (
         <div className="absolute inset-0 bg-black/60" onClick={onComplete} />
       )}
-      <div className={`w-full max-w-2xl mx-auto p-8 ${mode === 'modal' ? 'relative bg-panel rounded-xl border border-border-strong shadow-2xl max-h-[85vh] overflow-y-auto' : ''}`}>
+      <div className={`w-full max-w-2xl mx-auto px-4 py-6 sm:p-8 ${mode === 'modal' ? 'relative bg-panel rounded-xl border border-border-strong shadow-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden' : ''}`}>
         {mode === 'modal' && (
           <button
             onClick={onComplete}
@@ -766,6 +778,35 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </p>
             </div>
 
+            {/* Windows: OpenSSH client availability — needed for remote connections */}
+            {isWindows && sshStatus && (
+              <div className="p-3 bg-panel border border-border-strong rounded-lg">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  {sshStatus.available ? (
+                    <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="min-w-0 space-y-1.5">
+                    <p className="text-xs font-medium text-secondary">
+                      OpenSSH Client {sshStatus.available ? 'detected' : 'not found'}
+                    </p>
+                    {!sshStatus.available && (
+                      <>
+                        <p className="text-[11px] text-muted leading-relaxed">
+                          OpenSSH client not found. Enable it via Settings &gt; Apps &gt; Optional
+                          Features &gt; Add &apos;OpenSSH Client&apos;, or run in PowerShell (admin):
+                        </p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+                        </code>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Windows: Git missing — show download button BEFORE install phase runs */}
             {isWindows && deps && !deps.git_bash && !phaseRunning && !phaseDone && (() => {
               const GIT_INSTALLER_URL = 'https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe';
@@ -949,7 +990,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {isWindows && (
                     <div>
                       <p className="text-[9px] text-muted mb-0.5">Git for Windows (required by Claude Code):</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                         winget install Git.Git
                       </code>
                     </div>
@@ -957,14 +998,14 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {isMac && (
                     <div>
                       <p className="text-[9px] text-muted mb-0.5">Homebrew:</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                         /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
                       </code>
                     </div>
                   )}
                   <div>
                     <p className="text-[9px] text-muted mb-0.5">Node.js{!isMac && ' & GitHub CLI'}:</p>
-                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                       {isMac
                         ? 'brew install node gh'
                         : isWindows
@@ -975,7 +1016,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {isMac && (
                     <div>
                       <p className="text-[9px] text-muted mb-0.5">GitHub CLI:</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                         (included in brew install above)
                       </code>
                     </div>
@@ -984,19 +1025,19 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     <>
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">Python:</p>
-                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                           winget install Python.Python.3.12
                         </code>
                       </div>
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">OpenSSH Client:</p>
-                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                           winget install Microsoft.OpenSSH.Beta
                         </code>
                       </div>
                       <div>
                         <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
-                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                           winget install astral-sh.uv
                         </code>
                       </div>
@@ -1004,7 +1045,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   )}
                   <div>
                     <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
-                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                       {isWindows ? 'pip install reportlab' : 'pip3 install reportlab'}
                     </code>
                   </div>
@@ -1194,7 +1235,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 {isWindows && (
                   <div className="mb-1.5">
                     <p className="text-[9px] text-muted mb-0.5">1. Install Git Bash (if not done):</p>
-                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono select-all">
+                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                       winget install Git.Git
                     </code>
                   </div>

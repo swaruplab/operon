@@ -19,7 +19,10 @@ jobs:
             rust-target: x86_64-apple-darwin
           - os: windows-latest
             rust-target: x86_64-pc-windows-msvc
-          - os: ubuntu-24.04
+          # Pinned to ubuntu-22.04 (glibc 2.35) so the .deb/.AppImage are forward-compatible
+          # and run on Ubuntu 22.04+. ubuntu-24.04 (glibc 2.39) produced binaries that failed
+          # with "GLIBC_2.38 not found" on Ubuntu 22.04 (issue #13).
+          - os: ubuntu-22.04
             rust-target: x86_64-unknown-linux-gnu
 
     runs-on: ${{ matrix.os }}

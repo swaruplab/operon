@@ -35,6 +35,8 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 import { batchDeleteFiles } from '../../lib/files';
+import { basename, dirname, joinLocal, isRoot } from '../../lib/path';
+import { isWindows } from '../../lib/platform';
 
 const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
@@ -382,8 +384,8 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       setRenaming(null);
       return;
     }
-    const dir = renaming.path.replace(/\/[^/]+$/, '');
-    const newPath = `${dir}/${renameInput.trim()}`;
+    const dir = dirname(renaming.path);
+    const newPath = joinLocal(dir, renameInput.trim());
     try {
       await invoke('rename_path', { oldPath: renaming.path, newPath });
       setRenaming(null);
@@ -414,7 +416,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       return;
     }
     try {
-      await invoke('create_directory', { path: `${projectPath}/${name}` });
+      await invoke('create_directory', { path: joinLocal(projectPath, name) });
       setCreatingFolder(false);
       setNewFolderName('');
       setRefreshKey(k => k + 1);
@@ -531,9 +533,15 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
   const cdToTerminalPath = (path: string) => {
     if (!path || !localTerminalId) return;
-    const encoded = Array.from(
-      new TextEncoder().encode(`cd '${path.replace(/'/g, "'\\''")}'\n`)
-    );
+    // The local terminal shell differs by OS: cmd.exe on Windows (needs `cd /d`
+    // and double quotes to also change drive), a POSIX shell on mac/Linux. This
+    // assumes the shell Operon spawned for the local terminal (default_shell →
+    // %COMSPEC%/cmd.exe on Windows); if the user manually launches a different
+    // shell (Git Bash/PowerShell) inside that terminal, `cd /d` won't apply.
+    const command = isWindows
+      ? `cd /d "${path.replace(/"/g, '')}"\r\n`
+      : `cd '${path.replace(/'/g, "'\\''")}'\n`;
+    const encoded = Array.from(new TextEncoder().encode(command));
     invoke('write_terminal', {
       terminalId: localTerminalId,
       data: encoded,
@@ -566,9 +574,8 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
   }, [projectPath, localTerminalId]);
 
   const navigateUp = () => {
-    if (!projectPath || projectPath === '/') return;
-    const parent = projectPath.replace(/\/[^/]+\/?$/, '') || '/';
-    navigateTo(parent);
+    if (!projectPath || isRoot(projectPath)) return;
+    navigateTo(dirname(projectPath));
   };
 
   const cdToTerminal = () => {
@@ -590,7 +597,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
     return () => { unlisten.then((u) => u()); };
   }, [setProjectPath]);
 
-  const folderName = projectPath?.split('/').pop() || 'Project';
+  const folderName = (projectPath && basename(projectPath)) || 'Project';
 
   // Go-to-folder editable path bar
   const [isEditingPath, setIsEditingPath] = useState(false);

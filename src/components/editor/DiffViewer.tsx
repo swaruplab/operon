@@ -70,7 +70,7 @@ export function DiffViewer({
             originalEditable: false,
             automaticLayout: true,
             fontSize: 13,
-            fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace",
+            fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Cascadia Code', 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', 'Courier New', monospace",
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
           }}

@@ -68,6 +68,9 @@ jobs:
             tauri-bundle: msi,nsis
             label: Windows x64
 
+          # ubuntu-22.04 was tried to lower the glibc floor (issue #13) but the tauri
+          # crate fails to build there in CI (E0463), so we stay on ubuntu-24.04.
+          # TODO(#13): proper glibc-2.35 forward-compat needs an older base / container build.
           - os: ubuntu-24.04
             rust-target: x86_64-unknown-linux-gnu
             tauri-bundle: deb,appimage
@@ -83,6 +86,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-target }}
+          components: clippy
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
@@ -119,6 +123,14 @@ jobs:
       - name: Fetch anthropic-proxy sidecar binary
         shell: bash
         run: bash scripts/fetch-anthropic-proxy.sh ${{ matrix.rust-target }}
+
+      # Clippy on the Windows target — the host-only lint job runs clippy on
+      # Linux, which misses Windows-specific #[cfg(target_os = "windows")] code.
+      # Non-blocking for now: the codebase has pre-existing Windows unused-import
+      # warnings; surface them without failing CI until they're cleaned up.
+      - name: Rust clippy (Windows target)
+        if: runner.os == 'Windows'
+        run: cargo clippy --target x86_64-pc-windows-msvc --manifest-path src-tauri/Cargo.toml
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.rust-target }}

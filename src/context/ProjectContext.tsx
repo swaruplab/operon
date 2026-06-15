@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, ty
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { saveSessionState, type SessionTab } from '../lib/session';
+import { basename } from '../lib/path';
 
 export type BinaryFileType = 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx' | null;
 
@@ -82,7 +83,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           return prev;
         }
 
-        const fileName = filePath.split('/').pop() || filePath;
+        const fileName = basename(filePath) || filePath;
         const newTab: EditorTab = {
           id: crypto.randomUUID(),
           filePath,
@@ -138,7 +139,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           return prev;
         }
 
-        const fileName = filePath.split('/').pop() || filePath;
+        const fileName = basename(filePath) || filePath;
         const newTab: EditorTab = {
           id: crypto.randomUUID(),
           filePath,

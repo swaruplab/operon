@@ -8,8 +8,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
-        mono: ["'JetBrains Mono'", "'SF Mono'", 'Menlo', 'Monaco', "'Courier New'", 'monospace'],
+        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Ubuntu', 'Cantarell', 'Noto Sans', 'Liberation Sans', 'sans-serif'],
+        mono: ["'JetBrains Mono'", "'SF Mono'", 'Menlo', 'Monaco', 'Consolas', "'Cascadia Code'", "'DejaVu Sans Mono'", "'Liberation Mono'", "'Ubuntu Mono'", "'Courier New'", 'monospace'],
       },
       // Semantic palette wired to CSS variables in styles.css. Use these
       // (bg-canvas, text-primary, border-default, …) instead of hard zinc-*

@@ -224,7 +224,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       cursorBlink: true,
       cursorStyle: 'block',
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, 'Courier New', monospace",
+      fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Cascadia Code', 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', 'Courier New', monospace",
       lineHeight: 1.4,
       letterSpacing: 0,
       theme: xtermTheme,

@@ -6,6 +6,7 @@ pub mod job_notify;
 pub mod knowledge;
 pub mod mcp;
 pub mod models;
+pub mod platform_info;
 pub mod portkey;
 pub mod protocols;
 pub mod proxy;
@@ -20,13 +21,14 @@ pub mod watchdog;
 pub use claude::{
     archive_current_plan, check_auth_status, check_claude_installed, check_existing_plan,
     check_local_dependencies, check_oauth_status, check_remote_claude, check_remote_claude_auth,
-    check_session_files, delete_api_key, delete_session, get_api_key, install_all_dependencies,
-    install_claude, install_node, install_phase_claude, install_phase_tools, install_phase_xcode,
-    install_remote_claude, install_xcode_cli, launch_claude_login, list_plan_history,
-    list_sessions, read_plan_history_entry, read_session_output, reconnect_session, reconnect_tail,
-    refresh_environment, remote_claude_login, rename_session, save_session_metadata,
-    scan_remote_footprint, start_claude_session, stop_claude_session, store_api_key,
-    teardown_remote_footprint, update_session_claude_id, update_session_status,
+    check_session_files, check_ssh_available, delete_api_key, delete_session, get_api_key,
+    install_all_dependencies, install_claude, install_node, install_phase_claude,
+    install_phase_tools, install_phase_xcode, install_remote_claude, install_xcode_cli,
+    launch_claude_login, list_plan_history, list_sessions, read_plan_history_entry,
+    read_session_output, reconnect_session, reconnect_tail, refresh_environment,
+    remote_claude_login, rename_session, save_session_metadata, scan_remote_footprint,
+    start_claude_session, stop_claude_session, store_api_key, teardown_remote_footprint,
+    update_session_claude_id, update_session_status,
 };
 pub use extensions::{
     browse_extensions_by_category, check_extension_compatibility, check_extension_updates,
@@ -67,6 +69,7 @@ pub use mcp::{
     list_mcp_servers, remove_mcp_server, update_mcp_server_env,
 };
 pub use models::{fetch_anthropic_models, get_cached_models, refresh_models_if_stale};
+pub use platform_info::get_platform_info;
 pub use portkey::{fetch_portkey_models, list_portkey_presets, refresh_portkey_presets};
 pub use protocols::get_protocol_template_params;
 pub use proxy::{start_translation_proxy, stop_translation_proxy, translation_proxy_status};

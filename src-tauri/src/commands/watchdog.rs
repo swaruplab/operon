@@ -139,6 +139,22 @@ impl WatchdogManager {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Best-effort kill of every open job tail. Drains the map under the lock,
+    /// then kills outside it. Used by the window close handler so login-node
+    /// tail helpers don't orphan on quit. Individual errors are ignored.
+    pub fn kill_all(&self) {
+        // Recover from a poisoned lock (into_inner) rather than bailing — a
+        // poison here would otherwise silently leak the login-node tail helpers
+        // this exists to reap (see operon-hpc-tail-orphans).
+        let children: Vec<tokio::process::Child> = {
+            let mut tails = self.tails.lock().unwrap_or_else(|e| e.into_inner());
+            tails.drain().map(|(_, c)| c).collect()
+        };
+        for mut child in children {
+            let _ = child.start_kill();
+        }
+    }
 }
 
 // ─── Remote paths ────────────────────────────────────────────────────────
@@ -544,13 +560,29 @@ pub async fn start_job_tail(
     }
 
     // Remote script: wait for file, then tail -n +1 -f, line-buffered.
+    // Hardened like the chat tail in claude.rs so the remote helper can never
+    // orphan on the login node:
+    //   - `trap '' HUP PIPE` so a dropped ssh client doesn't kill us before we
+    //     can reap our own `tail` child;
+    //   - a background watcher re-checks our PPID every few seconds — once it
+    //     becomes 1 the local ssh parent is gone, so kill `tail` and exit;
+    //   - a 24h wall-clock cap as a backstop: under SSH ControlMaster the
+    //     orphaned shell can reparent under the master process rather than init,
+    //     so PPID may never become 1 — the cap guarantees we still self-reap.
     let tail_script = format!(
-        "f=$HOME/.operon/jobs/{jid}.jsonl; \
+        "trap '' HUP PIPE; \
+         f=$HOME/.operon/jobs/{jid}.jsonl; \
          i=0; while [ ! -f \"$f\" ] && [ $i -lt 600 ]; do sleep 0.5; i=$((i+1)); done; \
          [ -f \"$f\" ] || exit 0; \
-         if command -v stdbuf >/dev/null 2>&1; then \
-           stdbuf -oL tail -n +1 -f \"$f\"; \
-         else tail -n +1 -f \"$f\"; fi",
+         if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL tail -n +1 -f \"$f\" & else tail -n +1 -f \"$f\" & fi; \
+         TAIL_PID=$!; _n=0; \
+         while kill -0 $TAIL_PID 2>/dev/null; do \
+           sleep 3; \
+           _n=$((_n+1)); \
+           _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); \
+           {{ [ \"$_pp\" = \"1\" ] || [ $_n -ge 28800 ]; }} && {{ kill $TAIL_PID 2>/dev/null; break; }}; \
+         done; \
+         wait $TAIL_PID 2>/dev/null",
         jid = job_id,
     );
     let b64 = base64::engine::general_purpose::STANDARD.encode(tail_script.as_bytes());
@@ -559,11 +591,8 @@ pub async fn start_job_tail(
         "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 {}@{} -p {}",
         profile.user, profile.host, profile.port
     );
-    if crate::platform::supports_ssh_mux() {
-        let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-        if sock.exists() {
-            ssh_args.push_str(&format!(" -o ControlPath={}", sock.to_string_lossy()));
-        }
+    if let Some(sock) = super::ssh::live_control_socket(&profile) {
+        ssh_args.push_str(&format!(" -o ControlPath={}", sock.to_string_lossy()));
     }
     if let Some(key) = &profile.key_file {
         // Single-quote the key path: it runs through `bash -l -c`, and a

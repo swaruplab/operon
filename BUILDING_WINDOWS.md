@@ -156,7 +156,10 @@ The wizard flow on Windows is: Welcome → Tools (Node.js + GitHub CLI via winge
 
 On Windows, Operon automatically adapts:
 
-- Shell execution uses `cmd.exe /C` instead of `/bin/zsh -l -c`
+- Shell execution runs POSIX command strings through **Git Bash** (Git for
+  Windows) instead of `/bin/zsh -l -c`. Git Bash is a required runtime dependency
+  for Claude/SSH features (detected or installed by the setup wizard, not
+  bundled). `cmd.exe /C` is only a degraded fallback when Git Bash is unavailable.
 - Tool discovery uses `where.exe` instead of `which`
 - Hidden files detected via `FILE_ATTRIBUTE_HIDDEN` (not dot-prefix)
 - No SSH ControlMaster multiplexing (uses standard SSH connections)

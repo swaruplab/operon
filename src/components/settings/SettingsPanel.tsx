@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Settings, Key, Trash2, LogIn, CheckCircle, Loader2, Wrench, Server, Plus, AlertTriangle, ExternalLink, ChevronDown, ChevronRight, ShieldOff, ShieldCheck, Shield, Cpu, RefreshCw, Lock, Globe } from 'lucide-react';
 import { SetupWizard } from '../setup/SetupWizard';
-import { isMac, isWindows } from '../../lib/platform';
+import { isMac, getPlatformInfo } from '../../lib/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
@@ -314,6 +314,23 @@ function PortkeyProviderPanel({
   // Windows users: the sidecar is a no-op stub on Windows (the upstream
   // depends on Unix-only daemonize), so we surface a warning instead.
   const [proxyError, setProxyError] = useState<string | null>(null);
+
+  // Authoritative backend capability flag: is the bundled Anthropic→OpenAI
+  // translation proxy sidecar available on this platform? (macOS only.)
+  // Replaces fragile isWindows/isLinux UA checks. Seed with the UA-derived
+  // `isMac` value so the panel is correct before the backend reports in — and,
+  // critically, so a transient `get_platform_info` rejection (e.g. a startup
+  // race before the command is registered) degrades to the UA answer rather
+  // than hard-disabling the proxy on macOS. `getPlatformInfo()` resets its
+  // cached promise on failure, so this effect's later success still corrects
+  // the value if the first call was the one that raced.
+  const [translationProxySupported, setTranslationProxySupported] = useState(isMac);
+  useEffect(() => {
+    getPlatformInfo()
+      .then((info) => setTranslationProxySupported(info.translationProxySupported))
+      .catch(() => setTranslationProxySupported(isMac));
+  }, []);
+
   useEffect(() => {
     const model = settings.portkey_model.trim();
     const base = settings.portkey_base_url.trim();
@@ -324,14 +341,14 @@ function PortkeyProviderPanel({
       stopTranslationProxy().catch(() => {});
       return;
     }
-    if (isWindows) return;     // proxy not supported, warning shown in UI
+    if (!translationProxySupported) return;     // no proxy binary bundled for this platform; warning shown in UI
     setProxyError(null);
     startTranslationProxy(base, key).catch((err) => {
       const msg = String(err);
       setProxyError(msg);
       console.error('[portkey] startTranslationProxy failed:', msg);
     });
-  }, [settings.portkey_model, settings.portkey_base_url, settings.portkey_api_key]);
+  }, [settings.portkey_model, settings.portkey_base_url, settings.portkey_api_key, translationProxySupported]);
 
   const hintModels: string[] = activePreset?.suggested_models ?? [];
   // Combined list: live-fetched (preferred) OR hint list (fallback). De-dup.
@@ -526,14 +543,14 @@ function PortkeyProviderPanel({
                 agent loop. Pick a Claude, Kimi, or Gemini model meanwhile.
               </span>
             </div>
-          ) : isWindows ? (
+          ) : !translationProxySupported ? (
             <div className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed mt-1">
               <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
               <span>
                 Non-Anthropic Portkey models need the local translation proxy,
-                which isn't available on Windows. Pick a Claude model, or
-                connect to a remote LiteLLM/OpenRouter endpoint via the
-                Custom provider instead.
+                which isn't available on this platform. Pick a Claude model, or
+                connect to a remote Anthropic-compatible endpoint
+                (LiteLLM/OpenRouter) via the Custom provider instead.
               </span>
             </div>
           ) : proxyError ? (

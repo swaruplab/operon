@@ -6,6 +6,16 @@ export async function checkClaudeInstalled(): Promise<ClaudeStatus> {
   return invoke('check_claude_installed');
 }
 
+export interface SshStatus {
+  available: boolean;
+  path: string | null;
+}
+
+/** Check whether the OpenSSH client (`ssh`) is available on this machine. */
+export async function checkSshAvailable(): Promise<SshStatus> {
+  return invoke('check_ssh_available');
+}
+
 export async function installClaude(method: string): Promise<void> {
   return invoke('install_claude', { method });
 }

@@ -282,8 +282,8 @@ export function CodeEditor({
         scrollBeyondLastLine: false,
         fontSize: 13,
         fontFamily: isMarkdown
-          ? "'Inter', 'SF Pro Text', -apple-system, sans-serif"
-          : "'JetBrains Mono', 'SF Mono', Menlo, Monaco, monospace",
+          ? "'Inter', 'SF Pro Text', -apple-system, 'Ubuntu', 'Cantarell', 'Noto Sans', 'Liberation Sans', sans-serif"
+          : "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Cascadia Code', 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', 'Courier New', monospace",
         fontLigatures: !isMarkdown,
         lineHeight: isMarkdown ? 24 : 20,
         tabSize: 2,

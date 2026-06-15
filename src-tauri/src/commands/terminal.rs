@@ -33,6 +33,31 @@ fn sh_single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+/// Drop ControlMaster/ControlPath/ControlPersist `-o` option pairs from an SSH
+/// argument list. These rely on Unix-domain sockets, which Windows OpenSSH does
+/// not support — passing them to `ssh.exe` produces connection errors/warnings.
+/// Used by BOTH the Git Bash and the direct ssh.exe paths so they can't drift.
+#[cfg(target_os = "windows")]
+fn strip_mux_opts(args: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-o" && i + 1 < args.len() {
+            let next = &args[i + 1];
+            if next.starts_with("ControlMaster=")
+                || next.starts_with("ControlPath=")
+                || next.starts_with("ControlPersist=")
+            {
+                i += 2;
+                continue;
+            }
+        }
+        out.push(args[i].clone());
+        i += 1;
+    }
+    out
+}
+
 #[tauri::command]
 pub async fn spawn_terminal(
     state: tauri::State<'_, TerminalManager>,
@@ -71,33 +96,20 @@ pub async fn spawn_terminal(
             // every argument so `bash -c` passes each one to `ssh` verbatim —
             // including the remote tmux command, whose `&&`/`||`/`>`/`$SHELL`
             // must be interpreted by the REMOTE shell, not the local bash.
+            let stripped = strip_mux_opts(args);
             if let Some(bash_path) = crate::platform::find_git_bash_path() {
-                let mut clean_args: Vec<String> = Vec::new();
-                let mut i = 0;
-                while i < args.len() {
-                    if args[i] == "-o" && i + 1 < args.len() {
-                        let next = &args[i + 1];
-                        if next.starts_with("ControlMaster=")
-                            || next.starts_with("ControlPath=")
-                            || next.starts_with("ControlPersist=")
-                        {
-                            i += 2;
-                            continue;
-                        }
-                    }
-                    clean_args.push(sh_single_quote(&args[i]));
-                    i += 1;
-                }
+                let clean_args: Vec<String> = stripped.iter().map(|a| sh_single_quote(a)).collect();
                 let ssh_cmd = format!("ssh -t {}", clean_args.join(" "));
                 let mut c = CommandBuilder::new(&bash_path);
                 c.arg("-c");
                 c.arg(&ssh_cmd);
                 c
             } else {
-                // Fallback: direct ssh.exe (ConPTY path)
+                // Fallback: direct ssh.exe (ConPTY path). Strip ControlMaster
+                // options here too — Windows OpenSSH has no Unix-socket muxing.
                 let mut c = CommandBuilder::new("ssh.exe");
                 c.arg("-t");
-                for arg in args {
+                for arg in &stripped {
                     c.arg(arg);
                 }
                 c
@@ -260,7 +272,15 @@ pub async fn get_terminal_cwd(
 fn get_cwd_of_pid(pid: u32) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("lsof")
+        // Use the absolute path: under launchd (app launched from Finder) PATH is
+        // minimal and lacks /usr/sbin, so bare `lsof` silently fails. Fall back to
+        // the bare name only if /usr/sbin/lsof doesn't exist.
+        let lsof_bin = if std::path::Path::new("/usr/sbin/lsof").exists() {
+            "/usr/sbin/lsof"
+        } else {
+            "lsof"
+        };
+        let output = std::process::Command::new(lsof_bin)
             .args(["-a", "-d", "cwd", "-p", &pid.to_string(), "-Fn"])
             .output()
             .map_err(|e| format!("lsof failed: {}", e))?;
@@ -282,34 +302,14 @@ fn get_cwd_of_pid(pid: u32) -> Result<String, String> {
     }
     #[cfg(target_os = "windows")]
     {
-        // Query the working directory of child processes via PowerShell.
-        // The terminal shell spawns child processes whose CWD reflects the user's current directory.
-        use std::os::windows::process::CommandExt;
-        let output = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-Command",
-                &format!(
-                    "$p = Get-CimInstance Win32_Process -Filter 'ParentProcessId={}' -ErrorAction SilentlyContinue | \
-                     Sort-Object CreationDate -Descending | Select-Object -First 1; \
-                     if ($p) {{ \
-                         $cp = Get-CimInstance Win32_Process -Filter \"ProcessId=$($p.ProcessId)\" -ErrorAction SilentlyContinue; \
-                         if ($cp.ExecutablePath) {{ Split-Path $cp.ExecutablePath -Parent }} \
-                     }}",
-                    pid
-                ),
-            ])
-            .creation_flags(0x08000000)
-            .output()
-            .map_err(|e| format!("PowerShell CWD query failed: {}", e))?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !stdout.is_empty() {
-            return Ok(stdout);
-        }
-
-        // Fallback: not available
-        Err("Could not determine terminal CWD".to_string())
+        // CWD sync is disabled on Windows. Win32_Process exposes no working-directory
+        // field, so the only available heuristic was the directory of the child's
+        // ExecutablePath — which reports the shell's install location (e.g.
+        // C:\Program Files\Git\cmd) rather than the user's project dir, syncing the
+        // explorer to the wrong path. Returning Err leaves the terminal↔explorer sync
+        // inert here. Revisit via OSC 7 shell-integration to report CWD reliably.
+        let _ = pid;
+        Err("Terminal CWD sync is not supported on Windows".to_string())
     }
 }
 

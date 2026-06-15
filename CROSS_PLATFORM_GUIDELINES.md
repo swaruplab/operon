@@ -33,6 +33,17 @@
 **Rule 1: Platform code lives in `platform/`, nowhere else.**
 If you are about to type `#[cfg(target_os = ...)]`, `osascript`, `/bin/zsh`, `cmd.exe`, `xdg-open`, or any OS-specific path inside a command file, stop. That code belongs in `platform/`. Command files should read like pseudocode.
 
+> **Current reality (be honest):** This is the target state, not yet the whole
+> truth. Several command files (notably `claude.rs` and `ssh.rs`) still contain
+> `#[cfg(target_os = ...)]` branches and OS-specific strings inline — for
+> example, Git Bash vs. `cmd.exe` shell selection and SSH wrapper differences on
+> Windows. The direction is to keep migrating that branching behind `platform/`
+> helpers (e.g. `platform::shell_exec`, a `posix_shell()` resolver) so command
+> files converge on pseudocode. When you touch one of these sites, prefer routing
+> new platform logic through `platform/` rather than adding another ad-hoc
+> conditional in the command file. Don't treat existing inline `#[cfg]` as a
+> license to add more.
+
 **Rule 2: CI gates every platform on every PR.**
 No code reaches `dev` unless it compiles and passes tests on macOS, Windows, and Linux. This is the single most important guarantee. A feature that compiles on your Mac but breaks on Windows is a bug, and CI should catch it before review.
 

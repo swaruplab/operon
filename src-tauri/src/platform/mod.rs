@@ -117,6 +117,12 @@ pub fn sessions_dir() -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
+/// ControlPersist duration for SSH multiplexed masters. A single value is used
+/// for both the interactive/mux args (macos/linux ssh_mux_args) and the
+/// programmatic cold-start master in commands/ssh.rs, so masters opened by
+/// either path persist identically.
+pub const SSH_CONTROL_PERSIST: &str = "4h";
+
 /// SSH socket/multiplexing directory.
 /// IMPORTANT: This MUST be a path with no spaces — OpenSSH's ControlPath
 /// breaks on paths containing spaces (like ~/Library/Application Support/).
@@ -310,6 +316,29 @@ pub fn find_git_bash_path() -> Option<String> {
     }
 }
 
+/// The POSIX shell used to run command strings that rely on `-l`/`-c`, pipes,
+/// redirects, `base64`, single-quote escaping, etc. (e.g. launching Claude
+/// sessions and SSH tails).
+///
+/// On Windows this is Git Bash. If Git Bash is not installed we return a clear,
+/// actionable error rather than falling back to `cmd.exe` — `cmd.exe -l -c` is
+/// invalid and would surface as an opaque "Claude won't start" failure instead
+/// of "Git Bash is required". On macOS/Linux this is the native login shell.
+pub fn posix_shell() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        find_git_bash_path().ok_or_else(|| {
+            "Git Bash (Git for Windows) is required for Claude and SSH features but was not found. \
+             Install Git for Windows from https://git-scm.com/download/win, then restart Operon."
+                .to_string()
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(default_shell())
+    }
+}
+
 /// Install Xcode CLI tools (macOS only, no-op on other platforms).
 pub fn install_xcode_cli_platform() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -354,7 +383,7 @@ pub fn find_package_manager() -> Option<String> {
 
 /// Returns SSH connection multiplexing arguments.
 ///
-/// macOS/Linux: ControlMaster=auto ControlPath=... ControlPersist=4h
+/// macOS/Linux: ControlMaster=auto ControlPath=... ControlPersist=SSH_CONTROL_PERSIST
 /// Windows:     empty (use ssh-agent service instead)
 pub fn ssh_mux_args(_host: &str, _port: u16, _user: &str, _as_master: bool) -> String {
     #[cfg(target_os = "macos")]
@@ -388,8 +417,24 @@ pub fn ssh_mux_check(_host: &str, _port: u16, _user: &str) -> bool {
 }
 
 /// Return the ControlMaster socket path for a given connection.
+///
+/// The filename is a short, fixed-width hash of "{user}@{host}:{port}" rather
+/// than a readable "ctrl_{host}_{port}_{user}". A long host+user could push the
+/// full socket path past OpenSSH's ~104-char sun_path limit, in which case the
+/// master never opens and SSH silently falls back to re-authenticating. We hash
+/// it ourselves (rather than using ssh's `%C` token) so the path stays
+/// self-computable and statable for liveness checks.
 pub fn ssh_socket_path(host: &str, port: u16, user: &str) -> std::path::PathBuf {
-    ssh_sockets_dir().join(format!("ctrl_{}_{}_{}", host, port, user))
+    // FNV-1a: deterministic and STABLE across Rust releases. `DefaultHasher`'s
+    // output is not guaranteed stable between std versions, so an Operon upgrade
+    // could rename the socket and orphan a live master (forcing re-auth). FNV is
+    // fixed forever, so a master created by one build is still found by the next.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in format!("{}@{}:{}", user, host, port).bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    ssh_sockets_dir().join(format!("ctrl_{:016x}", h))
 }
 
 // ─── Browser & OS Integration ────────────────────────────────────

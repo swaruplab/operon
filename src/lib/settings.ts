@@ -57,7 +57,7 @@ export interface AppSettings {
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   font_size: 13,
-  font_family: 'JetBrains Mono',
+  font_family: "'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, 'Cascadia Code', 'DejaVu Sans Mono', 'Liberation Mono', 'Ubuntu Mono', 'Courier New', monospace",
   tab_size: 2,
   word_wrap: false,
   minimap_enabled: true,

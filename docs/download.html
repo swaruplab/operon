@@ -210,7 +210,7 @@
           <span><strong>Format:</strong> .AppImage</span>
           <span><strong>Arch:</strong> x64</span>
           <span><strong>Size:</strong> ~40 MB</span>
-          <span><strong>Works on:</strong> Fedora, Arch, RHEL, more</span>
+          <span><strong>Works on:</strong> any distro with webkit2gtk-4.1 (not bundled)</span>
         </div>
         <a data-dl="dl-linux-appimage" class="btn btn-primary" href="#">Download .AppImage</a>
         <p class="dl-fn text-muted" data-filename-wrap>
@@ -231,7 +231,7 @@
           <span><strong>Format:</strong> .rpm</span>
           <span><strong>Arch:</strong> x86_64</span>
           <span><strong>Size:</strong> ~40 MB</span>
-          <span><strong>Distros:</strong> Fedora 39+, RHEL 9, Rocky, Alma</span>
+          <span><strong>Distros:</strong> Fedora 39+ (RHEL/Rocky/Alma 9 need webkit2gtk-4.1 from EPEL)</span>
         </div>
         <a data-dl="dl-linux-rpm" class="btn btn-primary" href="#">Download .rpm</a>
         <p class="dl-fn text-muted" data-filename-wrap>
@@ -293,13 +293,13 @@ sudo apt install -f   # fix any missing deps</code></pre>
         <h4>Linux (.rpm)</h4>
         <pre><code>sudo dnf install ./Operon-0.5.9-1.x86_64.rpm
 # or: sudo rpm -i Operon-0.5.9-1.x86_64.rpm</code></pre>
-        <p>Tested on Fedora 39+, RHEL 9, Rocky Linux, and AlmaLinux.</p>
+        <p>Tested on Fedora 39+. RHEL/Rocky/AlmaLinux 9 require <code>webkit2gtk-4.1</code> installed from EPEL first.</p>
       </div>
       <div class="card reveal">
         <h4>Linux (AppImage)</h4>
         <pre><code>chmod +x Operon_0.5.9_amd64.AppImage
 ./Operon_0.5.9_amd64.AppImage</code></pre>
-        <p>No install step. Works anywhere with FUSE. Integrate with the system menu using <code>AppImageLauncher</code>.</p>
+        <p>No install step. Needs FUSE and host <code>webkit2gtk-4.1</code> (not bundled) — Ubuntu 22.04+ / Debian 12+ / Fedora 38+. Integrate with the system menu using <code>AppImageLauncher</code>.</p>
       </div>
     </div>
   </div>

@@ -6,16 +6,27 @@ use crate::commands::claude::DependencyStatus;
 
 // ─── Shell Execution ─────────────────────────────────────────────
 
+/// The shell used for COMMAND EXECUTION (the `-l -c "..."` path).
+///
+/// Every command string in the codebase is bash. $SHELL may be fish/csh/ash,
+/// which break bash idioms, so we prefer a guaranteed `/bin/bash` here and only
+/// fall back to $SHELL (then /bin/sh) when it is absent. The interactive
+/// terminal still honours $SHELL via `default_shell`.
+fn command_shell() -> String {
+    if std::path::Path::new("/bin/bash").exists() {
+        return "/bin/bash".to_string();
+    }
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
 pub fn shell_exec(command: &str) -> std::process::Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    let mut cmd = std::process::Command::new(&shell);
+    let mut cmd = std::process::Command::new(command_shell());
     cmd.arg("-l").arg("-c").arg(command);
     cmd
 }
 
 pub fn shell_exec_async(command: &str) -> tokio::process::Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    let mut cmd = tokio::process::Command::new(&shell);
+    let mut cmd = tokio::process::Command::new(command_shell());
     cmd.arg("-l").arg("-c").arg(command);
     cmd
 }
@@ -85,23 +96,30 @@ pub fn open_terminal_with_command(command: &str) -> Result<(), String> {
 pub fn ssh_mux_args(host: &str, port: u16, user: &str) -> String {
     let sock = super::ssh_socket_path(host, port, user);
     format!(
-        " -o ControlMaster=auto -o \"ControlPath={}\" -o ControlPersist=4h",
-        sock.display()
+        " -o ControlMaster=auto -o \"ControlPath={}\" -o ControlPersist={}",
+        sock.display(),
+        super::SSH_CONTROL_PERSIST
     )
 }
 
 pub fn ssh_mux_check(host: &str, port: u16, user: &str) -> bool {
     let sock = super::ssh_socket_path(host, port, user);
-    let check_cmd = format!(
-        "ssh -o \"ControlPath={}\" -O check {}@{} -p {} 2>/dev/null",
-        sock.display(),
-        user,
-        host,
-        port
-    );
-    shell_exec(&check_cmd)
-        .output()
-        .map(|o| o.status.success())
+    // Spawn `ssh` directly (no login shell). `-O check` is a fast query against
+    // the local control socket; routing it through `shell_exec` would source the
+    // user's login profile on EVERY call, and this runs on the scp/tail/session
+    // hot path (see live_control_socket).
+    std::process::Command::new("ssh")
+        .arg("-o")
+        .arg(format!("ControlPath={}", sock.display()))
+        .arg("-O")
+        .arg("check")
+        .arg(format!("{}@{}", user, host))
+        .arg("-p")
+        .arg(port.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
         .unwrap_or(false)
 }
 

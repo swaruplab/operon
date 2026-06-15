@@ -132,13 +132,34 @@ Linux.
 |---|---|
 | **macOS** | macOS 12 (Monterey) or later · Apple Silicon (M1+) or Intel |
 | **Windows** | Windows 10 (1809+) or Windows 11 · x64 · WebView2 runtime (pre-installed on Windows 11; auto-installed on 10) |
-| **Linux** | x64 · glibc 2.31+ (Ubuntu 22.04+ / Fedora 36+ / Debian 12+) · `webkit2gtk-4.1` |
+| **Linux** | x64 · glibc 2.35+ **and** `webkit2gtk-4.1` (Ubuntu 22.04+ / Debian 12+ / Fedora 38+). RHEL/Rocky/AlmaLinux 8–9 and Debian 11 are **not** supported unless `webkit2gtk-4.1` is installed from EPEL/backports. See [Linux support matrix](#linux-support-matrix). |
 | **Disk** | ~500 MB including dependencies |
 | **RAM** | 4 GB minimum, 8 GB recommended |
 | **Internet** | Required for AI features and initial setup |
 
 > **Note:** Developer dependencies (Claude Code, build toolchains where needed)
 > are installed automatically by the setup wizard on first launch.
+
+### Linux support matrix
+
+Operon's webview links against **`webkit2gtk-4.1`** (Tauri 2's required
+WebKit ABI), which is only shipped by newer distributions. The runtime floor is
+therefore **both**:
+
+- **glibc 2.35+** — Ubuntu 22.04+
+- **`webkit2gtk-4.1`** — Ubuntu 22.04+ / Debian 12+ / Fedora 38+
+
+| Distribution | Supported | Notes |
+|---|---|---|
+| Ubuntu 22.04 / 24.04 | ✅ | Reference platform |
+| Debian 12 (Bookworm) | ✅ | |
+| Fedora 38+ | ✅ | |
+| Debian 11 (Bullseye) | ❌ | Ships `webkit2gtk-4.0` only |
+| RHEL / Rocky / AlmaLinux 8–9 | ❌ | No `webkit2gtk-4.1` in base repos — install it from EPEL/backports to run |
+
+This floor applies to **all** Linux artifacts, including the AppImage. The
+AppImage does **not** bundle WebKit — `bundleMediaFramework` only bundles the
+GStreamer media stack, so the host must still provide `webkit2gtk-4.1`.
 
 ---
 

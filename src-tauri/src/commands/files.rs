@@ -1171,6 +1171,28 @@ fn list_files_recursive(base: &std::path::Path, dir: &std::path::Path) -> Vec<St
     files
 }
 
+/// Find a directory entry whose file name matches `target` ignoring ASCII case.
+/// Needed because Linux ext4 is case-sensitive: a folder shipping `Protocol.md`
+/// must still resolve when we look for the canonical `PROTOCOL.md`/`SKILL.md`.
+fn find_ci(dir: &std::path::Path, target: &str) -> Option<std::path::PathBuf> {
+    // Fast path: try the exact-case path with a cheap stat. Correct on
+    // macOS/Windows always, and on Linux when the file is canonically cased
+    // (the overwhelmingly common case). Only fall back to the read_dir scan
+    // when the exact-case stat misses (e.g. `Protocol.md` on case-sensitive
+    // Linux), preserving the case-insensitive fix without scanning ~300+ dirs.
+    let exact = dir.join(target);
+    if exact.exists() {
+        return Some(exact);
+    }
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+        let p = e.path();
+        match p.file_name().and_then(|n| n.to_str()) {
+            Some(name) if name.eq_ignore_ascii_case(target) => Some(p),
+            _ => None,
+        }
+    })
+}
+
 /// Scan a directory for protocols (both folder-based and single-file).
 fn scan_protocols_in_dir(
     dir: &std::path::Path,
@@ -1189,10 +1211,11 @@ fn scan_protocols_in_dir(
 
         if path.is_dir() {
             // Folder-based protocol: look for PROTOCOL.md or SKILL.md entry point
-            let entry_point = if path.join("PROTOCOL.md").exists() {
-                path.join("PROTOCOL.md")
-            } else if path.join("SKILL.md").exists() {
-                path.join("SKILL.md")
+            // (case-insensitively, so `Protocol.md` resolves on case-sensitive Linux).
+            let entry_point = if let Some(p) = find_ci(&path, "PROTOCOL.md") {
+                p
+            } else if let Some(p) = find_ci(&path, "SKILL.md") {
+                p
             } else {
                 continue; // Not a protocol folder — skip
             };
@@ -1333,9 +1356,9 @@ pub async fn read_protocol(
 ) -> Result<String, String> {
     let user_dir = protocols_dir()?;
 
-    // Helper: check if a dir has PROTOCOL.md or SKILL.md
+    // Helper: check if a dir has PROTOCOL.md or SKILL.md (case-insensitive for Linux).
     let has_entry_point = |dir: &std::path::Path| -> bool {
-        dir.join("PROTOCOL.md").exists() || dir.join("SKILL.md").exists()
+        find_ci(dir, "PROTOCOL.md").is_some() || find_ci(dir, "SKILL.md").is_some()
     };
 
     // Check user dir first, then bundled
@@ -1412,11 +1435,10 @@ pub async fn read_protocol(
 
     // If we found a folder-based protocol, assemble full context
     if let Some(folder) = protocol_path {
-        let entry_point = if folder.join("PROTOCOL.md").exists() {
-            folder.join("PROTOCOL.md")
-        } else {
-            folder.join("SKILL.md")
-        };
+        // Resolve the entry point case-insensitively (Linux ext4 is case-sensitive).
+        let entry_point = find_ci(&folder, "PROTOCOL.md")
+            .or_else(|| find_ci(&folder, "SKILL.md"))
+            .unwrap_or_else(|| folder.join("PROTOCOL.md"));
         let main_content = std::fs::read_to_string(&entry_point)
             .map_err(|e| format!("Failed to read protocol entry point: {}", e))?;
 
@@ -1558,7 +1580,8 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
         .ok_or_else(|| "Claude Code not found. Run `which claude` in your terminal — if it returns a path, paste it into Operon's settings, or add it to your shell's .zprofile.".to_string())?;
     let shell_cmd = format!(
         "{} -p '{}' --max-turns 1 --output-format text",
-        claude_path, escaped_prompt
+        claude_path_for_shell(&claude_path),
+        escaped_prompt
     );
 
     let output = crate::platform::shell_exec_async(&shell_cmd)
@@ -1590,7 +1613,22 @@ fn resolve_claude_path() -> Option<String> {
     // command to be safe across shells that interpret `command -v` differently.
     #[cfg(unix)]
     {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // Prefer $SHELL. Fall back to the platform default: zsh on macOS, but on
+        // Linux zsh is rarely installed, so use /bin/bash if present else /bin/sh.
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            #[cfg(target_os = "macos")]
+            {
+                "/bin/zsh".to_string()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                if std::path::Path::new("/bin/bash").exists() {
+                    "/bin/bash".to_string()
+                } else {
+                    "/bin/sh".to_string()
+                }
+            }
+        });
         let out = std::process::Command::new(&shell)
             .arg("-i")
             .arg("-l")
@@ -1643,6 +1681,18 @@ fn resolve_claude_path() -> Option<String> {
         }
     }
     None
+}
+
+/// Quote a resolved local `claude` path for safe embedding in a `shell_exec`
+/// command string. On Windows that string runs through Git Bash, where `\` is
+/// an escape character — so convert backslashes to forward slashes (Git Bash /
+/// MSYS resolves `C:/…` paths, including `.cmd` shims) before quoting. On both
+/// platforms single-quote so spaces or special chars in the path can't break
+/// the command (e.g. a home dir with a space, or `where claude` returning a
+/// path under `C:\Program Files\`).
+fn claude_path_for_shell(path: &str) -> String {
+    let normalized = crate::platform::common::normalize_display_path(path);
+    format!("'{}'", normalized.replace('\'', "'\\''"))
 }
 
 /// Generate a protocol from selected pipeline files.
@@ -1715,7 +1765,8 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
     );
     let shell_cmd = format!(
         "echo '{}' | base64 -d | {} -p - --max-turns 1 --output-format text",
-        encoded, claude_path
+        encoded,
+        claude_path_for_shell(&claude_path)
     );
 
     let output = crate::platform::shell_exec_async(&shell_cmd)

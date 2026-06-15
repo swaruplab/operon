@@ -219,16 +219,11 @@ fn ai_provider_env_exports(env: &[(String, String)], unset: &[&str]) -> String {
 
 /// The shell used to launch Claude sessions with `-l -c` flags.
 /// On Windows, Git Bash is required because cmd.exe doesn't support `-l`/`-c`
-/// and Claude Code itself needs a POSIX environment.
-fn claude_shell() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        crate::platform::find_git_bash_path().unwrap_or_else(|| crate::platform::default_shell())
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        crate::platform::default_shell()
-    }
+/// and Claude Code itself needs a POSIX environment. Returns a clear error if
+/// Git Bash is missing rather than silently falling back to cmd.exe (which
+/// would fail opaquely once `-l -c` is appended).
+fn claude_shell() -> Result<String, String> {
+    crate::platform::posix_shell()
 }
 
 /// Guarantee a sane baseline PATH for any local bash login-shell we spawn.
@@ -356,6 +351,23 @@ impl ClaudeManager {
             api_key: Mutex::new(None),
         }
     }
+
+    /// Best-effort kill of every tracked session. Drains the map under the lock,
+    /// then issues a synchronous kill outside it (no `.await`, so it's safe to
+    /// call from the window close handler). Individual errors are ignored so
+    /// shutdown never hangs.
+    pub fn kill_all(&self) {
+        // Recover from a poisoned lock (into_inner) rather than bailing — on
+        // shutdown we must still reap these children, or local Claude/node
+        // agents orphan past app exit.
+        let children: Vec<tokio::process::Child> = {
+            let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            sessions.drain().map(|(_, s)| s.child).collect()
+        };
+        for mut child in children {
+            let _ = child.start_kill();
+        }
+    }
 }
 
 // --- Session Metadata Persistence ---
@@ -438,6 +450,33 @@ pub async fn check_claude_installed() -> Result<ClaudeStatus, String> {
         installed: true,
         version,
         path: Some(path),
+    })
+}
+
+/// Status of the OpenSSH client (`ssh`), used by the setup wizard.
+/// Windows 10/11 ship an OpenSSH client but it may be disabled.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SshStatus {
+    pub available: bool,
+    pub path: Option<String>,
+}
+
+/// Check whether the OpenSSH client (`ssh`) is available on this machine.
+/// Uses the platform-aware tool discovery (`where.exe ssh` on Windows,
+/// `which ssh` on Unix) — same path as `check_claude_installed`.
+#[tauri::command]
+pub async fn check_ssh_available() -> Result<SshStatus, String> {
+    let tool_info = crate::platform::check_tool("ssh");
+
+    Ok(match tool_info {
+        Some((path, _)) => SshStatus {
+            available: true,
+            path: Some(path),
+        },
+        None => SshStatus {
+            available: false,
+            path: None,
+        },
     })
 }
 
@@ -1132,6 +1171,10 @@ elif [ -x "$HOME/.claude/local/bin/claude" ]; then
 elif [ -x "$HOME/.npm-global/bin/claude" ]; then
   CLAUDE_VER="$($HOME/.npm-global/bin/claude --version 2>/dev/null || echo FOUND)"
 elif [ -f ~/.bashrc ] || [ -f ~/.bash_profile ]; then
+  # Last resort: alias-based installs (e.g. `alias claude='npx ...'`). Safe to
+  # source profiles here — the whole check runs inside the channel's `( … )`
+  # subshell, so any profile `exit` or PATH change is discarded with the subshell
+  # and can't affect the persistent parent shell.
   export PS1=x
   shopt -s expand_aliases 2>/dev/null
   source ~/.bashrc 2>/dev/null
@@ -1223,12 +1266,17 @@ pub async fn check_remote_claude_auth(
     // Phase 1: Quick filesystem scan for credential files
     // Phase 2: If files found, verify they actually work with `claude -p 'ping'`
     let check_script = r#"
-# Source shell profile so `claude` is in PATH
-for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
-    [ -f "$rc" ] && . "$rc" 2>/dev/null
-done
-# Also check common install locations
+# Make `claude` resolvable however the user installed it (standard dirs first,
+# then profile-provided PATH: custom npm prefix, module/conda) so the live ping
+# below actually RUNS — otherwise an expired credential on a non-standard install
+# falls through to "AUTH:ok" and is misreported as authenticated. Safe now: the
+# whole script runs inside the channel's `( … )` subshell, so a profile `exit`
+# only ends this command, never the persistent parent shell. Redirect profile
+# output to /dev/null so MOTD/conda banners can't corrupt our parsed result.
 export PATH="$HOME/.claude/local/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
+for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$rc" ] && . "$rc" >/dev/null 2>&1
+done
 
 CRED_FOUND=0
 
@@ -1340,10 +1388,12 @@ export PATH=\"$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PA
 echo '>>> Installing Claude Code via official installer...'
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL https://claude.ai/install.sh | bash 2>&1
-    # Source updated profile so claude is in PATH
-    [ -f $HOME/.bashrc ] && . $HOME/.bashrc 2>/dev/null
-    [ -f $HOME/.bash_profile ] && . $HOME/.bash_profile 2>/dev/null
-    [ -f $HOME/.profile ] && . $HOME/.profile 2>/dev/null
+    # Source updated profile so claude is in PATH. Redirect stdout too (not just
+    # stderr) so MOTD/conda banners don't land in the channel and corrupt the
+    # parsed install result.
+    [ -f $HOME/.bashrc ] && . $HOME/.bashrc >/dev/null 2>&1
+    [ -f $HOME/.bash_profile ] && . $HOME/.bash_profile >/dev/null 2>&1
+    [ -f $HOME/.profile ] && . $HOME/.profile >/dev/null 2>&1
 fi
 
 # Check if it worked
@@ -1714,9 +1764,14 @@ pub async fn launch_claude_login() -> Result<String, String> {
 
     let augmented = crate::platform::augmented_path();
 
-    // Build the command — try direct path first, fall back to shell
+    // Build the command — try direct path first, fall back to shell.
+    // spawn_resolve wraps a Windows `.cmd`/`.bat` shim (npm-installed claude)
+    // as ("cmd.exe", ["/c", path]) — Command::new can't execute a batch file
+    // directly. A real `.exe` / unix binary comes back as (path, []) unchanged.
     let mut cmd = if let Some(ref path) = claude_path {
-        let mut c = tokio::process::Command::new(path);
+        let (program, prefix_args) = crate::platform::spawn_resolve(path);
+        let mut c = tokio::process::Command::new(&program);
+        c.args(&prefix_args);
         c.arg("login");
         c
     } else {
@@ -2517,7 +2572,7 @@ pub async fn start_claude_session(
         ));
     }
 
-    let shell = claude_shell();
+    let shell = claude_shell()?;
 
     let use_terminal = use_terminal.unwrap_or(false);
 
@@ -2617,13 +2672,8 @@ pub async fn start_claude_session(
                         "-o".to_string(),
                         "ConnectTimeout=10".to_string(),
                     ];
-                    // Reuse ControlMaster socket if available
-                    let sock = crate::platform::ssh_socket_path(
-                        &profile.host,
-                        profile.port,
-                        &profile.user,
-                    );
-                    if sock.exists() {
+                    // Reuse ControlMaster socket only if the master is actually live.
+                    if let Some(sock) = super::ssh::live_control_socket(&profile) {
                         scp_args.push("-o".to_string());
                         scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
                     }
@@ -2838,10 +2888,9 @@ pub async fn start_claude_session(
                 "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
                 profile.user, profile.host, profile.port
             );
-            // Reuse ControlMaster socket if one exists from the main terminal connection
-            let ctrl_sock =
-                crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-            if ctrl_sock.exists() {
+            // Reuse the ControlMaster socket from the main terminal connection,
+            // but only if the master is actually live.
+            if let Some(ctrl_sock) = super::ssh::live_control_socket(&profile) {
                 ssh_tail_args.push_str(&format!(
                     " -o \"ControlPath={}\"",
                     ctrl_sock.to_string_lossy()
@@ -3121,9 +3170,7 @@ pub async fn start_claude_session(
                     "-o".to_string(),
                     "ConnectTimeout=10".to_string(),
                 ];
-                let sock =
-                    crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-                if sock.exists() {
+                if let Some(sock) = super::ssh::live_control_socket(&profile) {
                     scp_args.push("-o".to_string());
                     scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
                 }
@@ -3199,10 +3246,8 @@ pub async fn start_claude_session(
             "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
             profile.user, profile.host, profile.port
         );
-        // Reuse ControlMaster socket if available (avoids re-auth on Duo MFA clusters)
-        let ctrl_sock =
-            crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-        if ctrl_sock.exists() {
+        // Reuse ControlMaster socket if the master is live (avoids re-auth on Duo MFA clusters)
+        if let Some(ctrl_sock) = super::ssh::live_control_socket(&profile) {
             ssh_args.push_str(&format!(
                 " -o \"ControlPath={}\"",
                 ctrl_sock.to_string_lossy()
@@ -3814,7 +3859,7 @@ pub async fn reconnect_session(
     let output_file = format!("{}/.operon-{}.jsonl", base_path, session_id);
     let done_file = format!("{}/.operon-{}.done", base_path, session_id);
 
-    let shell = claude_shell();
+    let shell = claude_shell()?;
 
     if let Some(ctx) = remote {
         let profile = {
@@ -3952,15 +3997,14 @@ pub async fn reconnect_tail(
 
     let output_file = format!("{}/.operon-{}.jsonl", ctx.remote_path, session_id);
     let done_file = format!("{}/.operon-{}.done", ctx.remote_path, session_id);
-    let shell = claude_shell();
+    let shell = claude_shell()?;
 
     // 3. Build a fresh SSH tail command with tighter keepalives
     let mut ssh_tail_args = format!(
         "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes {}@{} -p {}",
         profile.user, profile.host, profile.port
     );
-    let ctrl_sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
-    if ctrl_sock.exists() {
+    if let Some(ctrl_sock) = super::ssh::live_control_socket(&profile) {
         ssh_tail_args.push_str(&format!(
             " -o \"ControlPath={}\"",
             ctrl_sock.to_string_lossy()
