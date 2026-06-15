@@ -2893,7 +2893,17 @@ pub async fn setup_ssh_key(
     let public_key_path = ssh_dir.join(format!("{}.pub", key_name));
 
     if !private_key_path.exists() {
-        let output = hide_window(std::process::Command::new("ssh-keygen").args([
+        // Resolve ssh-keygen to a full path on Windows: it lives in
+        // System32\OpenSSH (or Git's usr\bin), a dir that often isn't on the
+        // app's inherited PATH, so a bare `Command::new("ssh-keygen")` fails
+        // with "program not found" even when ssh.exe was detected.
+        #[cfg(windows)]
+        let keygen =
+            crate::platform::windows::find_ssh_keygen().unwrap_or_else(|| "ssh-keygen".to_string());
+        #[cfg(not(windows))]
+        let keygen = "ssh-keygen".to_string();
+
+        let output = hide_window(std::process::Command::new(&keygen).args([
             "-t",
             "ed25519",
             "-f",
@@ -2904,7 +2914,12 @@ pub async fn setup_ssh_key(
             &format!("operon@{}", profile.host),
         ]))
         .output()
-        .map_err(|e| format!("Failed to run ssh-keygen: {}", e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to run ssh-keygen: {}. Ensure OpenSSH (or Git Bash on Windows) is installed.",
+                e
+            )
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

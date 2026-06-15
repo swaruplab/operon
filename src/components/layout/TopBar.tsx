@@ -2,6 +2,8 @@ import { Hammer, Settings, Wifi, HelpCircle, Sun, Moon } from "lucide-react";
 import { isMac } from "../../lib/platform";
 import { UpdateChecker } from "./UpdateChecker";
 import { useTheme } from "../../context/ThemeContext";
+import { useProject } from "../../context/ProjectContext";
+import { basename } from "../../lib/path";
 
 interface TopBarProps {
   onToggleSidebar: () => void;
@@ -12,6 +14,7 @@ interface TopBarProps {
 
 export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHelp }: TopBarProps) {
   const { resolved, toggle } = useTheme();
+  const { projectPath } = useProject();
   return (
     <div className="h-10 flex items-center bg-panel border-b border-border-default shrink-0">
       {/* macOS traffic light spacer (when using transparent titlebar) */}
@@ -30,9 +33,12 @@ export function TopBar({ onToggleSidebar, onToggleChat, onOpenSettings, onOpenHe
 
       {/* Center: project name */}
       <div className="flex-1 flex justify-center">
-        <button className="flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-hover transition-colors text-xs text-secondary">
-          <span>~/projects/my-app</span>
-          <span className="text-subtle">▼</span>
+        <button
+          className="flex items-center gap-1.5 px-3 py-1 rounded-md hover:bg-hover transition-colors text-xs text-secondary max-w-[40vw]"
+          title={projectPath ?? undefined}
+        >
+          <span className="truncate">{projectPath ? basename(projectPath) : 'No folder open'}</span>
+          <span className="text-subtle shrink-0">▼</span>
         </button>
       </div>
 

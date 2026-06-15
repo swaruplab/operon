@@ -592,7 +592,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
       {mode === 'modal' && (
         <div className="absolute inset-0 bg-black/60" onClick={onComplete} />
       )}
-      <div className={`w-full max-w-2xl mx-auto px-4 py-6 sm:p-8 ${mode === 'modal' ? 'relative bg-panel rounded-xl border border-border-strong shadow-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden' : ''}`}>
+      <div className={`w-full max-w-2xl mx-auto px-4 py-6 sm:p-8 max-h-[90vh] overflow-y-auto overflow-x-hidden ${mode === 'modal' ? 'relative bg-panel rounded-xl border border-border-strong shadow-2xl' : ''}`}>
         {mode === 'modal' && (
           <button
             onClick={onComplete}

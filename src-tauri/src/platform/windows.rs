@@ -146,6 +146,7 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
     let appdata = std::env::var("APPDATA")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| home.join("AppData").join("Roaming"));
+    let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     vec![
         super::operon_node_dir().join("bin"),
         appdata.join("npm"),
@@ -153,7 +154,43 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
         std::path::PathBuf::from(r"C:\Program Files\Git\bin"),
         std::path::PathBuf::from(r"C:\Program Files\Git\cmd"),
         home.join(".claude\\local\\bin"),
+        // OpenSSH client binaries (ssh-keygen, ssh-add) live in this System32
+        // SUBDIR, which isn't always on a GUI process's inherited PATH.
+        std::path::PathBuf::from(format!(r"{}\System32\OpenSSH", sysroot)),
     ]
+}
+
+/// Resolve `ssh-keygen.exe` to a full path. A bare `Command::new("ssh-keygen")`
+/// relies on the inherited PATH, which often omits `System32\OpenSSH` (a subdir,
+/// not System32 itself) when the app is launched from Explorer — so key
+/// generation fails with "program not found" even though `ssh.exe` was detected
+/// (detection uses `where.exe`, which searches differently).
+pub fn find_ssh_keygen() -> Option<String> {
+    // 1. where.exe (PATHEXT-aware) — finds it whenever the dir is on PATH.
+    let (resolved, _) = spawn_resolve("ssh-keygen");
+    let p = std::path::Path::new(&resolved);
+    if p.is_absolute() && p.exists() {
+        return Some(resolved);
+    }
+    // 2. Windows OpenSSH — the sibling of the ssh.exe the app already found.
+    let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let win_openssh = format!(r"{}\System32\OpenSSH\ssh-keygen.exe", sysroot);
+    if std::path::Path::new(&win_openssh).exists() {
+        return Some(win_openssh);
+    }
+    // 3. Git Bash's usr\bin (derive the Git root from bash.exe: <git>\bin\bash.exe).
+    if let Some(bash) = find_git_bash() {
+        if let Some(git_root) = std::path::Path::new(&bash)
+            .parent()
+            .and_then(|p| p.parent())
+        {
+            let candidate = git_root.join("usr").join("bin").join("ssh-keygen.exe");
+            if candidate.exists() {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Refresh the process's PATH environment variable from the Windows registry.
@@ -505,18 +542,34 @@ pub fn check_dependencies() -> DependencyStatus {
     }
 }
 
+/// Build a headless `winget install <id>` command. Resolves winget via
+/// `where.exe` (the App Installer execution-alias dir isn't always on a GUI
+/// process's PATH) and disables interactivity + installer UI: under
+/// CREATE_NO_WINDOW there is no console/TTY for winget's prompts to render to,
+/// so without `--disable-interactivity`/`--silent` winget aborts and the
+/// install "fails" — which is exactly what users saw for Node/Python/uv/gh.
+pub(crate) fn winget_install_cmd(id: &str) -> std::process::Command {
+    let winget = find_winget().unwrap_or_else(|| "winget".to_string());
+    let mut c = std::process::Command::new(winget);
+    c.args([
+        "install",
+        "--id",
+        id,
+        "-e",
+        "--source",
+        "winget",
+        "--accept-source-agreements",
+        "--accept-package-agreements",
+        "--disable-interactivity",
+        "--silent",
+    ]);
+    c.creation_flags(CREATE_NO_WINDOW);
+    c
+}
+
 pub fn install_node_platform() -> Result<(), String> {
     // Strategy 1: winget (built into Windows 11 and Windows 10 1709+)
-    let winget = std::process::Command::new("winget")
-        .args([
-            "install",
-            "--id",
-            "OpenJS.NodeJS.LTS",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let winget = winget_install_cmd("OpenJS.NodeJS.LTS").output();
 
     if let Ok(o) = winget {
         if o.status.success() {
@@ -654,17 +707,7 @@ pub fn find_python() -> Option<String> {
 
 /// Install Python via winget.
 pub fn install_python() -> Result<(), String> {
-    let winget = std::process::Command::new("winget")
-        .args([
-            "install",
-            "--id",
-            "Python.Python.3.12",
-            "-e",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let winget = winget_install_cmd("Python.Python.3.12").output();
 
     if let Ok(o) = winget {
         if o.status.success() {
@@ -696,17 +739,7 @@ pub fn has_openssh() -> bool {
 /// Windows 11 typically has it enabled by default.
 pub fn install_openssh() -> Result<(), String> {
     // Strategy 1: winget (works on Windows 11)
-    let winget = std::process::Command::new("winget")
-        .args([
-            "install",
-            "--id",
-            "Microsoft.OpenSSH.Beta",
-            "-e",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let winget = winget_install_cmd("Microsoft.OpenSSH.Beta").output();
 
     if let Ok(o) = winget {
         let out_text = format!(
@@ -764,17 +797,7 @@ pub fn install_uv() -> Result<(), String> {
     }
 
     // Strategy 2: winget
-    let winget = std::process::Command::new("winget")
-        .args([
-            "install",
-            "--id",
-            "astral-sh.uv",
-            "-e",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let winget = winget_install_cmd("astral-sh.uv").output();
 
     if let Ok(o) = winget {
         let out_text = format!(

@@ -11,12 +11,33 @@ pub struct FileEntry {
     pub extension: Option<String>,
 }
 
+/// Expand a leading `~` to the user's home directory. The path bar and the
+/// default-project logic can pass a literal `~/...` (the shell never expands it,
+/// especially on Windows), which `std::fs` would otherwise treat as a directory
+/// literally named `~` and fail to find. Returns the input unchanged otherwise.
+fn expand_user_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix('~') {
+        if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') {
+            if let Some(home) = crate::platform::home_dir() {
+                let rel = rest.trim_start_matches(['/', '\\']);
+                return if rel.is_empty() {
+                    home.to_string_lossy().to_string()
+                } else {
+                    home.join(rel).to_string_lossy().to_string()
+                };
+            }
+        }
+    }
+    path.to_string()
+}
+
 #[tauri::command]
 pub async fn list_directory(
     path: String,
     show_hidden: Option<bool>,
 ) -> Result<Vec<FileEntry>, String> {
     let show_hidden = show_hidden.unwrap_or(false);
+    let path = expand_user_path(&path);
     let mut entries = Vec::new();
     let read_dir = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
 
@@ -142,6 +163,7 @@ pub async fn create_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn create_directory(path: String) -> Result<(), String> {
+    let path = expand_user_path(&path);
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 

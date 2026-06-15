@@ -845,18 +845,10 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         emit_install_progress(&app, "gh", "installing", "Installing GitHub CLI...", 85);
         let mut gh_installed = false;
 
-        // Strategy 1 (Windows): winget
+        // Strategy 1 (Windows): winget (headless flags + resolved path)
         #[cfg(target_os = "windows")]
         {
-            let winget = hide_window(std::process::Command::new("winget").args([
-                "install",
-                "--id",
-                "GitHub.cli",
-                "-e",
-                "--accept-source-agreements",
-                "--accept-package-agreements",
-            ]))
-            .output();
+            let winget = crate::platform::windows::winget_install_cmd("GitHub.cli").output();
             if let Ok(o) = winget {
                 let out_text = format!(
                     "{}{}",

@@ -36,7 +36,7 @@ import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
 import { batchDeleteFiles } from '../../lib/files';
 import { basename, dirname, joinLocal, isRoot } from '../../lib/path';
-import { isWindows } from '../../lib/platform';
+import { isWindows, isMac } from '../../lib/platform';
 
 const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' | 'xlsx' | 'pptx' | 'docx'; mimeType: string }> = {
   png: { binaryType: 'image', mimeType: 'image/png' },
@@ -510,11 +510,20 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       // permission dialogs for Desktop/Downloads/Documents on every launch.
       restoredRef.current = true;
       invoke<any>('get_settings')
-        .then((settings) => {
+        .then(async (settings) => {
           if (settings.last_project_path) {
             setProjectPath(settings.last_project_path);
+          } else if (!isMac) {
+            // No saved project: default the explorer to the user's home dir on
+            // Windows/Linux (no TCC prompts there), so it doesn't start on an
+            // invalid placeholder path with no way to navigate or create.
+            try {
+              const home = await invoke<string>('get_home_dir');
+              if (home) setProjectPath(home);
+            } catch { /* stay in no-project state */ }
           }
-          // If no last path, stay in "no project" state — user picks a folder
+          // On macOS with no last path, stay in "no project" state — listing ~
+          // triggers TCC permission dialogs on every launch.
         })
         .catch(console.error);
     }
