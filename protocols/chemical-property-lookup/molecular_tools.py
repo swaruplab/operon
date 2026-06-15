@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 """
 Utility functions for lightweight cheminformatics calculations using RDKit.
 Designed for use inside LLM toolchains where we need deterministic, short
@@ -27,14 +17,12 @@ except ImportError as exc:
         "or 'pip install rdkit-pypi'."
     ) from exc
 
-
 def _load_molecule(smiles: str) -> Tuple[Any, str | None]:
     """Return an RDKit Mol object or an error string."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return None, "Error: Invalid SMILES string."
     return mol, None
-
 
 def calculate_molecular_weight(smiles: str) -> str:
     """Return a formatted molecular weight string."""
@@ -44,14 +32,12 @@ def calculate_molecular_weight(smiles: str) -> str:
     weight = Descriptors.ExactMolWt(mol)
     return f"Molecular weight: {weight:.2f} Da"
 
-
 def get_mol_block(smiles: str) -> str:
     """Return an SDF/MolBlock representation for visualization."""
     mol, error = _load_molecule(smiles)
     if error:
         return error
     return Chem.MolToMolBlock(mol)
-
 
 def calculate_logp(smiles: str) -> str:
     """Return the Crippen cLogP value."""
@@ -61,7 +47,6 @@ def calculate_logp(smiles: str) -> str:
     logp = Crippen.MolLogP(mol)
     return f"LogP: {logp:.2f}"
 
-
 def calculate_tpsa(smiles: str) -> str:
     """Return the topological polar surface area (Å²)."""
     mol, error = _load_molecule(smiles)
@@ -69,7 +54,6 @@ def calculate_tpsa(smiles: str) -> str:
         return error
     tpsa = rdMolDescriptors.CalcTPSA(mol)
     return f"TPSA: {tpsa:.2f} Å²"
-
 
 def count_hbd_hba(smiles: str) -> str:
     """Return hydrogen bond donor/acceptor counts."""
@@ -80,7 +64,6 @@ def count_hbd_hba(smiles: str) -> str:
     acceptors = Descriptors.NumHAcceptors(mol)
     return f"HBD: {donors}; HBA: {acceptors}"
 
-
 def calculate_qed(smiles: str) -> str:
     """Return Quantitative Estimate of Drug-likeness."""
     mol, error = _load_molecule(smiles)
@@ -88,7 +71,6 @@ def calculate_qed(smiles: str) -> str:
         return error
     score = QED.qed(mol)
     return f"QED: {score:.2f}"
-
 
 def _lipinski_metrics(mol: Any) -> Tuple[Dict[str, float], list[str]]:
     """Compute standard Lipinski metrics and violations."""
@@ -112,7 +94,6 @@ def _lipinski_metrics(mol: Any) -> Tuple[Dict[str, float], list[str]]:
 
     return metrics, violations
 
-
 def check_lipinski(smiles: str) -> str:
     """Return a Lipinski Rule-of-Five assessment."""
     mol, error = _load_molecule(smiles)
@@ -129,7 +110,6 @@ def check_lipinski(smiles: str) -> str:
         f"HBA={metrics['hba']:.0f}, "
         f"TPSA={metrics['tpsa']:.1f} Å²"
     )
-
 
 def summarize_properties(smiles: str) -> Dict[str, Any]:
     """
@@ -157,7 +137,6 @@ def summarize_properties(smiles: str) -> Dict[str, Any]:
         "molblock": molblock,
     }
 
-
 if __name__ == "__main__":
     aspirin_smiles = "CC(=O)OC1=CC=CC=C1C(=O)O"
     print("Testing RDKit utilities with Aspirin:")
@@ -168,5 +147,3 @@ if __name__ == "__main__":
     print(calculate_qed(aspirin_smiles))
     print(check_lipinski(aspirin_smiles))
     print(summarize_properties(aspirin_smiles))
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

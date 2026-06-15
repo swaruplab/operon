@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 import numpy as np
 import pandas as pd
@@ -232,7 +222,6 @@ def _averaged_mode(candidates, markers, expr_df, term, use_tissue, tissues, stra
 
     return final_rank, expression_list
 
-
 def _tissue_wise_mode(candidates, markers, expr_df, term, use_tissue, tissues, mixture_strategy):
 
     processed_candidates = [
@@ -321,7 +310,6 @@ def _tissue_wise_mode(candidates, markers, expr_df, term, use_tissue, tissues, m
     expression_list = [[score] for score in candidate_scores]
 
     return final_rank, expression_list
-
 
 def _merge_expression(expression_lists, strategy):
     if len(expression_lists) == 1:
@@ -584,7 +572,6 @@ def process_dataset(path_df_with_pred, expression_dir=expression_dir, top_n=3, c
 
     return data, agreement_score_dict, ours, direct_top_1_mean
 
-
 if __name__ == "__main__":
     top_n = 3
     max_markers = None
@@ -620,5 +607,3 @@ if __name__ == "__main__":
         os.makedirs(dir_to_merged_data)
     merged_df = pd.concat(all_data, ignore_index=True)
     merged_df.to_csv(os.path.join(saved_prediction_dir, "All", "Results", f"merged_top_{top_n}_max_{max_markers}.csv"), index=False)
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

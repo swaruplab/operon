@@ -481,6 +481,36 @@ fn detect_category(id: &str, _content: &str) -> String {
         return "chromatin".to_string();
     }
 
+    // --- Spatial / imaging mass cytometry -------------------------------
+    // NOTE: this must come BEFORE the RNA block — otherwise the RNA rule's
+    // broad `has("transcript")` swallows every `spatial-transcriptomics-*`
+    // protocol and they vanish from the Spatial category.
+    if has("spatial")
+        || starts("spatial-transcriptomics-")
+        || has("spatial-trans")
+        || has("spatial-omics")
+        || has("squidpy")
+        || eq("stellar-atlas")
+        || has("imaging-mass")
+        || has("xenium")
+        || has("visium")
+        || has("merfish")
+        || has("seqfish")
+        || has("cosmx")
+        || has("starmap")
+        || eq("single-to-spatial-mapping")
+        || eq("spatial-tutorials")
+        || starts("tooluniverse-spatial")
+    {
+        return "spatial".to_string();
+    }
+
+    // --- Epitranscriptomics (m6A, MeRIP) -- MUST precede the RNA block: its
+    //     broad has("transcript") otherwise swallows every epitranscriptomics-*.
+    if starts("epitranscriptomics-") || has("epitranscript") {
+        return "epigenetics".to_string();
+    }
+
     // --- RNA biology (bulk RNA-seq, alt splicing, ribo-seq, small RNA) --
     if starts("rna-quantification-")
         || starts("rna-structure-")
@@ -507,25 +537,6 @@ fn detect_category(id: &str, _content: &str) -> String {
         || has("transcript")
     {
         return "rna".to_string();
-    }
-
-    // --- Spatial / imaging mass cytometry -------------------------------
-    if starts("spatial-transcriptomics-")
-        || has("spatial-trans")
-        || has("squidpy")
-        || eq("stellar-atlas")
-        || has("imaging-mass")
-        || has("xenium")
-        || has("visium")
-        || has("merfish")
-        || has("seqfish")
-        || has("cosmx")
-        || has("starmap")
-        || eq("single-to-spatial-mapping")
-        || eq("spatial-tutorials")
-        || starts("tooluniverse-spatial")
-    {
-        return "spatial".to_string();
     }
 
     // --- Variants & population genetics ---------------------------------
@@ -668,7 +679,6 @@ fn detect_category(id: &str, _content: &str) -> String {
         || eq("slurm-job-script-generator")
         || eq("mesh-generation")
         || starts("tooluniverse-sequence")
-        || starts("tooluniverse-") && (has("retrieval") || has("interactions") || has("infectious"))
     {
         return "bio_tools".to_string();
     }
@@ -766,6 +776,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || has("network-analysis")
         || has("regulon")
         || starts("tooluniverse-gene-enrichment")
+        || starts("multi-omics-")
     {
         return "systems_biology".to_string();
     }
@@ -835,7 +846,6 @@ fn detect_category(id: &str, _content: &str) -> String {
         || has("omero")
         || eq("adaptyv")
         || eq("modal")
-        || has("integration")
         || eq("denario")
     {
         return "lab_automation".to_string();

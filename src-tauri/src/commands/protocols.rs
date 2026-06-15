@@ -110,7 +110,10 @@ fn unwrap_shell_default(raw: &str) -> String {
 fn infer_kind(name: &str, value: &str) -> String {
     let upper = name.to_uppercase();
 
-    let path_suffixes = ["_DIR", "_FILE", "_BAM", "_BED", "_PATH", "_INDEX", "_VCF", "_FASTQ", "_FASTA", "_GTF", "_GFF", "_BIGWIG", "_BW", "_H5", "_H5AD"];
+    let path_suffixes = [
+        "_DIR", "_FILE", "_BAM", "_BED", "_PATH", "_INDEX", "_VCF", "_FASTQ", "_FASTA", "_GTF",
+        "_GFF", "_BIGWIG", "_BW", "_H5", "_H5AD",
+    ];
     if path_suffixes.iter().any(|s| upper.ends_with(s))
         || upper.starts_with("INPUT")
         || upper.starts_with("OUTPUT")

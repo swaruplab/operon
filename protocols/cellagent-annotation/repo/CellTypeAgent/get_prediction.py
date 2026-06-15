@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 import time
 import pandas as pd
@@ -191,5 +181,3 @@ if __name__ == "__main__":
         data, log_path = get_prediction(model, dataset_name, poor_performance_model=False, max_markers=max_markers, number_of_candidates=top_n)
         data['cell_type_pred'].to_csv(os.path.join(path_to_saved_prediction, f'top_{top_n}_max_{max_markers}.txt'), index=False, header=False)
         print(f"{dataset_name}:\n", data['cell_type_pred'], '\n')
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

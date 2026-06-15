@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   # see issue #152
 # os.environ["CUDA_VISIBLE_DEVICES"]= '0,1,2,3'
@@ -19,7 +9,6 @@ import pandas as pd
 import numpy as np
 
 from transformers import TrainerCallback, TrainingArguments, Trainer
-
 
 # Downloaded GitHub Repo from https://github.com/salesforce/progen/tree/main/progen2
 # The README also contains download links for the models
@@ -57,11 +46,9 @@ tokenizer.add_special_tokens({'additional_special_tokens': new_special_tokens})
 tokenizer.pad_token = '<|pad|>'
 tokenizer.eos_token = '<|eos|>'
 
-
 print('Tokenizer vocab size: ' + str(tokenizer.vocab_size))
 
 input_seqs = pd.read_csv('./final_inputs_full-model_v2_24-03-12.csv', index_col=0)
-
 
 # Using 1 and seperator and 2 as unknown AA (replacing X)
 input_seqs['SEQ'] =  input_seqs['antigen_seq'] + '[SEP]' + input_seqs['VH_abnum'] + '[LC]' + input_seqs['VL_abnum']
@@ -95,7 +82,6 @@ def create_dataset(sequences, tokenizer, test_frac, val_frac, max_length):
 
     return train_dataset, test_dataset #, val_dataset
 
-
 # Input array or list of sequences (here, I am calling the column from the DF with the sequences)
 train_dataset, test_dataset = create_dataset(input_seqs['SEQ'], tokenizer, val_frac = 0.1, test_frac = 0.1, max_length=1024) #, val_dataset
 
@@ -126,28 +112,23 @@ from transformers import TrainerCallback, TrainingArguments, Trainer
 from transformers import EvalPrediction
 import logging
 
-
 class MetricsLoggingCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, **kwargs):
         # Log metrics at the end of each epoch
         if state.is_local_process_zero:
             logger.info(f"Epoch: {state.epoch}, Training Loss: {state.global_step}, {state.log_history[-1]}")
 
-
 from transformers import Trainer, TrainingArguments
 import torch
 import torch.nn.functional as F
 
-
 def cross_entropy(logits, target, reduction='mean'):
     return torch.nn.functional.cross_entropy(input=logits, target=target, weight=None, size_average=None, reduce=None, reduction=reduction)
-
 
 class CustomNLLEntropyLossTrainer(Trainer):
     def __init__(self, *args, separator_token_id=31, **kwargs):
         super().__init__(*args, **kwargs)
         self.separator_token_id = separator_token_id
-
 
     def masked_sep_loss(model, batch, device):
         targets = batch['input_ids']
@@ -188,7 +169,6 @@ class CustomNLLEntropyLossTrainer(Trainer):
 
         return final_loss
 
-
 # Arugments for input to HuggingFace Trainer
 training_args = TrainingArguments(
     output_dir="./results",
@@ -219,7 +199,4 @@ trainer = CustomNLLEntropyLossTrainer(
     callbacks=[MetricsLoggingCallback()]
 )
 
-
 trainer.train()
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

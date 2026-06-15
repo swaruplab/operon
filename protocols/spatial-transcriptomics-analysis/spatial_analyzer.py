@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 import scanpy as sc
 import pandas as pd
@@ -19,8 +9,6 @@ class SpatialAnalyzer:
     """
     Automated Spatial Transcriptomics Analysis Pipeline.
     Designed for 10x Visium and Xenium datasets.
-    
-    Managed by MD BABU MIA, PhD.
     """
     
     def __init__(self, data_path: str, sample_id: str = "sample1"):
@@ -83,5 +71,3 @@ if __name__ == "__main__":
     # Test execution
     analyzer = SpatialAnalyzer(data_path="./test_data")
     # analyzer.load_data() # specific path needed
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'tcr-pmhc-prediction-agent'
 description: 'AI-powered TCR-peptide-MHC interaction prediction using AlphaFold3 and deep learning for therapeutic TCR discovery, neoantigen validation, and T cell immunogenicity assessment.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # TCR-pMHC Prediction Agent
 
@@ -217,10 +203,3 @@ python3 Skills/Immunology_Vaccines/TCR_pMHC_Prediction_Agent/tcr_pmhc_predict.py
 | Novel TCRs | Out-of-distribution | Lower confidence |
 | Post-translational | PTM peptides not modeled | Experimental validation |
 | Dynamics | Static structures | MD simulation |
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

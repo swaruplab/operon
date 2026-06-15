@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Protein Structure Prediction (AlphaFold)
 
 **ID:** `biomedical.drug_discovery.protein_structure`
@@ -531,15 +518,3 @@ Performance benchmarks:
 - [AlphaFold 3 GitHub](https://github.com/google-deepmind/alphafold3)
 - [OpenFold 3](https://github.com/aqlaboratory/openfold-3)
 - [AlphaFold MCP Server](https://github.com/Augmented-Nature/AlphaFold-MCP-Server)
-
----
-
-## Author
-
-**MD BABU MIA**
-*Artificial Intelligence Group*
-*Icahn School of Medicine at Mount Sinai*
-md.babu.mia@mssm.edu
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

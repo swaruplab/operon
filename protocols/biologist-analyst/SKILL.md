@@ -1,5 +1,6 @@
 ---
 name: biologist-analyst
+display_name: "Biology Systems Analyst"
 version: 1.0.0
 description: |
   Analyzes living systems and biological phenomena through biological lens using evolution, molecular biology,

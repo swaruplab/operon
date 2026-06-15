@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'organoid-drug-response-agent'
 description: 'AI-powered analysis of patient-derived organoid (PDO) drug screening for personalized oncology treatment selection and biomarker discovery.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Organoid Drug Response Agent
 
@@ -180,10 +166,3 @@ python3 Skills/Oncology/Organoid_Drug_Response_Agent/organoid_analyzer.py \
 2. **Panel Size**: 50-100+ drugs typically tested
 3. **Decision Support**: Ranked drug recommendations
 4. **Monitoring**: Re-screen on progression
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

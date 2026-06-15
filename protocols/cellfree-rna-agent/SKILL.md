@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'cellfree-rna-agent'
 description: 'AI-powered cell-free RNA analysis from liquid biopsy for cancer detection, tissue-of-origin identification, and non-invasive transcriptomic profiling.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Cell-Free RNA Analysis Agent
 
@@ -173,10 +159,3 @@ python3 Skills/Genomics/CellFree_RNA_Agent/cfrna_analyzer.py \
 2. **Single-molecule**: Direct RNA sequencing
 3. **Spatial deconvolution**: Mapping cfRNA to tissue regions
 4. **Longitudinal monitoring**: Treatment response tracking
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'pan-cancer-multiomics-agent'
 description: 'AI-powered pan-cancer analysis integrating genomic, transcriptomic, proteomic, and epigenomic data for cancer subtyping, driver identification, and cross-cancer pattern discovery.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Pan-Cancer Multi-Omics Agent
 
@@ -150,10 +136,3 @@ The agent integrates with MLOmics, providing:
 2. **Cross-indication trials**: Find basket trial eligibility
 3. **Driver prioritization**: Pan-cancer functional evidence
 4. **Prognosis**: Multi-omics survival models
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

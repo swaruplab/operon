@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 """ This file contains the code for calling all LLM APIs. Ref: https://github.com/snap-stanford/BioDiscoveryAgent/blob/master/LLM.py"""
 import sys
 import tiktoken
@@ -53,7 +43,6 @@ except Exception as e:
     print(e)
     print("Could not load deepseek API key in APIs/deepseek_api_key.yaml.")
 
-
 class TooLongPromptError(Exception):
     """Exception raised for errors in the prompt length."""
     def __init__(self, message="The prompt is too long."):
@@ -65,7 +54,6 @@ class LLMError(Exception):
     def __init__(self, message="An error occurred with the LLM."):
         self.message = message
         super().__init__(self.message)
-
 
 def log_to_file(log_file, prompt, completion, model):
     """ Log the prompt and completion to a file."""
@@ -80,7 +68,6 @@ def log_to_file(log_file, prompt, completion, model):
         f.write(f"Number of prompt tokens: {num_prompt_tokens}\n")
         f.write(f"Number of sampled tokens: {num_sample_tokens}\n")
         f.write("\n\n")
-
 
 def complete_text_claude(prompt, stop_sequences=[anthropic.HUMAN_PROMPT], model="claude-3.5-sonnet", max_tokens_to_sample = 2000, temperature=0.5, log_file=None, **kwargs):
     """ Call the Claude API to complete a prompt."""
@@ -156,5 +143,3 @@ def complete_text(prompt, log_file, model, **kwargs):
         completion = complete_text_deepseek(prompt, log_file=log_file, model=model, **kwargs)
         print(completion)
     return completion
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

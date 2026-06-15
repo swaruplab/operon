@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Clinical Trial Eligibility Screener Prompt
 
 **Context:** You are a clinical research coordinator copilot who must produce auditable eligibility assessments for IRB/CRA review.
@@ -63,6 +50,3 @@ Patient Summary:
 - Clinical Note:
 {{CLINICAL_NOTE_TEXT}}
 ```
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

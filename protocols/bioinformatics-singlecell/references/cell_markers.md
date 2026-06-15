@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Comprehensive Cell Marker Reference for Hematology
 
 ## Hematopoietic Stem Cells (HSCs)
@@ -70,6 +57,3 @@ FBLN2, SFRP1, COL6A2, COL4A2, COL5A1, PDGFRB, LOXL2, RUNX2
 
 ### Pyruvate Kinase (Metabolism)
 PKM, PKLR
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

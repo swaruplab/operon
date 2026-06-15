@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 __author__ = "qiao"
 
 """
@@ -72,7 +62,6 @@ def convert_criteria_pred_to_string(
 	
 	return output
 
-
 def convert_pred_to_prompt(
 		patient: str,
 		pred: dict,
@@ -94,7 +83,6 @@ def convert_pred_to_prompt(
 	prompt += "Then explain the consideration for determining patient-trial eligibility. Predict the eligibility score E (-R~R), which represents the patient's eligibility to the clinical trial. Note that -R <= E <= R (the absolute value of eligibility cannot be higher than the relevance), where E=-R denotes that the patient is ineligible (not included by any inclusion criteria, or excluded by all exclusion criteria), E=R denotes that the patient is eligible (included by all inclusion criteria, and not excluded by any exclusion criteria), E=0 denotes the patient is neutral (i.e., no relevant information for all inclusion and exclusion criteria).\n"
 	prompt += 'Please output a JSON dict formatted as Dict{"relevance_explanation": Str, "relevance_score_R": Float, "eligibility_explanation": Str, "eligibility_score_E": Float}.'
 
-
 	user_prompt = "Here is the patient note:\n"
 	user_prompt += patient + "\n\n"
 	user_prompt += "Here is the clinical trial description:\n"
@@ -104,7 +92,6 @@ def convert_pred_to_prompt(
 	user_prompt += "Plain JSON output:"
 
 	return prompt, user_prompt
-
 
 def trialgpt_aggregation(patient: str, trial_results: dict, trial_info: dict, model: str):
 	system_prompt, user_prompt = convert_pred_to_prompt(
@@ -128,5 +115,3 @@ def trialgpt_aggregation(patient: str, trial_results: dict, trial_info: dict, mo
 	result = json.loads(result)
 
 	return result
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

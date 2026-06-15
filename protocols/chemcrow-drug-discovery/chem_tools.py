@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 """
 ChemCrow Tools - Production-Grade Cheminformatics Toolkit
 
@@ -51,7 +41,6 @@ except ImportError:
     RDKIT_AVAILABLE = False
     print("Warning: RDKit not installed. Using mock mode for demonstration.")
 
-
 # --- Data Classes ---
 
 @dataclass
@@ -68,7 +57,6 @@ class MolecularProperties:
     aromatic_rings: int
     heavy_atoms: int
 
-
 @dataclass
 class LipinskiResult:
     """Lipinski Rule of 5 analysis result."""
@@ -80,7 +68,6 @@ class LipinskiResult:
     hba_pass: bool  # HBA <= 10
     details: Dict[str, Any]
 
-
 @dataclass
 class SAScoreResult:
     """Synthetic Accessibility Score result."""
@@ -89,7 +76,6 @@ class SAScoreResult:
     fragment_score: float
     complexity_penalty: float
 
-
 @dataclass
 class ToxicityAlert:
     """Toxicity alert from SMARTS matching."""
@@ -97,7 +83,6 @@ class ToxicityAlert:
     pattern: str
     severity: str  # "High", "Medium", "Low"
     description: str
-
 
 # --- SMARTS Patterns for Toxicity Alerts ---
 
@@ -164,7 +149,6 @@ PAINS_PATTERNS = {
     "imine_one": "[#6]-[#7]=[#6]-[#6]=[O]",
     "azo": "[#6]-[#7]=[#7]-[#6]",
 }
-
 
 # --- Main ChemTools Class ---
 
@@ -733,7 +717,6 @@ class ChemTools:
             complexity_penalty=score - 1.5
         )
 
-
 # --- Example Usage ---
 
 if __name__ == "__main__":
@@ -794,5 +777,3 @@ if __name__ == "__main__":
             
     else:
         parser.print_help()
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

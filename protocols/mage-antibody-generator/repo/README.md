@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # MAGE
 ## Generation of novel paired heavy-light chain antibodies using large language models
 Monoclonal Antibody GEnerator (MAGE) - a fine-tuned LLM for generating paired heavy-light antibody variable sequences with predicted binding specificity to antigen prompt.
@@ -49,7 +36,6 @@ _Antibody_generation_: script for generating antibody sequences against RBD. Thi
 
 _Fine_tuning_: script and example subset dataset (n=1000) for fine-tuning Progen2.
 
-
 ## Tutorial for antibody generation
 - Antibody sequences can be generated using the generate_antibodies.py Python script
 - An antigen prompt should be provided as an amino acid sequence with any signal peptides or transmembrane regions removed, example:
@@ -60,6 +46,3 @@ _Fine_tuning_: script and example subset dataset (n=1000) for fine-tuning Progen
 - This was tested on an Nvidia A6000 and took ~15 seconds to generate one antibody sequence against RBD.
 - To annotate and analyze output sequences without installing the follow-up analyses libraries listed above, generated sequences can be uploaded to the IMGT Domain Gap Align webserver: https://www.imgt.org/3Dstructure-DB/cgi/DomainGapAlign.cgi
   
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

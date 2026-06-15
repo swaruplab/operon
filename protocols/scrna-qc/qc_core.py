@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 #!/usr/bin/env python3
 """
 Core utility functions for single-cell RNA-seq quality control.
@@ -22,14 +12,12 @@ import scanpy as sc
 import numpy as np
 from scipy.stats import median_abs_deviation
 
-
 def _apply_transform(values, transform):
     if transform is None:
         return values
     if transform == 'log1p':
         return np.log1p(values)
     raise ValueError(f"Unsupported transform: {transform}")
-
 
 def calculate_qc_metrics(adata, mt_pattern='mt-,MT-', ribo_pattern='Rpl,Rps,RPL,RPS',
                         hb_pattern='^Hb[^(p)]|^HB[^(P)]', inplace=True):
@@ -77,7 +65,6 @@ def calculate_qc_metrics(adata, mt_pattern='mt-,MT-', ribo_pattern='Rpl,Rps,RPL,
 
     if not inplace:
         return adata
-
 
 def detect_outliers_mad(adata, metric, n_mads, transform=None, tail='both', verbose=True):
     """
@@ -129,7 +116,6 @@ def detect_outliers_mad(adata, metric, n_mads, transform=None, tail='both', verb
 
     return outlier_mask
 
-
 def apply_hard_threshold(adata, metric, threshold, operator='>', verbose=True):
     """
     Apply a hard threshold filter.
@@ -171,7 +157,6 @@ def apply_hard_threshold(adata, metric, threshold, operator='>', verbose=True):
 
     return mask
 
-
 def filter_cells(adata, mask, inplace=False):
     """
     Filter cells based on a boolean mask.
@@ -196,7 +181,6 @@ def filter_cells(adata, mask, inplace=False):
         return adata[mask].copy()
     else:
         return adata[mask].copy()
-
 
 def build_qc_masks(
     adata,
@@ -243,7 +227,6 @@ def build_qc_masks(
         'pass_qc': pass_qc
     }
 
-
 def filter_genes(adata, min_cells=20, min_counts=None, inplace=True):
     """
     Filter genes based on detection thresholds.
@@ -276,7 +259,6 @@ def filter_genes(adata, min_cells=20, min_counts=None, inplace=True):
     if not inplace:
         return adata
 
-
 def print_qc_summary(adata, label=''):
     """
     Print summary statistics for QC metrics.
@@ -306,5 +288,3 @@ def print_qc_summary(adata, label=''):
 
     if 'pct_counts_ribo' in adata.obs:
         print(f"  Mean ribosomal %: {adata.obs['pct_counts_ribo'].mean():.2f}%")
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

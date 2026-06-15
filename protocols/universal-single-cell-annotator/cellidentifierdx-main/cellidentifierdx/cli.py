@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import pandas as pd
 import numpy as np
 from .utils import load_data
@@ -34,7 +24,3 @@ def annotate_cell_types(reference_file, expr_file, sheet_name):
             cell_type_annotations.append((cluster_idx, best_cell_type, np.mean(list(cell_type_scores.values()))))
 
     return sheet_name, cell_type_annotations
-
-
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

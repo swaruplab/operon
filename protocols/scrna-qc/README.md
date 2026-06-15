@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Single-Cell RNA-seq Quality Control
 
 **ID:** `biomedical.genomics.single_cell_qc`
@@ -183,15 +170,3 @@ This workflow aligns with scverse best practices and avoids over-filtering rare 
 - **CRISPR Design Agent:** For follow-up knockout experiments.
 - **Spatial Transcriptomics:** For spatial context after QC and annotation.
 - **CellAgent:** For cell type labeling after QC.
-
----
-
-## Author
-
-**MD BABU MIA**
-*Artificial Intelligence Group*
-*Icahn School of Medicine at Mount Sinai*
-md.babu.mia@mssm.edu
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

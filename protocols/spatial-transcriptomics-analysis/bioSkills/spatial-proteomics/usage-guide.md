@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Spatial Proteomics Usage Guide
 
 ## Overview
@@ -76,6 +63,3 @@ Tell your AI agent what you want to do:
 - Consider k-nearest neighbors (k=10-30) for spatial analysis
 - Compare spatial patterns across multiple FOVs
 - Integrate with transcriptomics if available
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

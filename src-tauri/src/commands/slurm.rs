@@ -176,9 +176,11 @@ pub async fn slurm_submit_job(
             .find(|l| !l.is_empty())
             .map(|l| l.split('.').next().unwrap_or(l).to_string())
     } else {
-        output
-            .lines()
-            .find_map(|l| l.trim().strip_prefix("Submitted batch job ").map(|s| s.trim().to_string()))
+        output.lines().find_map(|l| {
+            l.trim()
+                .strip_prefix("Submitted batch job ")
+                .map(|s| s.trim().to_string())
+        })
     };
 
     job_id.ok_or_else(|| format!("Could not parse job id from output: {}", output.trim()))

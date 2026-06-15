@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Tutorial: CRISPR gRNA Design with Python
 
 **Domain:** Genomics / Synthetic Biology
@@ -55,6 +42,3 @@ print(f"Best Guide: {best_guide['spacer']} (Score: {best_guide['efficiency_score
 1.  **Search:** Find the DNA sequence for the *CFTR* gene (associated with Cystic Fibrosis). Paste a snippet into the variable `sequence`.
 2.  **Modify:** Edit `crispr_designer.py` to support **Cas12a**. Cas12a looks for a different PAM (`TTTV`) instead of `NGG`.
     *   *Hint:* Change the loop to look for `TTT` and grab sequence *after* it, not before.
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

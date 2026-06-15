@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Spatial Multi-omics Analysis - Usage Guide
 
 ## Overview
@@ -64,6 +51,3 @@ pip install squidpy spatialdata scanpy
 - **Squidpy** - Best for spatial statistics and visualization
 - **Memory** - High-res data can be large; use chunked processing
 - **Coordinate systems** - Check units (pixels vs microns)
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

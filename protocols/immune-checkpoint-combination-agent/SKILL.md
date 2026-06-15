@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'immune-checkpoint-combination-agent'
 description: 'AI-powered analysis for predicting optimal immune checkpoint inhibitor combinations based on tumor microenvironment, biomarkers, and molecular profiling.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Immune Checkpoint Combination Agent
 
@@ -161,10 +147,3 @@ python3 Skills/Immunology_Vaccines/Immune_Checkpoint_Combination_Agent/ici_combi
 2. **Sequencing**: Optimal order of agents
 3. **Biomarkers**: TMB, PD-L1, MSI as selection criteria
 4. **Cost**: Combination therapy costs
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

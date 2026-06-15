@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'tumor-mutational-burden-agent'
 description: 'Calculates and harmonizes Tumor Mutational Burden (TMB) across platforms to predict immunotherapy response.'
@@ -25,7 +12,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Tumor Mutational Burden Agent
 
@@ -179,10 +165,3 @@ Conversion factors (example):
 2. **TMB + PD-L1**: Combined scoring for NSCLC
 3. **TMB Monitoring**: Track under immunotherapy
 4. **TMB Heterogeneity**: Consider multiple samples
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

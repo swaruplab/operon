@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 system_prompt = """
 Spatial Transcriptomics AI Agent
 
@@ -112,25 +102,6 @@ Pipeline Instructions:
 Note: The agent can run in autonomous mode, executing all visualizations in sequence, or respond to specific analysis requests.
 """
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 spatial_processing_prompt = """
 In Squidpy, when performing spatial analysis with multiple samples in a single AnnData object, certain functions require independent processing for each sample. 
 This is essential to avoid spatial artifacts that can arise from pooled spatial coordinates across samples, which can lead to incorrect spatial relationships 
@@ -205,7 +176,3 @@ When visualizing results, it's essential to apply the following plotting functio
 In summary, each of these functions should be applied independently to each sample to prevent spatial artifacts and maintain sample-specific spatial integrity. 
 This approach ensures reliable spatial relationships within each sample, preserving the biological context in spatial analyses.
 """
-
-
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

@@ -1,5 +1,6 @@
 ---
 name: single-cell-rna-qc
+display_name: "scRNA-seq QC: scverse Best-Practices"
 description: Performs quality control on single-cell RNA-seq data (.h5ad or .h5 files) using scverse best practices with MAD-based filtering and comprehensive visualizations. Use when users request QC analysis, filtering low-quality cells, assessing data quality, or following scverse/scanpy best practices for single-cell analysis.
 ---
 

@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 import subprocess
 import json
@@ -36,10 +26,8 @@ from .ToolAgent import Json_Format_Agent
 from .CheckAgent import CheckAgent  # Add this import at the top
 from .ollama import OllamaEmbeddings
 
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 
 class Biomaster:
     def __init__(
@@ -614,7 +602,6 @@ class Biomaster:
                     TASK_results = TASK_agent.invoke(TASK_input)
                     TASK_results = Json_Format_Agent(TASK_results,  self.api_key, self.base_url,tool_model=self.tool_model)
 
-
                     PRE_DEBUG_output = []
                     try:
                         TASK_results = json.loads(TASK_results)
@@ -649,7 +636,6 @@ class Biomaster:
 
                 result_stdout = stdout_str[:max_output_length] if len(stdout_str) > max_output_length else stdout_str
                 result_stderr = stderr_str[:max_output_length] if len(stderr_str) > max_output_length else stderr_str
-
 
                 DEBUG_input = {
                     "input": json.dumps({
@@ -766,5 +752,3 @@ class Biomaster:
         # Use regex to remove <think>...</think> parts
         filtered_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
         return filtered_text
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

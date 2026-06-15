@@ -1,5 +1,6 @@
 ---
 name: spatial-transcriptomics
+display_name: "Spatial Transcriptomics: Squidpy Pipeline"
 description: Spatial transcriptomics analysis pipeline using squidpy + scanpy. Handles Visium, Xenium, CosMx, MERFISH, Slide-seq, and GeoMx data. Covers loading, quantile-based QC, normalization, clustering, spatial neighborhood analysis (enrichment, co-occurrence, spatially variable genes), and visualization. Includes minimal sections on cell-cell communication, niche detection, and Visium deconvolution.
 license: BSD-3-Clause license
 metadata:

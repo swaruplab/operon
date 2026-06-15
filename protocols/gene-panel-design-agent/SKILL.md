@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'gene-panel-design-agent'
 description: 'AI-powered design of targeted gene panels for clinical and research applications including cancer diagnostics, pharmacogenomics, and rare disease testing.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Gene Panel Design Agent
 
@@ -183,10 +169,3 @@ python3 Skills/Genomics/Gene_Panel_Design_Agent/panel_designer.py \
 | probes.fa | Probe sequences | Manufacturing |
 | genes.csv | Gene list with rationale | Documentation |
 | validation.pdf | QC plan | Laboratory setup |
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

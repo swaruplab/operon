@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'tpd-ternary-complex-agent'
 description: 'AI-powered ternary complex prediction for targeted protein degradation, modeling POI-degrader-E3 ligase assemblies to optimize PROTAC and molecular glue efficacy.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # TPD Ternary Complex Agent
 
@@ -217,10 +203,3 @@ python3 Skills/Drug_Discovery/TPD_Ternary_Complex_Agent/predict_ternary.py \
 | PAE (POI-E3) | <10 Å | Good relative positioning |
 | MD RMSD | <3 Å | Stable complex |
 | Clash Score | <50 | Good packing |
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

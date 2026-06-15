@@ -2080,7 +2080,11 @@ pub async fn start_claude_session(
             )
         };
         if provider == "custom" && use_proxy && !upstream.is_empty() {
-            let key = if up_key.is_empty() { None } else { Some(up_key) };
+            let key = if up_key.is_empty() {
+                None
+            } else {
+                Some(up_key)
+            };
             super::proxy::ensure_proxy(&app, proxy_state.inner(), &upstream, key.as_deref())
                 .await
                 .map_err(|e| {

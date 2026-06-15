@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'chemcrow-drug-discovery'
 description: 'An LLM chemistry agent with expert-designed tools for organic synthesis, drug discovery, and materials design.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # ChemCrow
 
@@ -57,5 +43,3 @@ ChemCrow is an open-source package for the accurate integration of Large Languag
 3.  Checks solubility prediction.
 4.  Plans synthesis route for the new molecule.
 5.  Checks safety of reagents.
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

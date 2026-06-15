@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 # util.py
 
 import os
@@ -109,7 +99,6 @@ def render_conversation_history(messages):
         elif isinstance(entry, ToolMessage):
             display_tool_message(entry, tool_input_map)
 
-
 def display_tool_message(entry, tool_input_map):
     """Display a tool message with the corresponding tool input."""
     tool_output = entry.content
@@ -137,7 +126,6 @@ def display_tool_message(entry, tool_input_map):
                     else:
                         st.write(f"Error: Plot file not found at {rel_path}")
 
-
 # Pydantic model for structured output
 class ConversationSummary(BaseModel):
     """Structure for conversation title and summary."""
@@ -156,5 +144,3 @@ def get_conversation_summary(messages: List[BaseMessage]) -> Tuple[str, str]:
     summarized_chain = prompt_template | structured_llm
     response = summarized_chain.invoke(messages)
     return response.title, response.summary
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

@@ -413,7 +413,8 @@ pub async fn test_custom_endpoint_via_proxy(
     }
     // Start (or reuse) the proxy bound to this upstream.
     let proxy_url =
-        super::proxy::ensure_proxy(&app, proxy_state.inner(), &base_url, api_key.as_deref()).await?;
+        super::proxy::ensure_proxy(&app, proxy_state.inner(), &base_url, api_key.as_deref())
+            .await?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))

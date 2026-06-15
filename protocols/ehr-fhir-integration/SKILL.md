@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'ehr-fhir-integration'
 description: 'Provides comprehensive tools for working with Electronic Health Records (EHR) using the HL7 FHIR standard.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # EHR/FHIR Integration
 
@@ -54,7 +40,3 @@ python3 Skills/Clinical/EHR_FHIR_Integration/fhir_client.py \
     --search "name=Smith&birthdate=gt1980-01-01" \
     --output patients.json
 ```
-
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

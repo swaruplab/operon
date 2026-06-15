@@ -1,5 +1,6 @@
 ---
 name: chemist-analyst
+display_name: "Chemistry Mechanisms Analyst"
 version: 1.0.0
 description: |
   Analyzes events through chemistry lens using molecular structure, reaction mechanisms, thermodynamics,

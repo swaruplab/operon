@@ -4,6 +4,44 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-06-14
+
+A protocol-catalog cleanup release: removed injected proprietary cruft, fixed
+protocol categorization and search, and replaced the protocol "Run" affordance
+with add-to-chat.
+
+### Added
+
+- **Protocol search now searches the whole catalog** and ignores the active
+  category chips (chips are a browse filter, not a search filter — honoring
+  them silently hid matches). Search also covers the slug, category label, and
+  uses prefix/stem matching, so e.g. "spatial transcription" finds the
+  `spatial-transcriptomics-*` protocols.
+
+### Changed
+
+- **Protocols are added to chat via the checkmark, not "run".** Removed the
+  "Configure & Run" panel and Run button from each protocol (the `run-protocol`
+  event had no listener — it never executed anything). Deleted
+  `ProtocolParamForm.tsx`.
+- **Sanitized the bundled protocol catalog** (~308 files): stripped an injected
+  "MD BABU MIA / Universal Biomedical Skills — proprietary and confidential"
+  copyright block, hidden `AUTHOR_SIGNATURE` watermark, and author bylines.
+  Legitimate third-party licenses (e.g. MIT) are preserved. Removed 2 duplicate
+  protocols (`biomni-general-agent`, `biomni-research-agent`) and 23
+  dev-scaffolding files (`CHECKLIST.md`, `PHASE*_COMPLETE.md`, etc.). Added
+  clear `display_name`s to confusing/overlapping protocols.
+
+### Fixed
+
+- **Protocol categorization: 5 mis-ordered categorizer rules.** Broad
+  `has()` matches ran before more specific rules, so protocols landed in the
+  wrong category and vanished from the right one: `spatial-transcriptomics-*`
+  (was Bulk RNA → now Spatial), `epitranscriptomics-*` (→ Epigenetics),
+  `tooluniverse-infectious-disease` (→ Clinical),
+  `tooluniverse-protein-interactions`/`-structure-retrieval` (→ Proteomics),
+  and `multi-omics-integration-*` (→ Systems biology).
+
 ## [0.7.8] — 2026-06-13
 
 ### Added

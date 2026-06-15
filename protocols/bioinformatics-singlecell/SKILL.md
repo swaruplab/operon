@@ -1,20 +1,7 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: bioinformatics-singlecell
 description: "Advanced single-cell multi-omics analysis including scRNA-seq, scCITE-seq, scATAC-seq, and TARGET-seq. Use when analyzing single-cell data, cell type identification, trajectory analysis, differential expression, UMAP/clustering, integrating protein and RNA modalities (TotalVI), or working with Scanpy, Seurat, scvi-tools. Includes workflows for MPN, hematologic malignancies, megakaryocyte biology."
-license: Proprietary
+license: Unknown
 ---
 
 # Single-Cell Multi-Omics Analysis
@@ -138,6 +125,3 @@ df.to_csv('DEG_results.csv', index=False)
 
 See `references/cell_markers.md` for complete marker lists.
 See `references/scvi_advanced.md` for advanced scvi-tools workflows.
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

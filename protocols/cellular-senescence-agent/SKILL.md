@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'cellular-senescence-agent'
 description: 'AI-powered analysis of cellular senescence for aging research, cancer therapy response, and senolytic drug development.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Cellular Senescence Agent
 
@@ -174,10 +160,3 @@ python3 Skills/Longevity_Aging/Cellular_Senescence_Agent/senescence_analyzer.py 
 3. **Drug Development**: Senolytic efficacy
 4. **Fibrosis**: Senescence in fibrotic disease
 5. **Regeneration**: Senescence in tissue repair
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

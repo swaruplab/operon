@@ -55,7 +55,6 @@ import { emit } from '@tauri-apps/api/event';
 import { useProject } from '../../context/ProjectContext';
 import { scanProjectFiles, scanRemoteProjectFiles, batchReadFilePreviews, batchReadRemoteFilePreviews } from '../../lib/report';
 import { ReportFileSelector } from '../report/ReportFileSelector';
-import { ProtocolParamForm } from '../protocols/ProtocolParamForm';
 import type { ProjectScan, ScanTreeNode, ScannedFile } from '../../types/report';
 import {
   searchProtocols,
@@ -298,12 +297,22 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
       list = list.filter(p => p.source === 'bundled');
     }
 
-    if (activeCategories.size > 0) {
-      list = list.filter(p => activeCategories.has(p.category || 'other'));
+    // A search query searches the WHOLE catalog — the category chips are a
+    // browse filter, not a search filter. Honoring them during search silently
+    // hides matching protocols (e.g. searching "spatial" while a different chip
+    // is selected returns nothing), which reads as "search is broken".
+    if (searchQuery.trim()) {
+      // Attach the human-readable category label so a query like "spatial"
+      // surfaces every protocol in that category, not just name/desc matches.
+      const withLabel = list.map((p) => ({
+        ...p,
+        categoryLabel: CATEGORY_META[p.category || 'other']?.label,
+      }));
+      return searchProtocols(withLabel, searchQuery);
     }
 
-    if (searchQuery.trim()) {
-      list = searchProtocols(list, searchQuery);
+    if (activeCategories.size > 0) {
+      list = list.filter(p => activeCategories.has(p.category || 'other'));
     }
 
     return list;
@@ -1131,7 +1140,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
                                 : 'bg-surface text-muted hover:bg-elevated hover:text-secondary'
                           }`}
                           style={{ width: '18px', height: '18px' }}
-                          title={isActive ? 'Deactivate protocol' : 'Activate protocol'}
+                          title={isActive ? 'Remove from chat' : 'Add to chat'}
                         >
                           {isActive ? <Check className="w-2.5 h-2.5" /> : null}
                         </button>
@@ -1198,28 +1207,6 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
 
                       {isExpanded && (
                         <div className="px-3 pb-2 ml-2 space-y-2">
-                          <details className="bg-canvas rounded border border-border-default" open>
-                            <summary className="cursor-pointer px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400 hover:bg-hover/40 select-none">
-                              Configure &amp; Run
-                            </summary>
-                            <div className="p-2 border-t border-border-default">
-                              <ProtocolParamForm
-                                slug={p.id}
-                                onRun={(paramsByVar) => {
-                                  const { __template__, ...env } = paramsByVar;
-                                  window.dispatchEvent(
-                                    new CustomEvent('run-protocol', {
-                                      detail: { slug: p.id, env, template: __template__ || '' },
-                                    }),
-                                  );
-                                  emit('show-notification', {
-                                    message: `Queued ${p.name} with ${Object.keys(env).length} parameters`,
-                                  });
-                                }}
-                              />
-                            </div>
-                          </details>
-
                           {previewContent && (
                             <div className="bg-canvas rounded border border-border-default p-2 max-h-48 overflow-y-auto">
                               <pre className="text-[10px] text-secondary whitespace-pre-wrap leading-relaxed font-mono">

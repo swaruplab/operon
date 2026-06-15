@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 #!/usr/bin/env python3
 """
 Spatial Proteomics Analysis with scimap
@@ -42,7 +32,6 @@ def load_spatial_proteomics(filepath):
 
     return adata
 
-
 def preprocess(adata):
     """Standard preprocessing for spatial proteomics."""
     # Log transform
@@ -54,7 +43,6 @@ def preprocess(adata):
     sm.pp.rescale(adata, gate=0.5)
 
     return adata
-
 
 # =============================================================================
 # Cell Phenotyping
@@ -93,7 +81,6 @@ def phenotype_cells_gating(adata):
 
     return adata
 
-
 def phenotype_cells_clustering(adata, resolution=1.0):
     """Phenotype cells using unsupervised clustering."""
     # Leiden clustering
@@ -105,7 +92,6 @@ def phenotype_cells_clustering(adata, resolution=1.0):
     # Annotate clusters based on marker expression
     # This requires manual inspection of cluster markers
     return adata
-
 
 # =============================================================================
 # Spatial Analysis
@@ -125,7 +111,6 @@ def spatial_neighbors(adata, method='knn', k=10):
     )
     return adata
 
-
 def spatial_interaction_analysis(adata, phenotype_col='phenotype'):
     """Analyze cell-cell spatial interactions.
 
@@ -143,7 +128,6 @@ def spatial_interaction_analysis(adata, phenotype_col='phenotype'):
     # Results stored in adata.uns['spatial_interaction']
     return adata
 
-
 def find_cellular_neighborhoods(adata, phenotype_col='phenotype'):
     """Identify recurring cellular neighborhoods."""
     # Spatial clustering based on cell type composition
@@ -158,7 +142,6 @@ def find_cellular_neighborhoods(adata, phenotype_col='phenotype'):
     print(adata.obs['spatial_cluster'].value_counts())
 
     return adata
-
 
 # =============================================================================
 # Visualization
@@ -188,7 +171,6 @@ def visualize_results(adata):
             x='X_centroid',
             y='Y_centroid'
         )
-
 
 # =============================================================================
 # Main Workflow
@@ -234,5 +216,3 @@ if __name__ == '__main__':
     print('\n=== Analysis Complete ===')
     print(f'Total cells: {adata.n_obs}')
     print(f'Markers: {adata.n_vars}')
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

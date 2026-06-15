@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'spatial-agent'
 description: 'An agent that interprets spatial transcriptomics data to propose mechanistic hypotheses and analyze tissue organization.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # SpatialAgent
 
@@ -51,6 +37,3 @@ SpatialAgent focuses on the biological interpretation of spatial transcriptomics
 1.  Analyzes the gene expression of macrophages and adjacent tumor cells.
 2.  Checks for ligand-receptor pairs (e.g., CSF1-CSF1R).
 3.  Proposes: "Macrophages are likely recruited by CSF1 secreted by the tumor cells, forming an immunosuppressive barrier..."
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

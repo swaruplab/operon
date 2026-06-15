@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'epigenomics-methylgpt-agent'
 description: 'AI-powered DNA methylation analysis using MethylGPT foundation models for epigenomic profiling, differential methylation detection, and cancer epigenome characterization.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Epigenomics MethylGPT Agent
 
@@ -102,10 +88,3 @@ python3 Skills/Genomics/Epigenomics_MethylGPT_Agent/methylgpt_analyzer.py \
 ## Methodology
 
 DNA methylation analysis leverages CNNs and transformers to capture sequence context and long-range dependencies. The MethylGPT foundation model is pre-trained on millions of CpG sites across diverse tissues and conditions, enabling transfer learning for specific applications. DiffuCpG uses diffusion-based generative modeling to impute missing methylation values while preserving biological structure.
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

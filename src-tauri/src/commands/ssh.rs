@@ -1286,17 +1286,16 @@ pub fn start_wake_detector(app: tauri::AppHandle) {
                     "[operon-ssh] Wake detected ({}s gap) — invalidating channels",
                     elapsed.as_secs()
                 );
-                let profiles: Vec<SSHProfile> =
-                    if let Some(state) = app.try_state::<SSHManager>() {
-                        state
-                            .profiles
-                            .lock()
-                            .ok()
-                            .map(|g| g.clone())
-                            .unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
+                let profiles: Vec<SSHProfile> = if let Some(state) = app.try_state::<SSHManager>() {
+                    state
+                        .profiles
+                        .lock()
+                        .ok()
+                        .map(|g| g.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 invalidate_all_unix_channels(&profiles);
                 let _ = app.emit("ssh-wake-reconnect", ());
             }
@@ -1540,7 +1539,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                         exit_code
                     ));
                 }
-                return Ok(stdout);
+                Ok(stdout)
             }
             Err(e) => {
                 // Channel died mid-call (heartbeat killed it, sshd MaxSessions,
@@ -1565,7 +1564,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                                         exit_code
                                     ));
                                 }
-                                return Ok(stdout);
+                                Ok(stdout)
                             }
                             Err(e2) => {
                                 eprintln!(
@@ -1576,7 +1575,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                                 unix_channel_mark_spawn_failed(&channel_key);
                                 pool.record_error(&e2);
                                 drop(guard);
-                                return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                                ssh_exec_oneshot(profile, remote_cmd, _has_mux)
                             }
                         }
                     }
@@ -1588,7 +1587,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                         unix_channel_mark_spawn_failed(&channel_key);
                         pool.record_error(&spawn_err);
                         drop(guard);
-                        return ssh_exec_oneshot(profile, remote_cmd, _has_mux);
+                        ssh_exec_oneshot(profile, remote_cmd, _has_mux)
                     }
                 }
             }

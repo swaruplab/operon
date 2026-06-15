@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from serpapi import GoogleSearch    
@@ -66,12 +56,10 @@ class GoogleScholarAPI:
 
 google_scholar = GoogleScholarAPI()
 
-
 @tool
 def google_scholar_search(query: str) -> str:
     """Searches Google Scholar for the provided query."""
     return google_scholar.run(query)
-
 
 @tool
 def visualize_cell_cell_interaction_tool() -> str:
@@ -128,7 +116,6 @@ def visualize_cell_cell_interaction_tool() -> str:
     for sample_i in week_20:
         week_20_result[sample_i] = result_cell_type_csv[sample_i]
 
-
     week_4_average = (week_4_result['(4, 1)'] + week_4_result['(4, 29)'])/2
     week_16_average = (week_16_result['(16, 185)'] + week_16_result['(16, 215)'] + week_16_result['(16, 242)'])/3
     week_20_average = (week_20_result['(20, 1)'] + week_20_result['(20, 46)'] + week_20_result['(20, 70)'] + week_20_result['(20, 160)'])/4
@@ -159,7 +146,6 @@ def visualize_cell_cell_interaction_tool() -> str:
     <<<REPEAT: PLEASE DON'T CHANGE THE CODE. AND YOU SHOULD USE THE `python_repl_tool` TO EXECUTE THE CODE. However, you can fix the bug>>>
     """
     return dedent(code)
-
 
 @tool
 def visualize_spatial_cell_type_map() -> str:
@@ -239,7 +225,6 @@ def visualize_spatial_cell_type_map() -> str:
     """
     return dedent(code)
 
-
 @tool
 def visualize_cell_type_composition() -> str:
     """
@@ -290,7 +275,6 @@ def visualize_cell_type_composition() -> str:
     plt.xticks(rotation=45)
     plt.show()
 
-
     print("Cell type composition (%):")
     print(composition_df.round(2))
     plt.figure(figsize=(10, 6))
@@ -306,7 +290,6 @@ def visualize_cell_type_composition() -> str:
     <<<DO NOT CHANGE ANY OF THE CODE FROM THE OUTPUT OF THE `visualize_cell_type_composition`>>>
     """
     return dedent(code)
-
 
 @tool
 def visualize_umap() -> str:
@@ -381,7 +364,6 @@ def visualize_umap() -> str:
     """
     return dedent(code)
 
-
 @tool
 def report_tool(state: Annotated[Dict, InjectedState], query: str) -> str:
     """Generates a comprehensive scientific report based on the conversation history.
@@ -403,8 +385,6 @@ def report_tool(state: Annotated[Dict, InjectedState], query: str) -> str:
 
     # Extract the chat history from the injected state
     chat_history = state["messages"]
-
-
 
     report_prompt = """
     # Scientific Analysis Report
@@ -481,7 +461,6 @@ def warn_once() -> None:
     """Warn once about the dangers of PythonREPL."""
     logger.warning("Python REPL can execute arbitrary code. Use with caution.")
 
-
 class PythonREPL(BaseModel):
     """Simulates a standalone Python REPL."""
 
@@ -553,6 +532,3 @@ class PythonREPL(BaseModel):
             self.worker(command, self.globals, self.locals, queue)
         # get the result from the worker function
         return queue.get()
-
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

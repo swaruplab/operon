@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 # Scientific Analysis Report: Temporal Evolution of Human Pancreatic Islet Xenotransplantation
 
 ## 1. Objective
@@ -229,5 +216,3 @@ In conclusion, this study provides a detailed characterization of the dynamic ce
 - Single-nucleus multi-omics of human stem cell-derived islets identifies deficiencies in lineage specification
 - Beta-cell function following human islet transplantation for type 1 diabetes
 - Alpha-, delta-and PP-cells: are they the architectural cornerstones of islet structure and co-ordination?
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

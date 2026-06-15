@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 __author__ = "qiao"
 
 """
@@ -46,7 +36,6 @@ def parse_criteria(criteria):
 	
 	return output
 
-
 def print_trial(
 	trial_info: dict,
 	inc_exc: str,
@@ -64,7 +53,6 @@ def print_trial(
 		trial += "Exclusion criteria:\n %s\n" % parse_criteria(trial_info['exclusion_criteria']) 
 
 	return trial
-
 
 def get_matching_prompt(
 	trial_info: dict,
@@ -98,7 +86,6 @@ def get_matching_prompt(
 
 	return prompt, user_prompt
 
-
 def trialgpt_matching(trial: dict, patient: str, model: str):
 	results = {}
 
@@ -126,5 +113,3 @@ def trialgpt_matching(trial: dict, patient: str, model: str):
 			results[inc_exc] = message
 
 	return results
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

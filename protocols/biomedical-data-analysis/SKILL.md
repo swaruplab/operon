@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: biomedical-data-analysis
 description: Omics data forge
@@ -51,6 +38,3 @@ Run the cross-language data analysis workflows (Python, R, SQL, Tableau/Power BI
 
 ## References
 - Capability tables, code samples, and parameter definitions live in `README.md` (plus `tutorials/README.md` for step-by-step lessons).
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'crispr-offtarget-predictor'
 description: 'Predicts potential off-target sites for a given sgRNA sequence using mismatch analysis.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # CRISPR Off-Target Predictor
 
@@ -51,6 +37,3 @@ This skill identifies potential off-target binding sites for a specific sgRNA se
 ```bash
 python3 Skills/Genomics/CRISPR_Prediction/impl.py --sequence GAGTCCGAGCAGAAGAAGAA --pam NGG
 ```
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

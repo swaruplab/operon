@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 __author__ = "qiao"
 
 """
@@ -74,7 +64,6 @@ def get_matching_score(matching):
 	
 	return score 
 
-
 def get_agg_score(assessment):
 	try:
 		rel_score = float(assessment["relevance_score_R"])
@@ -86,7 +75,6 @@ def get_agg_score(assessment):
 	score = (rel_score + eli_score) / 100
 
 	return score 
-
 
 if __name__ == "__main__":
 	# args are the results paths
@@ -128,5 +116,3 @@ if __name__ == "__main__":
 
 		print("===")
 		print()
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

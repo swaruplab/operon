@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 #!/usr/bin/env python3
 """
 Visualization functions for single-cell RNA-seq quality control.
@@ -19,14 +9,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import median_abs_deviation
 
-
 def _transform_data(values, transform):
     if transform is None:
         return values, None
     if transform == 'log1p':
         return np.log1p(values), np.expm1
     raise ValueError(f"Unsupported transform: {transform}")
-
 
 def plot_qc_distributions(adata, output_path, title='Quality Control Metrics'):
     """
@@ -122,7 +110,6 @@ def plot_qc_distributions(adata, output_path, title='Quality Control Metrics'):
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
 
-
 def plot_filtering_thresholds(adata, outlier_masks, thresholds, output_path):
     """
     Visualize filtering thresholds overlaid on distributions.
@@ -196,7 +183,6 @@ def plot_filtering_thresholds(adata, outlier_masks, thresholds, output_path):
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
 
-
 def plot_qc_after_filtering(adata, output_path):
     """
     Create QC plots for filtered data (simplified version without outlier overlay).
@@ -266,5 +252,3 @@ def plot_qc_after_filtering(adata, output_path):
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"

@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'tcr-repertoire-analysis-agent'
 description: 'AI-powered T-cell receptor repertoire analysis for cancer diagnosis, immunotherapy response prediction, and therapeutic TCR selection using deep learning and multi-layer ML approaches.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # TCR Repertoire Analysis Agent
 
@@ -209,10 +195,3 @@ python3 Skills/Immunology_Vaccines/TCR_Repertoire_Analysis_Agent/tcr_repertoire_
 | NSCLC | Moderate diversity | Limited |
 | CRC-MSI | Neoantigen-reactive | Variable |
 | HPV+ HNSCC | HPV-E6/E7 reactive | Yes |
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

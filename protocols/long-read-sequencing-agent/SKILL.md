@@ -1,16 +1,3 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: 'long-read-sequencing-agent'
 description: 'AI-powered analysis of long-read sequencing data (PacBio, ONT) for structural variant detection, isoform discovery, epigenetic modifications, and de novo assembly.'
@@ -19,7 +6,6 @@ allowed-tools:
   - read_file
   - run_shell_command
 ---
-
 
 # Long-Read Sequencing Agent
 
@@ -172,10 +158,3 @@ python3 Skills/Genomics/Long_Read_Sequencing_Agent/longread_analyzer.py \
 | Isoforms | GTF | Transcript annotations |
 | Phased | VCF | Haplotype-resolved variants |
 | Assembly | FASTA | Assembled contigs |
-
-## Author
-
-AI Group - Biomedical AI Platform
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

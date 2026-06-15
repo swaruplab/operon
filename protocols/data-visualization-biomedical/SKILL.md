@@ -1,20 +1,7 @@
-<!--
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
--->
-
 ---
 name: data-visualization-biomedical
 description: "Publication-quality visualizations for biomedical and genomics data. Use when creating volcano plots, heatmaps, UMAP plots, dot plots, survival curves, forest plots, or multi-panel figures. Includes scanpy, matplotlib, seaborn, plotly workflows with journal-ready aesthetics and proper statistical annotations."
-license: Proprietary
+license: Unknown
 ---
 
 # Biomedical Data Visualization
@@ -247,6 +234,3 @@ def save_figure(fig, filename, formats=['pdf', 'png', 'svg']):
 
 See `references/color_guidelines.md` for accessibility standards.
 See `scripts/figure_templates.py` for pre-built templates.
-
-
-<!-- AUTHOR_SIGNATURE: 9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE -->

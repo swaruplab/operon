@@ -1,13 +1,3 @@
-# COPYRIGHT NOTICE
-# This file is part of the "Universal Biomedical Skills" project.
-# Copyright (c) 2026 MD BABU MIA, PhD <md.babu.mia@mssm.edu>
-# All Rights Reserved.
-#
-# This code is proprietary and confidential.
-# Unauthorized copying of this file, via any medium is strictly prohibited.
-#
-# Provenance: Authenticated by MD BABU MIA
-
 import os
 import re
 import time
@@ -159,7 +149,6 @@ def construct_cell_type_annotation_questions(data_info, data_path='data/GPTCellT
 
         dataset_df.to_csv(f"{data_path}/{name}.csv", index=False)
 
-
 def standardize_cell_type(cell_type):
     cell_type = cell_type.strip(' ')
     cell_type = re.sub(r'^\d+[\.\ -\-\:]\s*', '', cell_type)
@@ -170,7 +159,6 @@ def standardize_cell_type(cell_type):
         return singular_cell_type.lower()
     elif not singular_cell_type:
         return cell_type.lower().replace('cells', 'cell')
-
 
 def structured_outputs(model): # TODO
     '''While the [gpt-4o-mini, gpt-4o-2024-08-06, and later] models natively support structured outputs, others like [gpt-3.5-turbo, Claude, ...] do not. This function can be used to convert structured outputs to a format that can be used by the model.'''
@@ -216,5 +204,3 @@ if __name__ == "__main__":
     # for dataset_name in dataset_name_list:
     #     data = combine_result(f'data/GPTCellType/datasets/{dataset_name}.csv', f'analysis/o1-preview (for reproduce)/{dataset_name}/top_{top_n}_max_{max_marker_genes}.txt', f'{model}_top_{}')
     #     data.to_csv(f'data/GPTCellType/datasets/top_3/{dataset_name}.csv', index=False)
-
-__AUTHOR_SIGNATURE__ = "9a7f3c2e-MD-BABU-MIA-2026-MSSM-SECURE"
