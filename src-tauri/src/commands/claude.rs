@@ -3327,7 +3327,28 @@ pub async fn start_claude_session(
         ));
 
         let mut c = AsyncCommand::new(&shell);
-        c.arg("-l").arg("-c").arg(&ssh_args);
+        // On Windows the ssh invocation embeds the base64 of the remote command
+        // (which contains the full prompt) inline. With a large prompt — e.g.
+        // attached protocols — that overflows Windows' ~32 KB CreateProcess
+        // command-line limit and spawning fails with "os error 206". Write the
+        // ssh command to a temp script file and run it from there so the command
+        // line stays tiny. macOS/Linux have a much larger ARG_MAX, so they pass
+        // the command directly.
+        #[cfg(windows)]
+        {
+            let script_file = std::env::temp_dir().join(format!("operon-ssh-{}.sh", session_id));
+            std::fs::write(&script_file, ssh_args.as_bytes())
+                .map_err(|e| format!("Failed to write ssh command script: {}", e))?;
+            let script_str = script_file.to_string_lossy().to_string();
+            let script_posix = crate::platform::common::normalize_display_path(&script_str);
+            c.arg("-l")
+                .arg("-c")
+                .arg(format!("bash -l '{}'", script_posix.replace('\'', "'\\''")));
+        }
+        #[cfg(not(windows))]
+        {
+            c.arg("-l").arg("-c").arg(&ssh_args);
+        }
         c
     } else {
         // --- LOCAL: run claude directly ---
@@ -3352,16 +3373,27 @@ pub async fn start_claude_session(
         // command line to rebuild argv, which mangles a complex `-c` string — the
         // prompt and appended system prompt contain both single and double quotes,
         // producing "unexpected EOF while looking for matching" and failing local
-        // chat. Base64-encode the command and pipe it into a fresh login bash via
-        // stdin, so the outer `-c` arg holds only the safe base64 alphabet plus a
-        // trivial decoder and MSYS has nothing to mangle (the same trick the
-        // remote path uses). macOS/Linux parse argv once and run the command as-is.
+        // chat. We write the full command to a temp script file and run it with a
+        // fresh login bash, so the outer `-c` arg holds only a short, quote-free
+        // file path and MSYS has nothing to mangle.
+        //
+        // This ALSO fixes "os error 206" (ERROR_FILENAME_EXCED_RANGE): the prior
+        // approach embedded the base64 of the command inline (`echo <b64> | ...`),
+        // which — with a large prompt such as attached protocols — overflowed
+        // Windows' ~32 KB CreateProcess command-line limit and failed to spawn.
+        // A file path keeps the command line tiny no matter how big the prompt is.
+        // macOS/Linux parse argv once (and have a much larger ARG_MAX), so they
+        // run the command as-is.
         #[cfg(windows)]
         {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(wrapped_cmd.as_bytes());
+            let script_file = std::env::temp_dir().join(format!("operon-cmd-{}.sh", session_id));
+            std::fs::write(&script_file, wrapped_cmd.as_bytes())
+                .map_err(|e| format!("Failed to write command script: {}", e))?;
+            let script_str = script_file.to_string_lossy().to_string();
+            let script_posix = crate::platform::common::normalize_display_path(&script_str);
             c.arg("-l")
                 .arg("-c")
-                .arg(format!("echo {} | base64 -d | bash -l -s", b64));
+                .arg(format!("bash -l '{}'", script_posix.replace('\'', "'\\''")));
         }
         #[cfg(not(windows))]
         {

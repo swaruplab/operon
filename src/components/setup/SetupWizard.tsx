@@ -196,9 +196,6 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   // Track which steps completed with errors (for StepIndicator coloring)
   const [failedSteps, setFailedSteps] = useState<Set<Step>>(new Set());
 
-  // Git installer download state (Windows)
-  const [gitDownloading, setGitDownloading] = useState(false);
-
   // OpenSSH client availability (Windows only — may be disabled by default)
   const [sshStatus, setSshStatus] = useState<SshStatus | null>(null);
 
@@ -807,82 +804,12 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
               </div>
             )}
 
-            {/* Windows: Git missing — show download button BEFORE install phase runs */}
-            {isWindows && deps && !deps.git_bash && !phaseRunning && !phaseDone && (() => {
-              const GIT_INSTALLER_URL = 'https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/Git-2.54.0-64-bit.exe';
-
-              return (
-                <div className="space-y-3">
-                  {!gitDownloading ? (
-                    <>
-                      <div className="p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg text-center space-y-2">
-                        <XCircle className="w-8 h-8 text-red-600 dark:text-red-400 mx-auto" />
-                        <p className="text-sm font-semibold text-red-200">Git for Windows is required</p>
-                        <p className="text-xs text-secondary">Claude Code needs Git to work. Click below to download the installer.</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          invoke('open_url', { url: GIT_INSTALLER_URL });
-                          setGitDownloading(true);
-                        }}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-base transition-colors"
-                      >
-                        <Download className="w-5 h-5" />
-                        Download Git Installer
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="p-4 bg-blue-950/20 border-2 border-blue-700/30 rounded-lg space-y-3">
-                        <div className="flex items-start gap-3">
-                          <Download className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                          <div className="space-y-2">
-                            <p className="text-sm font-semibold text-blue-200">Git installer is downloading</p>
-                            <p className="text-xs text-secondary leading-relaxed">
-                              Check your browser's download bar at the bottom of the screen. When the download finishes:
-                            </p>
-                            <ol className="text-xs text-secondary space-y-1 list-decimal list-inside">
-                              <li><span className="text-secondary font-medium">Open</span> the downloaded <code className="text-blue-700 dark:text-blue-300 bg-panel px-1 rounded text-[11px]">Git-2.54.0-64-bit.exe</code></li>
-                              <li><span className="text-secondary font-medium">Click Next</span> through the setup wizard (defaults are fine)</li>
-                              <li><span className="text-secondary font-medium">Click Install</span> and wait for it to finish</li>
-                              <li>Come back here and click the green button below</li>
-                            </ol>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            await invoke('refresh_environment').catch(() => {});
-                            const status = await invoke<DependencyStatus>('check_local_dependencies');
-                            setDeps(status);
-                            if (status.git_bash) {
-                              // Git found! Now run the full tools install for remaining items
-                              startToolsInstall();
-                            } else {
-                              // Not found yet — keep showing instructions
-                              setGitDownloading(true);
-                            }
-                          } catch { /* ignore */ }
-                        }}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-semibold text-base transition-colors"
-                      >
-                        <CheckCircle className="w-5 h-5" />
-                        I finished installing Git — Continue
-                      </button>
-                      <button
-                        onClick={() => {
-                          invoke('open_url', { url: GIT_INSTALLER_URL });
-                        }}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-surface hover:bg-elevated text-secondary rounded-lg text-xs transition-colors"
-                      >
-                        Download again
-                      </button>
-                    </>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Windows: Git is installed by the unified elevated batch (install_phase_tools,
+                step [1/6]) along with Node/gh/Python/uv/OpenSSH in a single UAC prompt.
+                We intentionally do NOT show a separate "Download Git" pre-step here — that
+                made the user install Git by hand and then the batch re-installed it
+                (double-install). If the batch can't produce Git, the phaseError panel below
+                ("Action Required: Install Git for Windows") is the single fallback. */}
 
             {/* Per-step status rows */}
             {(phaseRunning || phaseDone) && (
