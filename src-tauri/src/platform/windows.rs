@@ -151,7 +151,17 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
         .unwrap_or_else(|_| home.join("AppData").join("Local"));
     let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     vec![
+        // Operon's per-user portable Node: the Windows zip puts node.exe /
+        // npm.cmd at the ROOT of the extracted dir (no bin/ subdir like Unix).
+        super::operon_node_dir(),
         super::operon_node_dir().join("bin"),
+        // Operon's per-user portable GitHub CLI: gh.exe lives under bin/.
+        super::operon_gh_dir().join("bin"),
+        // Operon's per-user PortableGit (no-admin Git). bash/git live in bin/cmd;
+        // ssh and friends in usr/bin.
+        super::operon_git_dir().join("cmd"),
+        super::operon_git_dir().join("bin"),
+        super::operon_git_dir().join("usr").join("bin"),
         appdata.join("npm"),
         std::path::PathBuf::from(r"C:\Program Files\nodejs"),
         std::path::PathBuf::from(r"C:\Program Files\Git\bin"),
@@ -370,6 +380,12 @@ pub fn find_git_bash() -> Option<String> {
         .unwrap_or_else(|_| home.join("AppData").join("Local"));
 
     let candidates = [
+        // Operon's own per-user PortableGit (no-admin install) — checked first.
+        super::operon_git_dir()
+            .join("bin")
+            .join("bash.exe")
+            .to_string_lossy()
+            .to_string(),
         // Standard system-wide install
         r"C:\Program Files\Git\bin\bash.exe".to_string(),
         r"C:\Program Files (x86)\Git\bin\bash.exe".to_string(),
@@ -430,125 +446,64 @@ pub fn has_git_bash() -> bool {
     find_git_bash().is_some()
 }
 
-/// Install Git for Windows.
+/// Install Git for Windows per-user with NO admin.
 ///
-/// Downloads the official Git installer using `certutil` (built into every
-/// Windows since Vista — no PowerShell needed) and launches it with the GUI
-/// so the user can click through the wizard. The installer handles its own
-/// UAC elevation prompt.
+/// Uses the **PortableGit** self-extracting archive (a 7-Zip SFX), not the
+/// standard installer: the installer can request UAC for an all-users install,
+/// which locked-down lab accounts cannot grant. PortableGit only *extracts* —
+/// no elevation, no wizard, no PATH write (extra_tool_paths() surfaces it). We
+/// unpack it into operon_git_dir(), which find_git_bash() checks first.
 ///
-/// Returns Ok(()) if the installer was launched (NOT that Git is installed —
-/// caller must re-check after the user finishes the wizard).
-/// Returns Err("INSTALLER_LAUNCHED") as a sentinel so the caller knows to
-/// show "re-check" UI.
+/// Returns Ok(()) when Git is actually installed (unlike the old GUI path).
+/// Returns Err("BROWSER_OPENED") if the download fails, so the caller shows the
+/// manual-download fallback.
 pub fn install_git() -> Result<(), String> {
-    let temp = super::temp_dir();
-    let installer_path = temp.join("Git-installer.exe");
-    let installer_str = installer_path.to_string_lossy().to_string();
-
-    // 64-bit standalone installer URL (works on all modern Windows)
-    let url = "https://github.com/git-for-windows/git/releases/download/v2.54.0.windows.1/Git-2.54.0-64-bit.exe";
-
-    eprintln!("[Git] Downloading installer from {}", url);
-
-    // Strategy 1: certutil (built into Windows, most reliable, no PowerShell dep)
-    let dl_result = std::process::Command::new("certutil")
-        .args(["-urlcache", "-split", "-f", url, &installer_str])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-
-    let downloaded = match dl_result {
-        Ok(o) if o.status.success() && installer_path.exists() => {
-            eprintln!("[Git] certutil download succeeded");
-            true
-        }
-        Ok(o) => {
-            eprintln!(
-                "[Git] certutil failed: {}",
-                String::from_utf8_lossy(&o.stderr)
-            );
-            false
-        }
-        Err(e) => {
-            eprintln!("[Git] certutil not available: {}", e);
-            false
-        }
-    };
-
-    // Strategy 2: PowerShell Invoke-WebRequest fallback
-    let downloaded = if downloaded {
-        true
+    let arch = if cfg!(target_arch = "x86_64") {
+        "64-bit"
     } else {
-        eprintln!("[Git] Trying PowerShell download...");
-        let ps_cmd = format!(
-            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
-            url, installer_str
-        );
-        let ps_result = std::process::Command::new("powershell.exe")
-            .args(["-ExecutionPolicy", "Bypass", "-Command", &ps_cmd])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-
-        match ps_result {
-            Ok(o) if o.status.success() && installer_path.exists() => {
-                eprintln!("[Git] PowerShell download succeeded");
-                true
-            }
-            _ => false,
-        }
+        "arm64"
     };
+    let version = "2.54.0";
+    let url = format!(
+        "https://github.com/git-for-windows/git/releases/download/v{v}.windows.1/PortableGit-{v}-{a}.7z.exe",
+        v = version,
+        a = arch
+    );
+    let sfx = super::temp_dir().join("PortableGit.7z.exe");
+    let dest = super::operon_git_dir();
 
-    // Strategy 3: bitsadmin fallback (also built into Windows)
-    let downloaded = if downloaded {
-        true
-    } else {
-        eprintln!("[Git] Trying bitsadmin download...");
-        let bits_result = std::process::Command::new("bitsadmin")
-            .args([
-                "/transfer",
-                "GitDownload",
-                "/download",
-                "/priority",
-                "high",
-                url,
-                &installer_str,
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-
-        match bits_result {
-            Ok(o) if o.status.success() && installer_path.exists() => {
-                eprintln!("[Git] bitsadmin download succeeded");
-                true
-            }
-            _ => false,
-        }
-    };
-
-    if downloaded && installer_path.exists() {
-        eprintln!("[Git] Launching installer GUI: {}", installer_str);
-        // Launch the installer with GUI — it will prompt for UAC itself
-        match std::process::Command::new(&installer_str).spawn() {
-            Ok(_) => {
-                eprintln!("[Git] Installer launched successfully");
-                return Err("INSTALLER_LAUNCHED".to_string());
-            }
-            Err(e) => {
-                eprintln!("[Git] Failed to launch installer: {}", e);
-                // Try via cmd /C start (handles UAC better sometimes)
-                let _ = std::process::Command::new("cmd.exe")
-                    .args(["/C", "start", "", &installer_str])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .spawn();
-                return Err("INSTALLER_LAUNCHED".to_string());
-            }
-        }
+    eprintln!("[Git] Downloading PortableGit {} ...", url);
+    if download_file(&url, &sfx).is_err() {
+        eprintln!("[Git] PortableGit download failed, opening browser");
+        let _ = open_url("https://git-scm.com/downloads/win");
+        return Err("BROWSER_OPENED".to_string());
     }
 
-    // All download strategies failed — fall back to opening the browser
-    eprintln!("[Git] All download strategies failed, opening browser");
-    let _ = open_url("https://git-scm.com/downloads/win");
-    Err("BROWSER_OPENED".to_string())
+    if dest.exists() {
+        let _ = std::fs::remove_dir_all(&dest);
+    }
+    std::fs::create_dir_all(&dest)
+        .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
+
+    // 7-Zip SFX flags: `-o<dir>` sets the output dir, `-y` assumes yes — a
+    // silent, non-elevated extraction. `.status()` waits for it to finish.
+    eprintln!("[Git] Extracting PortableGit to {} ...", dest.display());
+    let status = std::process::Command::new(&sfx)
+        .arg(format!("-o{}", dest.display()))
+        .arg("-y")
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|e| format!("PortableGit extraction failed to launch: {}", e))?;
+    let _ = std::fs::remove_file(&sfx);
+
+    if !status.success() {
+        return Err("PortableGit extraction did not complete.".to_string());
+    }
+    if !dest.join("bin").join("bash.exe").exists() {
+        return Err("Git Bash not found after extraction.".to_string());
+    }
+    persist_git_bash_env();
+    Ok(())
 }
 
 /// Persist CLAUDE_CODE_GIT_BASH_PATH as a user-level environment variable
@@ -608,143 +563,165 @@ pub(crate) fn winget_install_cmd(id: &str) -> std::process::Command {
     c
 }
 
-/// Install all developer tools in ONE elevated, visible console.
-///
-/// Headless winget does not work from a GUI app: `where.exe winget` resolves to
-/// the App Execution Alias (a reparse point that `CreateProcess` can't launch),
-/// and machine-scope installs (Node/Git/Python) need administrator rights that a
-/// non-elevated app can't obtain. So instead we write a batch script and launch
-/// it with `Start-Process -Verb RunAs` — a single UAC prompt, a real console
-/// where winget's alias resolves the way a shell does and installer UIs can
-/// render, and the user sees progress. Mirrors how a manual `winget install`
-/// works (which users confirmed succeeds). Blocks until the console is closed.
-pub fn install_tools_elevated() -> Result<(), String> {
-    let bat = super::temp_dir().join("operon-install-tools.bat");
-    // NOTE: `\"` is a literal double-quote in the .bat (for the inner PowerShell
-    // call). Each winget line accepts agreements non-interactively but is NOT
-    // `--silent`, so installer windows can render in this visible console.
-    //
-    // MULTI-USER: these are the SHARED developer tools, pinned to `--scope
-    // machine` so a single elevated install lands in Program Files + the HKLM
-    // PATH and is visible to EVERY account on the machine. This matters because
-    // `Start-Process -Verb RunAs` may run this batch as a *different* admin
-    // account than the user driving Operon (standard user supplying admin
-    // creds) — a per-user (default) install would land in that admin's profile,
-    // invisible to the actual user. Per-user tools (uv, reportlab, Claude Code)
-    // are deliberately NOT here; they install non-elevated in Operon's own
-    // current-user context so they always land in the right profile.
-    let bat_body = "@echo off\r\n\
-        echo ============================================================\r\n\
-        echo  Operon is installing developer tools (needs administrator).\r\n\
-        echo  Let each installer finish; this window stays open at the end.\r\n\
-        echo ============================================================\r\n\
-        echo.\r\n\
-        echo [1/5] Git for Windows\r\n\
-        winget install --id Git.Git -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
-        echo.\r\n\
-        echo [2/5] Node.js (LTS)\r\n\
-        winget install --id OpenJS.NodeJS.LTS -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
-        echo.\r\n\
-        echo [3/5] GitHub CLI\r\n\
-        winget install --id GitHub.cli -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
-        echo.\r\n\
-        echo [4/5] Python 3.12\r\n\
-        winget install --id Python.Python.3.12 -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
-        echo.\r\n\
-        echo [5/5] OpenSSH Client\r\n\
-        powershell -NoProfile -Command \"Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0\"\r\n\
-        echo.\r\n\
-        echo ============================================================\r\n\
-        echo  All done. Close this window and return to Operon, then Retry.\r\n\
-        echo ============================================================\r\n\
-        pause\r\n";
-    std::fs::write(&bat, bat_body)
-        .map_err(|e| format!("Failed to write installer script: {}", e))?;
+/// Download `url` to `dest` with NO admin rights: certutil first (built into
+/// every Windows, no PowerShell needed), PowerShell Invoke-WebRequest fallback.
+fn download_file(url: &str, dest: &std::path::Path) -> Result<(), String> {
+    let dest_str = dest.to_string_lossy().to_string();
 
-    // A hidden outer PowerShell elevates and runs the visible batch, waiting for
-    // it to finish. RunAs raises one UAC prompt; declining throws → exit 1.
-    let bat_str = bat.to_string_lossy().replace('\'', "''");
+    let certutil = std::process::Command::new("certutil")
+        .args(["-urlcache", "-split", "-f", url, &dest_str])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    if let Ok(o) = certutil {
+        if o.status.success() && dest.exists() {
+            return Ok(());
+        }
+    }
+
     let ps = format!(
-        "try {{ Start-Process -FilePath '{}' -Verb RunAs -Wait; exit 0 }} catch {{ exit 1 }}",
-        bat_str
+        "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
+        url, dest_str
     );
-    let status = std::process::Command::new("powershell")
+    let out = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
         .creation_flags(CREATE_NO_WINDOW)
-        .status()
-        .map_err(|e| format!("Failed to launch elevated installer: {}", e))?;
-
-    let _ = std::fs::remove_file(&bat);
-
-    if status.success() {
+        .output()
+        .map_err(|e| format!("Download failed to launch: {}", e))?;
+    if out.status.success() && dest.exists() {
         Ok(())
     } else {
-        Err("Elevated installer did not complete (was the admin prompt declined?)".to_string())
+        Err(format!(
+            "Download failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ))
     }
 }
 
-pub fn install_node_platform() -> Result<(), String> {
-    // Strategy 1: winget (built into Windows 11 and Windows 10 1709+)
-    let winget = winget_install_cmd("OpenJS.NodeJS.LTS").output();
+/// Extract a .zip into `dest`, stripping the single top-level directory the
+/// archive wraps everything in (like `tar --strip-components=1`). NO admin.
+fn extract_zip_stripped(zip: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    if dest.exists() {
+        let _ = std::fs::remove_dir_all(dest);
+    }
+    std::fs::create_dir_all(dest)
+        .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
 
-    if let Ok(o) = winget {
+    // Strategy 1: bsdtar (Windows 10 1803+ ships tar.exe) handles zip +
+    // --strip-components in one shot, mirroring the macOS/Linux path.
+    let tar = std::process::Command::new("tar")
+        .arg("-xf")
+        .arg(zip)
+        .args(["--strip-components=1", "-C"])
+        .arg(dest)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    if let Ok(o) = tar {
         if o.status.success() {
-            refresh_path_from_registry();
-            return Ok(());
-        }
-        let out_text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        if out_text.contains("already installed") {
-            refresh_path_from_registry();
             return Ok(());
         }
     }
 
-    // Strategy 2: Download .msi installer via PowerShell and run silently
+    // Strategy 2: PowerShell Expand-Archive into a staging dir, then promote the
+    // single wrapper folder's contents up into `dest`.
+    let staging = super::temp_dir().join("operon_zip_stage");
+    let _ = std::fs::remove_dir_all(&staging);
+    let ps = format!(
+        "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
+        zip.display(),
+        staging.display()
+    );
+    let out = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Expand-Archive failed to launch: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "Failed to extract archive: {}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let mut entries: Vec<_> = std::fs::read_dir(&staging)
+        .map_err(|e| format!("read staging dir: {}", e))?
+        .filter_map(|e| e.ok())
+        .collect();
+    let root = if entries.len() == 1 && entries[0].path().is_dir() {
+        entries.remove(0).path()
+    } else {
+        staging.clone()
+    };
+    for entry in std::fs::read_dir(&root).map_err(|e| format!("read extracted root: {}", e))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let target = dest.join(entry.file_name());
+        std::fs::rename(entry.path(), &target)
+            .map_err(|e| format!("move {}: {}", entry.path().display(), e))?;
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(())
+}
+
+pub fn install_node_platform() -> Result<(), String> {
+    // Per-user PORTABLE install — NO admin. The official Node ZIP unpacks
+    // node.exe + npm at the root of its wrapper dir; extracting with
+    // --strip-components=1 lands them directly in operon_node_dir(), which
+    // extra_tool_paths() puts on Operon's spawned PATH. (The winget/MSI path
+    // needed admin, so it's gone — locked-down accounts can't elevate.)
     let arch = if cfg!(target_arch = "x86_64") {
         "x64"
     } else {
         "arm64"
     };
+    let node_version = "v22.14.0";
     let url = format!(
-        "https://nodejs.org/dist/v22.14.0/node-v22.14.0-{}.msi",
-        arch
+        "https://nodejs.org/dist/{}/node-{}-win-{}.zip",
+        node_version, node_version, arch
     );
-    let msi_path = super::temp_dir().join("node-installer.msi");
-    let msi_str = msi_path.to_string_lossy().to_string();
+    let dest = super::operon_node_dir();
+    let tmp_zip = super::temp_dir().join("operon_node.zip");
 
-    // Download with PowerShell
-    let download_cmd = format!(
-        "Invoke-WebRequest -Uri '{}' -OutFile '{}' -UseBasicParsing",
-        url, msi_str
-    );
-    let dl = std::process::Command::new("powershell.exe")
-        .args(["-ExecutionPolicy", "Bypass", "-Command", &download_cmd])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    eprintln!("[Node] Downloading {} ...", url);
+    download_file(&url, &tmp_zip)?;
 
-    if let Ok(o) = dl {
-        if o.status.success() && msi_path.exists() {
-            // Run MSI installer silently
-            let install = std::process::Command::new("msiexec")
-                .args(["/i", &msi_str, "/qn", "/norestart"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
-            // Clean up the MSI
-            let _ = std::fs::remove_file(&msi_path);
-            if let Ok(o) = install {
-                if o.status.success() {
-                    refresh_path_from_registry();
-                    return Ok(());
-                }
-            }
-        }
+    eprintln!("[Node] Extracting to {} ...", dest.display());
+    extract_zip_stripped(&tmp_zip, &dest)?;
+    let _ = std::fs::remove_file(&tmp_zip);
+
+    if !dest.join("node.exe").exists() {
+        return Err("Node binary not found after extraction".to_string());
     }
+    refresh_path_from_registry();
+    Ok(())
+}
 
-    Err("Automatic Node.js install failed. Please install from https://nodejs.org/ and restart Operon.".to_string())
+/// Install GitHub CLI per-user (PORTABLE zip) — NO admin. The MSI/winget path
+/// needs admin; the official release zip doesn't. After --strip-components=1,
+/// gh.exe lands at operon_gh_dir()/bin/gh.exe (extra_tool_paths() adds that dir).
+pub fn install_gh() -> Result<(), String> {
+    let arch = if cfg!(target_arch = "x86_64") {
+        "amd64"
+    } else {
+        "arm64"
+    };
+    let version = "2.63.2";
+    let url = format!(
+        "https://github.com/cli/cli/releases/download/v{v}/gh_{v}_windows_{a}.zip",
+        v = version,
+        a = arch
+    );
+    let dest = super::operon_gh_dir();
+    let tmp_zip = super::temp_dir().join("operon_gh.zip");
+
+    eprintln!("[gh] Downloading {} ...", url);
+    download_file(&url, &tmp_zip)?;
+
+    eprintln!("[gh] Extracting to {} ...", dest.display());
+    extract_zip_stripped(&tmp_zip, &dest)?;
+    let _ = std::fs::remove_file(&tmp_zip);
+
+    if !dest.join("bin").join("gh.exe").exists() {
+        return Err("gh binary not found after extraction".to_string());
+    }
+    Ok(())
 }
 
 pub fn install_claude_platform() -> Result<(), String> {
@@ -823,56 +800,80 @@ pub fn find_python() -> Option<String> {
 
 /// Install Python via winget.
 pub fn install_python() -> Result<(), String> {
-    let winget = winget_install_cmd("Python.Python.3.12").output();
+    // Per-user install (NO admin): `--scope user` lands Python in
+    // %LOCALAPPDATA%\Programs\Python. winget runs as the current (non-elevated)
+    // user, whose package source is already initialized — so no elevation and no
+    // 0x8a15000f source error from a borrowed admin profile.
+    let winget = find_winget().unwrap_or_else(|| "winget".to_string());
+    let out = std::process::Command::new(&winget)
+        .args([
+            "install",
+            "--id",
+            "Python.Python.3.12",
+            "-e",
+            "--scope",
+            "user",
+            "--source",
+            "winget",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+            "--disable-interactivity",
+            "--silent",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
 
-    if let Ok(o) = winget {
-        if o.status.success() {
-            return Ok(());
-        }
+    if let Ok(o) = out {
         let out_text = format!(
             "{}{}",
             String::from_utf8_lossy(&o.stdout),
             String::from_utf8_lossy(&o.stderr)
         );
-        if out_text.contains("already installed") {
+        if o.status.success() || out_text.contains("already installed") {
+            refresh_path_from_registry();
             return Ok(());
         }
     }
 
-    Err("Python could not be installed automatically. Please install from https://python.org/downloads and restart Operon.".to_string())
+    Err("Python could not be installed automatically. Please install from https://python.org/downloads (choose 'Install for me only') and restart Operon.".to_string())
 }
 
 // ─── OpenSSH ────────────────────────────────────────────────────
 
-/// Check if OpenSSH client is available.
+/// Check if an OpenSSH client is available — either the Windows native one on
+/// PATH, or the ssh.exe bundled inside Git for Windows (`<git>\usr\bin`).
 pub fn has_openssh() -> bool {
-    // Check if ssh.exe is on PATH
-    check_tool("ssh").is_some()
-}
-
-/// Enable the OpenSSH client Windows optional feature.
-/// This requires admin privileges on older Windows 10 builds.
-/// Windows 11 typically has it enabled by default.
-pub fn install_openssh() -> Result<(), String> {
-    // The OpenSSH client is a Windows OPTIONAL FEATURE, not a winget package —
-    // there is no `Microsoft.OpenSSH.Beta` (winget returns "No package found").
-    // Use Add-WindowsCapability (the canonical mechanism; needs admin). Win10/11
-    // usually ship it enabled, so this is rarely needed.
-    let ps = std::process::Command::new("powershell.exe")
-        .args([
-            "-Command",
-            "Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-
-    if let Ok(o) = ps {
-        if o.status.success() {
-            return Ok(());
+    if check_tool("ssh").is_some() {
+        return true;
+    }
+    // Git for Windows bundles ssh.exe under <git>\usr\bin (derive <git> from
+    // <git>\bin\bash.exe). This is what lets us avoid the admin-only
+    // Add-WindowsCapability on locked-down accounts.
+    if let Some(bash) = find_git_bash() {
+        if let Some(git_root) = std::path::Path::new(&bash)
+            .parent()
+            .and_then(|p| p.parent())
+        {
+            if git_root.join("usr").join("bin").join("ssh.exe").exists() {
+                return true;
+            }
         }
     }
+    false
+}
 
-    Err("OpenSSH could not be installed automatically. Enable it in Settings → Apps → Optional Features → OpenSSH Client.".to_string())
+/// Ensure an OpenSSH client is available WITHOUT admin.
+///
+/// We deliberately do NOT enable the Windows OpenSSH optional feature
+/// (`Add-WindowsCapability` needs administrator, which locked-down lab accounts
+/// don't have). Git for Windows bundles ssh.exe, and Operon uses that for remote
+/// connections, so a present Git install satisfies this. If neither is found we
+/// return guidance instead of silently elevating.
+pub fn install_openssh() -> Result<(), String> {
+    if has_openssh() {
+        return Ok(());
+    }
+    Err("OpenSSH client not found. It ships with Git for Windows (which Operon installs), or enable it via Settings → Apps → Optional Features → OpenSSH Client.".to_string())
 }
 
 // ─── uv (Python package manager, provides uvx) ─────────────────

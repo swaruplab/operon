@@ -146,6 +146,16 @@ pub fn operon_node_dir() -> std::path::PathBuf {
     data_dir().join("node")
 }
 
+/// The Operon-managed GitHub CLI installation directory (Windows portable zip).
+pub fn operon_gh_dir() -> std::path::PathBuf {
+    data_dir().join("gh")
+}
+
+/// The Operon-managed Git installation directory (Windows PortableGit, no admin).
+pub fn operon_git_dir() -> std::path::PathBuf {
+    data_dir().join("git")
+}
+
 // ─── Tool Discovery ──────────────────────────────────────────────
 
 /// Check if a CLI tool is installed and return (path, version).

@@ -542,12 +542,15 @@ fn operon_node_dir() -> std::path::PathBuf {
 
 /// Get the path to the Operon-managed `node` binary (if it exists).
 fn operon_node_bin() -> Option<String> {
-    let bin = operon_node_dir().join("bin").join("node");
-    if bin.exists() {
-        Some(bin.to_string_lossy().to_string())
-    } else {
-        None
+    let dir = operon_node_dir();
+    // Unix tarball: <dir>/bin/node. Windows portable zip: <dir>/node.exe at the
+    // root (no bin/ subdir). Check both so detection works on every platform.
+    for cand in [dir.join("bin").join("node"), dir.join("node.exe")] {
+        if cand.exists() {
+            return Some(cand.to_string_lossy().to_string());
+        }
     }
+    None
 }
 
 /// Install Node.js using platform-appropriate methods.
@@ -707,47 +710,16 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
     // Retry after the elevated batch would re-launch the installer. No-op on Unix.
     crate::platform::refresh_path();
 
-    // ── Windows: one elevated, visible installer for the SHARED tools ──
-    // Headless winget can't work here (where.exe returns the App Execution Alias,
-    // a reparse point CreateProcess can't launch; machine-scope installs need
-    // admin). Run a single elevated batch (one UAC prompt) that installs Git,
-    // Node, gh, Python (all `--scope machine`) and the OpenSSH client visibly.
-    // `batch_ran` records whether it completed: when true, the per-tool sections
-    // below ONLY detect and report — they never launch a second installer.
-    //
-    // uv is intentionally NOT a trigger and NOT in the batch: it's a per-user
-    // tool installed non-elevated later in this function (~87-90%) so it lands
-    // in the profile of the user actually running Operon — not whatever admin
-    // account UAC elevated the batch as. Triggering the elevated batch (and its
-    // UAC prompt) just because uv is missing would be wrong on a multi-user box.
-    #[cfg(target_os = "windows")]
-    let batch_ran = {
-        let any_missing = crate::platform::find_git_bash_path().is_none()
-            || crate::platform::check_tool("node").is_none()
-            || crate::platform::find_python().is_none();
-        if any_missing {
-            emit_install_progress(
-                &app,
-                "git",
-                "installing",
-                "Opening the Windows installer — accept the admin prompt; a console will show progress...",
-                3,
-            );
-            match crate::platform::windows::install_tools_elevated() {
-                Ok(()) => {
-                    crate::platform::refresh_path();
-                    true
-                }
-                Err(e) => {
-                    eprintln!("[install] elevated tools installer not completed: {}", e);
-                    false
-                }
-            }
-        } else {
-            false
-        }
-    };
-    #[cfg(not(target_os = "windows"))]
+    // ── Windows: NO-ADMIN, fully per-user installs ──
+    // Target machines are locked-down lab laptops where the user has no admin
+    // rights and cannot answer a UAC prompt. So we never elevate: there is no
+    // `Start-Process -Verb RunAs` batch and no `--scope machine`. Every tool is
+    // installed into the current user's own profile by the per-tool sections
+    // below — Git (per-user installer), Node + gh (portable zips into Operon's
+    // data dir, surfaced via extra_tool_paths so no system-PATH write is needed),
+    // Python (`winget --scope user`), uv/reportlab/Claude Code (already per-user).
+    // `batch_ran` is retained as a constant `false` so the per-tool sections take
+    // their normal install path (the old `else if batch_ran` branches are dead).
     let batch_ran = false;
 
     // ── Git Bash (Windows only, 0-10%) ──
@@ -917,18 +889,17 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
         emit_install_progress(&app, "gh", "installing", "Installing GitHub CLI...", 85);
         let mut gh_installed = false;
 
-        // Strategy 1 (Windows): winget (headless flags + resolved path)
+        // Strategy 1 (Windows): per-user PORTABLE zip into Operon's data dir —
+        // NO admin (the winget MSI needs admin, which locked-down accounts lack).
         #[cfg(target_os = "windows")]
         {
-            let winget = crate::platform::windows::winget_install_cmd("GitHub.cli").output();
-            if let Ok(o) = winget {
-                let out_text = format!(
-                    "{}{}",
-                    String::from_utf8_lossy(&o.stdout),
-                    String::from_utf8_lossy(&o.stderr)
-                );
-                if o.status.success() || out_text.contains("already installed") {
+            match crate::platform::windows::install_gh() {
+                Ok(()) => {
+                    crate::platform::refresh_path();
                     gh_installed = true;
+                }
+                Err(e) => {
+                    eprintln!("[gh] portable install failed: {}", e);
                 }
             }
         }

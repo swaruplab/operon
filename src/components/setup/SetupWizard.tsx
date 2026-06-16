@@ -800,27 +800,21 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                       OpenSSH Client {sshStatus.available ? 'detected' : 'not found'}
                     </p>
                     {!sshStatus.available && (
-                      <>
-                        <p className="text-[11px] text-muted leading-relaxed">
-                          OpenSSH client not found. Enable it via Settings &gt; Apps &gt; Optional
-                          Features &gt; Add &apos;OpenSSH Client&apos;, or run in PowerShell (admin):
-                        </p>
-                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
-                        </code>
-                      </>
+                      <p className="text-[11px] text-muted leading-relaxed">
+                        Not detected yet — Operon uses the <span className="font-medium">ssh bundled with Git for Windows</span>, so this resolves once Git is installed (no admin needed). It&apos;ll show as detected after the tools install.
+                      </p>
                     )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Windows: Git is installed by the unified elevated batch (install_phase_tools,
-                step [1/6]) along with Node/gh/Python/uv/OpenSSH in a single UAC prompt.
-                We intentionally do NOT show a separate "Download Git" pre-step here — that
-                made the user install Git by hand and then the batch re-installed it
-                (double-install). If the batch can't produce Git, the phaseError panel below
-                ("Action Required: Install Git for Windows") is the single fallback. */}
+            {/* Windows: all tools install per-user with NO admin (install_phase_tools) —
+                Git (per-user installer), Node + gh (portable zips into Operon's data dir),
+                Python (winget --scope user), uv/reportlab (per-user). There is no elevated
+                batch and no separate "Download Git" pre-step; if Git can't be produced, the
+                phaseError panel below ("Action Required: Install Git for Windows") is the
+                single fallback. */}
 
             {/* Per-step status rows */}
             {(phaseRunning || phaseDone) && (
@@ -927,24 +921,30 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="space-y-1.5">
                   {isWindows ? (
                     <>
+                      <p className="text-[9px] text-muted">
+                        Everything installs into your own user account — <span className="font-semibold">no administrator needed</span>. If the automatic install didn&apos;t finish, run these in a regular PowerShell (no admin) and click Retry:
+                      </p>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">Shared tools — Git, Node.js, GitHub CLI, Python &amp; OpenSSH in one elevated command. Installs machine-wide for all users; accept the admin (UAC) prompt:</p>
+                        <p className="text-[9px] text-muted mb-0.5">Python (per-user):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          {"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-Command','winget install --id Git.Git -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id OpenJS.NodeJS.LTS -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id GitHub.cli -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id Python.Python.3.12 -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0'"}
+                          {'winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements'}
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager) — per-user, no admin needed:</p>
+                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
                           {'powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"'}
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library — per-user:</p>
+                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          pip install reportlab
+                          pip install --user reportlab
                         </code>
                       </div>
+                      <p className="text-[9px] text-muted">
+                        Git, Node.js and GitHub CLI are installed into your profile automatically by Operon — just click Retry if any are still missing. (If the Git installer window opens, choose &ldquo;Only for me&rdquo; — no admin.)
+                      </p>
                     </>
                   ) : isMac ? (
                     <>
