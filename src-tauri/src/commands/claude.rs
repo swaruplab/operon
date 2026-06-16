@@ -707,21 +707,24 @@ pub async fn install_phase_tools(app: tauri::AppHandle) -> Result<bool, String> 
     // Retry after the elevated batch would re-launch the installer. No-op on Unix.
     crate::platform::refresh_path();
 
-    // ── Windows: one elevated, visible installer for ALL tools ──
+    // ── Windows: one elevated, visible installer for the SHARED tools ──
     // Headless winget can't work here (where.exe returns the App Execution Alias,
     // a reparse point CreateProcess can't launch; machine-scope installs need
     // admin). Run a single elevated batch (one UAC prompt) that installs Git,
-    // Node, gh, Python, uv and the OpenSSH client visibly. `batch_ran` records
-    // whether it completed: when true, the per-tool sections below ONLY detect
-    // and report — they never launch a second installer. (Previously the Git
-    // section re-ran the hardcoded Git download right after the batch already
-    // installed Git via winget, which double-installed Git.)
+    // Node, gh, Python (all `--scope machine`) and the OpenSSH client visibly.
+    // `batch_ran` records whether it completed: when true, the per-tool sections
+    // below ONLY detect and report — they never launch a second installer.
+    //
+    // uv is intentionally NOT a trigger and NOT in the batch: it's a per-user
+    // tool installed non-elevated later in this function (~87-90%) so it lands
+    // in the profile of the user actually running Operon — not whatever admin
+    // account UAC elevated the batch as. Triggering the elevated batch (and its
+    // UAC prompt) just because uv is missing would be wrong on a multi-user box.
     #[cfg(target_os = "windows")]
     let batch_ran = {
         let any_missing = crate::platform::find_git_bash_path().is_none()
             || crate::platform::check_tool("node").is_none()
-            || crate::platform::find_python().is_none()
-            || !crate::platform::has_uv();
+            || crate::platform::find_python().is_none();
         if any_missing {
             emit_install_progress(
                 &app,

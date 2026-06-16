@@ -331,15 +331,26 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   // Run a phase and track which wizard step it belongs to for error display
   const runPhaseForStep = async (command: string, wizardStep: Step) => {
     await runPhase(command);
-    // After the phase finishes, re-check deps to see what actually succeeded
+    // After the phase finishes, re-check deps to see what actually succeeded.
     try {
       const status = await invoke<DependencyStatus>('check_local_dependencies');
       setDeps(status);
-      // On Windows, if Git Bash is still missing after tools phase, mark as failed
-      const criticalMissing = isWindows
-        ? (!status.node || !status.git_bash)
-        : !status.node;
-      if (criticalMissing) {
+      // Judge success against the dependency THIS step is responsible for —
+      // not a blanket node check. The Xcode step (macOS) installs only the CLI
+      // tools; Node isn't installed until the later install-tools phase, so a
+      // blanket `!status.node` wrongly flagged a successful Xcode install as
+      // failed (node is legitimately still missing at that point).
+      let stepMissing: boolean;
+      if (wizardStep === 'install-xcode') {
+        stepMissing = isMac && !status.xcode_cli;
+      } else if (wizardStep === 'install-tools') {
+        stepMissing = isWindows ? (!status.node || !status.git_bash) : !status.node;
+      } else if (wizardStep === 'install-claude') {
+        stepMissing = !status.claude_code;
+      } else {
+        stepMissing = false;
+      }
+      if (stepMissing) {
         setFailedSteps(prev => new Set([...prev, wizardStep]));
       } else {
         setFailedSteps(prev => { const next = new Set(prev); next.delete(wizardStep); return next; });
@@ -914,68 +925,64 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {phaseError ? 'Run these in Terminal instead:' : 'Or install manually via Terminal:'}
                 </p>
                 <div className="space-y-1.5">
-                  {isWindows && (
-                    <div>
-                      <p className="text-[9px] text-muted mb-0.5">Git for Windows (required by Claude Code):</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                        winget install -e --id Git.Git --source winget --accept-source-agreements --accept-package-agreements
-                      </code>
-                    </div>
-                  )}
-                  {isMac && (
-                    <div>
-                      <p className="text-[9px] text-muted mb-0.5">Homebrew:</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                        /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
-                      </code>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-[9px] text-muted mb-0.5">Node.js{!isMac && ' & GitHub CLI'}:</p>
-                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                      {isMac
-                        ? 'brew install node gh'
-                        : isWindows
-                        ? 'winget install -e --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements; winget install -e --id GitHub.cli --source winget --accept-source-agreements --accept-package-agreements'
-                        : 'sudo apt install -y nodejs gh'}
-                    </code>
-                  </div>
-                  {isMac && (
-                    <div>
-                      <p className="text-[9px] text-muted mb-0.5">GitHub CLI:</p>
-                      <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                        (included in brew install above)
-                      </code>
-                    </div>
-                  )}
-                  {isWindows && (
+                  {isWindows ? (
                     <>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">Python:</p>
+                        <p className="text-[9px] text-muted mb-0.5">Shared tools — Git, Node.js, GitHub CLI, Python &amp; OpenSSH in one elevated command. Installs machine-wide for all users; accept the admin (UAC) prompt:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install -e --id Python.Python.3.12 --source winget --accept-source-agreements --accept-package-agreements
+                          {"Start-Process powershell -Verb RunAs -ArgumentList '-NoExit','-Command','winget install --id Git.Git -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id OpenJS.NodeJS.LTS -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id GitHub.cli -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; winget install --id Python.Python.3.12 -e --scope machine --source winget --accept-source-agreements --accept-package-agreements; Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0'"}
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">OpenSSH Client (usually pre-installed; run in admin PowerShell):</p>
+                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager) — per-user, no admin needed:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+                          {'powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"'}
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
+                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library — per-user:</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          winget install -e --id astral-sh.uv --source winget --accept-source-agreements --accept-package-agreements
+                          pip install reportlab
+                        </code>
+                      </div>
+                    </>
+                  ) : isMac ? (
+                    <>
+                      <div>
+                        <p className="text-[9px] text-muted mb-0.5">Homebrew:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-muted mb-0.5">Node.js &amp; GitHub CLI:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          brew install node gh
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          pip3 install reportlab
+                        </code>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="text-[9px] text-muted mb-0.5">Node.js &amp; GitHub CLI:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          sudo apt install -y nodejs gh
+                        </code>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
+                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
+                          pip3 install reportlab
                         </code>
                       </div>
                     </>
                   )}
-                  <div>
-                    <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
-                    <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                      {isWindows ? 'pip install reportlab' : 'pip3 install reportlab'}
-                    </code>
-                  </div>
                 </div>
                 <p className="text-[9px] text-subtle">
                   Click a command to select it, paste into {isMac ? 'Terminal.app' : isWindows ? 'PowerShell' : 'your terminal'}. Hit Retry after.

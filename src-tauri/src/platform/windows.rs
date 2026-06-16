@@ -623,28 +623,35 @@ pub fn install_tools_elevated() -> Result<(), String> {
     // NOTE: `\"` is a literal double-quote in the .bat (for the inner PowerShell
     // call). Each winget line accepts agreements non-interactively but is NOT
     // `--silent`, so installer windows can render in this visible console.
+    //
+    // MULTI-USER: these are the SHARED developer tools, pinned to `--scope
+    // machine` so a single elevated install lands in Program Files + the HKLM
+    // PATH and is visible to EVERY account on the machine. This matters because
+    // `Start-Process -Verb RunAs` may run this batch as a *different* admin
+    // account than the user driving Operon (standard user supplying admin
+    // creds) — a per-user (default) install would land in that admin's profile,
+    // invisible to the actual user. Per-user tools (uv, reportlab, Claude Code)
+    // are deliberately NOT here; they install non-elevated in Operon's own
+    // current-user context so they always land in the right profile.
     let bat_body = "@echo off\r\n\
         echo ============================================================\r\n\
         echo  Operon is installing developer tools (needs administrator).\r\n\
         echo  Let each installer finish; this window stays open at the end.\r\n\
         echo ============================================================\r\n\
         echo.\r\n\
-        echo [1/6] Git for Windows\r\n\
-        winget install --id Git.Git -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo [1/5] Git for Windows\r\n\
+        winget install --id Git.Git -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
         echo.\r\n\
-        echo [2/6] Node.js (LTS)\r\n\
-        winget install --id OpenJS.NodeJS.LTS -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo [2/5] Node.js (LTS)\r\n\
+        winget install --id OpenJS.NodeJS.LTS -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
         echo.\r\n\
-        echo [3/6] GitHub CLI\r\n\
-        winget install --id GitHub.cli -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo [3/5] GitHub CLI\r\n\
+        winget install --id GitHub.cli -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
         echo.\r\n\
-        echo [4/6] Python 3.12\r\n\
-        winget install --id Python.Python.3.12 -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
+        echo [4/5] Python 3.12\r\n\
+        winget install --id Python.Python.3.12 -e --scope machine --source winget --accept-source-agreements --accept-package-agreements\r\n\
         echo.\r\n\
-        echo [5/6] uv (Python package manager)\r\n\
-        winget install --id astral-sh.uv -e --source winget --accept-source-agreements --accept-package-agreements\r\n\
-        echo.\r\n\
-        echo [6/6] OpenSSH Client\r\n\
+        echo [5/5] OpenSSH Client\r\n\
         powershell -NoProfile -Command \"Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0\"\r\n\
         echo.\r\n\
         echo ============================================================\r\n\
