@@ -156,6 +156,12 @@ pub fn operon_git_dir() -> std::path::PathBuf {
     data_dir().join("git")
 }
 
+/// The Operon-managed portable Python directory (Windows python-build-standalone,
+/// no admin). Used when no real Python exists and winget is blocked.
+pub fn operon_python_dir() -> std::path::PathBuf {
+    data_dir().join("python")
+}
+
 // ─── Tool Discovery ──────────────────────────────────────────────
 
 /// Check if a CLI tool is installed and return (path, version).

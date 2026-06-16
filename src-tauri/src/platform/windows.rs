@@ -162,6 +162,10 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
         super::operon_git_dir().join("cmd"),
         super::operon_git_dir().join("bin"),
         super::operon_git_dir().join("usr").join("bin"),
+        // Operon's per-user portable Python (no-admin): python.exe at the root,
+        // pip under Scripts/.
+        super::operon_python_dir(),
+        super::operon_python_dir().join("Scripts"),
         appdata.join("npm"),
         std::path::PathBuf::from(r"C:\Program Files\nodejs"),
         std::path::PathBuf::from(r"C:\Program Files\Git\bin"),
@@ -597,32 +601,40 @@ fn download_file(url: &str, dest: &std::path::Path) -> Result<(), String> {
     }
 }
 
-/// Extract a .zip into `dest`, stripping the single top-level directory the
-/// archive wraps everything in (like `tar --strip-components=1`). NO admin.
-fn extract_zip_stripped(zip: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+/// Extract an archive into `dest`. NO admin.
+///
+/// `strip_top` controls whether the single top-level wrapper directory is
+/// stripped (`tar --strip-components=1`): Node and python-build-standalone wrap
+/// everything in a `node-…/` or `python/` folder (strip_top = true), whereas the
+/// GitHub CLI zip has `bin/gh.exe` + `LICENSE` at the ROOT with no wrapper
+/// (strip_top = false — stripping would wrongly drop the `bin/` level).
+fn extract_archive(
+    zip: &std::path::Path,
+    dest: &std::path::Path,
+    strip_top: bool,
+) -> Result<(), String> {
     if dest.exists() {
         let _ = std::fs::remove_dir_all(dest);
     }
     std::fs::create_dir_all(dest)
         .map_err(|e| format!("Failed to create {}: {}", dest.display(), e))?;
 
-    // Strategy 1: bsdtar (Windows 10 1803+ ships tar.exe) handles zip +
-    // --strip-components in one shot, mirroring the macOS/Linux path.
-    let tar = std::process::Command::new("tar")
-        .arg("-xf")
-        .arg(zip)
-        .args(["--strip-components=1", "-C"])
-        .arg(dest)
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-    if let Ok(o) = tar {
+    // Strategy 1: bsdtar (Windows 10 1803+ ships tar.exe) handles zip/tar.gz +
+    // optional --strip-components in one shot, mirroring the macOS/Linux path.
+    let mut tar = std::process::Command::new("tar");
+    tar.arg("-xf").arg(zip);
+    if strip_top {
+        tar.arg("--strip-components=1");
+    }
+    tar.arg("-C").arg(dest).creation_flags(CREATE_NO_WINDOW);
+    if let Ok(o) = tar.output() {
         if o.status.success() {
             return Ok(());
         }
     }
 
-    // Strategy 2: PowerShell Expand-Archive into a staging dir, then promote the
-    // single wrapper folder's contents up into `dest`.
+    // Strategy 2: PowerShell Expand-Archive into a staging dir, then move the
+    // contents into `dest` (promoting the single wrapper folder when stripping).
     let staging = super::temp_dir().join("operon_zip_stage");
     let _ = std::fs::remove_dir_all(&staging);
     let ps = format!(
@@ -645,7 +657,7 @@ fn extract_zip_stripped(zip: &std::path::Path, dest: &std::path::Path) -> Result
         .map_err(|e| format!("read staging dir: {}", e))?
         .filter_map(|e| e.ok())
         .collect();
-    let root = if entries.len() == 1 && entries[0].path().is_dir() {
+    let root = if strip_top && entries.len() == 1 && entries[0].path().is_dir() {
         entries.remove(0).path()
     } else {
         staging.clone()
@@ -683,7 +695,7 @@ pub fn install_node_platform() -> Result<(), String> {
     download_file(&url, &tmp_zip)?;
 
     eprintln!("[Node] Extracting to {} ...", dest.display());
-    extract_zip_stripped(&tmp_zip, &dest)?;
+    extract_archive(&tmp_zip, &dest, true)?;
     let _ = std::fs::remove_file(&tmp_zip);
 
     if !dest.join("node.exe").exists() {
@@ -702,7 +714,7 @@ pub fn install_gh() -> Result<(), String> {
     } else {
         "arm64"
     };
-    let version = "2.63.2";
+    let version = "2.94.0";
     let url = format!(
         "https://github.com/cli/cli/releases/download/v{v}/gh_{v}_windows_{a}.zip",
         v = version,
@@ -715,11 +727,18 @@ pub fn install_gh() -> Result<(), String> {
     download_file(&url, &tmp_zip)?;
 
     eprintln!("[gh] Extracting to {} ...", dest.display());
-    extract_zip_stripped(&tmp_zip, &dest)?;
+    // gh's zip has `bin/gh.exe` at the ROOT (no wrapper folder) — do NOT strip.
+    extract_archive(&tmp_zip, &dest, false)?;
     let _ = std::fs::remove_file(&tmp_zip);
 
     if !dest.join("bin").join("gh.exe").exists() {
-        return Err("gh binary not found after extraction".to_string());
+        // gh.exe is a Go binary that Windows Defender sometimes false-positives
+        // and quarantines right after extraction — leaving the dir without the
+        // binary. gh is optional, so surface a clear (non-fatal) hint.
+        return Err(
+            "gh.exe missing after extraction — Windows Defender may have quarantined it (gh is optional)."
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -787,55 +806,87 @@ pub fn find_winget() -> Option<String> {
 /// Find the Python executable on Windows.
 /// Windows uses "python" (not "python3") — the Microsoft Store alias or installer.
 pub fn find_python() -> Option<String> {
-    // Check "python" first (standard Windows name)
-    if let Some((path, _)) = check_tool("python") {
-        return Some(path);
+    // Operon's own portable Python (no-admin python-build-standalone) — checked
+    // first so it's preferred over anything on PATH.
+    let portable = super::operon_python_dir().join("python.exe");
+    if portable.exists() {
+        return Some(portable.to_string_lossy().to_string());
     }
-    // Fallback: "python3" (some installers add this)
-    if let Some((path, _)) = check_tool("python3") {
-        return Some(path);
+
+    // `where.exe python` often returns the Microsoft Store App Execution Alias
+    // stub (%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe) FIRST — a 0-byte
+    // reparse point that opens the Store instead of running Python, so
+    // `python -m pip` silently does nothing (this is why "Python installed" yet
+    // pip/reportlab failed). Walk ALL candidates, skip the WindowsApps stub, and
+    // return the first interpreter that actually runs.
+    for name in ["python", "python3"] {
+        let out = std::process::Command::new("where.exe")
+            .arg(name)
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let out = match out {
+            Ok(o) if o.status.success() => o,
+            _ => continue,
+        };
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let p = line.trim();
+            if p.is_empty() || p.to_lowercase().contains(r"\windowsapps\") {
+                continue;
+            }
+            let runs = std::process::Command::new(p)
+                .arg("--version")
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .map(|v| v.status.success())
+                .unwrap_or(false);
+            if runs {
+                return Some(p.to_string());
+            }
+        }
     }
     None
 }
 
-/// Install Python via winget.
+/// Install Python per-user with NO admin (portable python-build-standalone).
+///
+/// winget Python needs an unblocked source and is rejected on locked-down lab
+/// machines (exit 1625 "Organization policies are preventing installation"), and
+/// the only `python.exe` on PATH is usually the Microsoft Store stub. So we use
+/// the standalone CPython build (the same one `uv` uses) — a self-contained
+/// `install_only` archive WITH pip. Extract-only into operon_python_dir(); no
+/// installer, no elevation, no registry/PATH write (extra_tool_paths() surfaces
+/// it; find_python() checks it first).
 pub fn install_python() -> Result<(), String> {
-    // Per-user install (NO admin): `--scope user` lands Python in
-    // %LOCALAPPDATA%\Programs\Python. winget runs as the current (non-elevated)
-    // user, whose package source is already initialized — so no elevation and no
-    // 0x8a15000f source error from a borrowed admin profile.
-    let winget = find_winget().unwrap_or_else(|| "winget".to_string());
-    let out = std::process::Command::new(&winget)
-        .args([
-            "install",
-            "--id",
-            "Python.Python.3.12",
-            "-e",
-            "--scope",
-            "user",
-            "--source",
-            "winget",
-            "--accept-source-agreements",
-            "--accept-package-agreements",
-            "--disable-interactivity",
-            "--silent",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        "aarch64"
+    };
+    // python-build-standalone pins the CPython version to a dated release tag.
+    let pbs_tag = "20260610";
+    let py_version = "3.12.13";
+    let url = format!(
+        "https://github.com/astral-sh/python-build-standalone/releases/download/{tag}/cpython-{ver}+{tag}-{arch}-pc-windows-msvc-install_only.tar.gz",
+        tag = pbs_tag,
+        ver = py_version,
+        arch = arch
+    );
+    let dest = super::operon_python_dir();
+    let tmp = super::temp_dir().join("operon_python.tar.gz");
 
-    if let Ok(o) = out {
-        let out_text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        );
-        if o.status.success() || out_text.contains("already installed") {
-            refresh_path_from_registry();
-            return Ok(());
-        }
+    eprintln!("[Python] Downloading {} ...", url);
+    download_file(&url, &tmp)?;
+
+    // The install_only archive wraps everything in a top-level `python/` dir;
+    // --strip-components=1 lands python.exe + Scripts/pip at the root of dest.
+    eprintln!("[Python] Extracting to {} ...", dest.display());
+    extract_archive(&tmp, &dest, true)?;
+    let _ = std::fs::remove_file(&tmp);
+
+    if !dest.join("python.exe").exists() {
+        return Err("Python not found after extraction.".to_string());
     }
-
-    Err("Python could not be installed automatically. Please install from https://python.org/downloads (choose 'Install for me only') and restart Operon.".to_string())
+    Ok(())
 }
 
 // ─── OpenSSH ────────────────────────────────────────────────────
@@ -946,6 +997,14 @@ pub fn has_reportlab() -> bool {
 pub fn install_reportlab() -> Result<(), String> {
     let python = find_python().ok_or("Python is not installed — cannot install reportlab.")?;
 
+    // Bootstrap pip first — a freshly-detected interpreter may not have pip
+    // wired up (or `pip` isn't on PATH; `python -m pip` always works once
+    // ensurepip has run). Best-effort: ignore the result.
+    let _ = std::process::Command::new(&python)
+        .args(["-m", "ensurepip", "--user"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+
     // Strategy 1: pip install --user
     if let Ok(o) = std::process::Command::new(&python)
         .args(["-m", "pip", "install", "reportlab", "--user", "--quiet"])
@@ -968,7 +1027,7 @@ pub fn install_reportlab() -> Result<(), String> {
         }
     }
 
-    Err("reportlab could not be installed. Run: pip install reportlab".to_string())
+    Err("reportlab could not be installed. Run: python -m pip install --user reportlab".to_string())
 }
 
 // ─── File System ─────────────────────────────────────────────────

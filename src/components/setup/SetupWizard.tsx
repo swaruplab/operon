@@ -922,29 +922,20 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   {isWindows ? (
                     <>
                       <p className="text-[9px] text-muted">
-                        Everything installs into your own user account — <span className="font-semibold">no administrator needed</span>. If the automatic install didn&apos;t finish, run these in a regular PowerShell (no admin) and click Retry:
+                        Everything installs into your own user account — <span className="font-semibold">no administrator needed</span>. Git, Node.js, GitHub CLI, Python, uv and the PDF library all install automatically; just click Retry if any are still missing. GitHub CLI and the PDF library are <span className="font-semibold">optional</span> — Operon&apos;s core works without them. Manual fallbacks (regular PowerShell, no admin):
                       </p>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">Python (per-user):</p>
+                        <p className="text-[9px] text-muted mb-0.5">GitHub CLI (optional; e.g. if Windows Defender quarantined it):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          {'winget install --id Python.Python.3.12 -e --scope user --accept-source-agreements --accept-package-agreements'}
+                          {"$z=\"$env:TEMP\\gh.zip\"; iwr \"https://github.com/cli/cli/releases/download/v2.94.0/gh_2.94.0_windows_amd64.zip\" -OutFile $z; Expand-Archive $z \"$env:TEMP\\ghx\" -Force; New-Item -ItemType Directory -Force \"$env:LOCALAPPDATA\\operon\\gh\" | Out-Null; Copy-Item \"$env:TEMP\\ghx\\gh_2.94.0_windows_amd64\\*\" \"$env:LOCALAPPDATA\\operon\\gh\" -Recurse -Force"}
                         </code>
                       </div>
                       <div>
-                        <p className="text-[9px] text-muted mb-0.5">uv (Python package manager):</p>
+                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library (uses Operon&apos;s bundled Python):</p>
                         <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          {'powershell -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"'}
+                          {"& \"$env:LOCALAPPDATA\\operon\\python\\python.exe\" -m pip install --user reportlab"}
                         </code>
                       </div>
-                      <div>
-                        <p className="text-[9px] text-muted mb-0.5">PDF Report Library:</p>
-                        <code className="block text-[10px] text-green-700 dark:text-green-300 bg-canvas px-2 py-1.5 rounded font-mono break-all overflow-x-auto select-all">
-                          pip install --user reportlab
-                        </code>
-                      </div>
-                      <p className="text-[9px] text-muted">
-                        Git, Node.js and GitHub CLI are installed into your profile automatically by Operon — just click Retry if any are still missing. (If the Git installer window opens, choose &ldquo;Only for me&rdquo; — no admin.)
-                      </p>
                     </>
                   ) : isMac ? (
                     <>
