@@ -34,7 +34,7 @@ export const SERVER_CONFIG_FIELDS: Array<{
   { key: 'conda_env', label: 'Default Conda Env', placeholder: 'e.g. scanpy_env', group: 'environment' },
   { key: 'modules', label: 'Default Modules', placeholder: 'e.g. python/3.10, cuda/12.0', group: 'environment' },
   { key: 'scratch_dir', label: 'Scratch Directory', placeholder: 'e.g. /dfs3b/swarup_lab/vivek', group: 'paths' },
-  { key: 'work_dir', label: 'Working Directory', placeholder: 'e.g. /pub/vivek/projects', group: 'paths' },
+  { key: 'work_dir', label: 'Working Directory', placeholder: 'e.g. /dfs3b/operonws/$USER (sessions open here; $USER expands)', group: 'paths' },
 ];
 
 export interface KeySetupProgress {

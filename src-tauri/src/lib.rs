@@ -76,6 +76,7 @@ use commands::{
     get_protocol_template_params,
     get_protocols_dir,
     get_remote_home,
+    get_remote_initial_dir,
     get_server_config,
     // Settings & System
     get_settings,
@@ -383,6 +384,7 @@ pub fn run() {
             reorder_ssh_profiles,
             list_remote_directory,
             get_remote_home,
+            get_remote_initial_dir,
             read_remote_file,
             read_remote_file_base64,
             create_remote_directory,

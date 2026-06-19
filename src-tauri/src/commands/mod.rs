@@ -86,10 +86,10 @@ pub use slurm::{slurm_cancel_job, slurm_query_jobs, slurm_submit_job};
 pub use ssh::{
     batch_delete_remote_files, check_control_master, clear_ssh_cache, create_remote_directory,
     delete_remote_file, delete_ssh_profile, detect_server_config, get_remote_home,
-    get_server_config, get_ssh_diagnostics, list_remote_directory, list_ssh_config_hosts,
-    list_ssh_profiles, read_remote_file, read_remote_file_base64, rename_remote_path,
-    reorder_ssh_profiles, reset_ssh_diagnostics, save_ssh_profile, scp_batch_upload,
-    scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key,
+    get_remote_initial_dir, get_server_config, get_ssh_diagnostics, list_remote_directory,
+    list_ssh_config_hosts, list_ssh_profiles, read_remote_file, read_remote_file_base64,
+    rename_remote_path, reorder_ssh_profiles, reset_ssh_diagnostics, save_ssh_profile,
+    scp_batch_upload, scp_dir_from_remote, scp_from_remote, scp_to_remote, setup_ssh_key,
     sftp_dir_download_with_progress, sftp_download_with_progress, stop_control_master,
     test_ssh_connection, write_remote_file,
 };

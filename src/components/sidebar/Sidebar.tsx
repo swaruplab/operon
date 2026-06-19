@@ -890,8 +890,8 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
       {/* Delete confirmation */}
       {deleteConfirm && (
         <div className="absolute bottom-3 left-3 right-3 z-50 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
-          <p className="text-[11px] text-red-700 dark:text-red-300 mb-2">
-            Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
+          <p className="text-[11px] text-red-200 dark:text-red-300 mb-2">
+            Delete <span className="font-medium text-red-100 dark:text-red-200">{deleteConfirm.name}</span>?
           </p>
           <div className="flex items-center gap-2">
             <button

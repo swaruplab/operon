@@ -861,7 +861,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="flex items-start gap-3 p-4 bg-amber-950/20 border-2 border-amber-700/40 rounded-lg">
                   <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-amber-200">Action Required: Install Git for Windows</p>
+                    <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">Action Required: Install Git for Windows</p>
                     <p className="text-xs text-secondary mt-2 leading-relaxed">
                       {installSteps['git']?.message?.includes('installer launched')
                         ? 'The Git installer should have appeared on your screen. Complete the setup wizard (just click Next → Next → Install) and wait for it to finish.'
@@ -1099,7 +1099,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                 <div className="flex items-start gap-3 p-4 bg-red-950/20 border-2 border-red-700/40 rounded-lg">
                   <XCircle className="w-6 h-6 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-semibold text-red-200">
+                    <p className="text-sm font-semibold text-red-800 dark:text-red-200">
                       {gitBashMissing ? 'Git for Windows must be installed first' : 'Node.js must be installed first'}
                     </p>
                     <p className="text-xs text-secondary mt-1.5">

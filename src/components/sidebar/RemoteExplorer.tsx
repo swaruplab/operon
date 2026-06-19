@@ -509,17 +509,21 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     }
   };
 
-  // On mount, fetch remote home directory and list it
+  // On mount, open the server's configured Working Directory (server_config
+  // work_dir, with $USER etc. expanded) if set, otherwise the remote $HOME.
+  // get_remote_initial_dir handles the work_dir-or-home decision + expansion;
+  // because the session CWD and remote-search root both derive from the Remote
+  // Explorer's path, opening here directs all of them to the working directory.
   useEffect(() => {
     if (remotePath) {
       loadDir(remotePath);
     } else {
-      invoke<string>('get_remote_home', { profileId })
-        .then((home) => {
-          loadDir(home);
+      invoke<string>('get_remote_initial_dir', { profileId })
+        .then((dir) => {
+          loadDir(dir);
         })
         .catch((err) => {
-          console.error('Failed to get remote home:', err);
+          console.error('Failed to get remote initial dir:', err);
           loadDir('/');
         });
     }
@@ -1123,8 +1127,8 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       {/* Delete confirmation */}
       {deleteConfirm && (
         <div className="absolute top-0 left-0 right-0 z-50 mx-2 mt-2 px-3 py-2.5 bg-red-950/90 border border-red-800/60 rounded-lg shadow-lg">
-          <p className="text-[11px] text-red-700 dark:text-red-300 mb-2">
-            Delete <span className="font-medium text-red-200">{deleteConfirm.name}</span>?
+          <p className="text-[11px] text-red-200 dark:text-red-300 mb-2">
+            Delete <span className="font-medium text-red-100 dark:text-red-200">{deleteConfirm.name}</span>?
           </p>
           <div className="flex items-center gap-2">
             <button

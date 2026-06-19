@@ -1976,6 +1976,65 @@ pub async fn get_remote_home(
     Ok(output.trim().to_string())
 }
 
+/// Resolve the directory a remote session should start in: the configured
+/// `work_dir` (server config) if set, otherwise the remote `$HOME`.
+///
+/// `work_dir` may contain shell variables (e.g. `/dfs3b/operonws/$USER`), so it
+/// is expanded ON THE REMOTE inside a double-quoted assignment — `\`, `"` and
+/// `` ` `` are escaped (but NOT `$`) so env vars expand without letting the
+/// string break out of the quotes. If the expanded path doesn't exist we fall
+/// back to `$HOME` rather than dropping the user into a literal `$USER` folder.
+/// The result becomes the Remote Explorer's initial directory, which in turn
+/// drives the Claude session CWD and the remote-search root.
+#[tauri::command]
+pub async fn get_remote_initial_dir(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    let work_dir = profile
+        .server_config
+        .get("work_dir")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if let Some(wd) = work_dir {
+        // Escape only the chars that would break the double-quoted string;
+        // leave `$` so `$USER`/`$HOME`/`$SCRATCH` expand on the remote.
+        let esc = wd
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('`', "\\`");
+        let script = format!(
+            "d=\"{}\"; if [ -d \"$d\" ]; then printf '%s' \"$(cd -- \"$d\" && pwd -P)\"; else printf '%s' \"$HOME\"; fi",
+            esc
+        );
+        // base64-wrap so the multi-quote script survives the local→SSH→remote
+        // shell chain unmangled (same trick the remote search uses).
+        let b64 = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            script.as_bytes(),
+        );
+        let wrapped = format!("echo '{}' | base64 -d | bash", b64);
+        let resolved = ssh_exec_async(profile.clone(), wrapped).await?;
+        let resolved = resolved.trim().to_string();
+        if !resolved.is_empty() {
+            return Ok(resolved);
+        }
+    }
+
+    let output = ssh_exec_async(profile, "echo $HOME".to_string()).await?;
+    Ok(output.trim().to_string())
+}
+
 #[tauri::command]
 pub async fn read_remote_file(
     state: tauri::State<'_, SSHManager>,

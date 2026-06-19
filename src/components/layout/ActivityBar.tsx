@@ -231,14 +231,14 @@ function EndSessionDialog({
                 <p className="text-[11px] text-muted">Submitted SLURM jobs are never touched.</p>
 
                 {footprint.slurm_in_pane && (
-                  <div className="rounded-md border border-yellow-600/40 bg-yellow-500/10 p-2.5 text-yellow-200">
+                  <div className="rounded-md border border-yellow-600/40 bg-yellow-500/10 p-2.5 text-yellow-800 dark:text-yellow-200">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
                       <div>
-                        <div className="text-yellow-100">
+                        <div className="text-yellow-900 dark:text-yellow-100">
                           One running SLURM allocation is open in this tmux pane. Killing the tmux session will end <em>only that allocation</em>.
                         </div>
-                        <div className="mt-1 text-yellow-200/90">
+                        <div className="mt-1 text-yellow-800 dark:text-yellow-200/90">
                           <code>sbatch</code> jobs in your queue keep running on their own nodes — Operon never calls <code>scancel</code>.
                         </div>
                         {runningJobs.length > 0 && (
@@ -254,7 +254,7 @@ function EndSessionDialog({
                             {queuedCount} queued/pending job{queuedCount === 1 ? "" : "s"} not shown — these are independent and will keep waiting in the SLURM queue.
                           </div>
                         )}
-                        <label className="mt-2 flex items-center gap-2 text-yellow-100">
+                        <label className="mt-2 flex items-center gap-2 text-yellow-900 dark:text-yellow-100">
                           <input type="checkbox" checked={killTmux} onChange={(e) => setKillTmux(e.target.checked)} />
                           Also kill the tmux session (ends the running allocation)
                         </label>

@@ -4072,33 +4072,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               {planReady ? 'Plan ready for review' : 'Plan detected'}
             </span>
             <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
-            <span className="text-[10px] text-secondary truncate">
-              implementation_plan.md ({existingPlan.split('\n').length} lines)
-            </span>
-            {/* Plan date extracted from content \u2014 keep it compact: stop at the
-                first separator (\u00B7, **, ( ) so a crammed "Date + Status" line
-                can't dump the whole paragraph into the banner, and hard-cap +
-                truncate as a final guard. */}
-            {(() => {
-              const dateMatch = existingPlan.match(/\*\*Date:\*\*\s*(.+)/);
-              if (!dateMatch) return null;
-              const planDate = dateMatch[1]
-                .split(/\s*(?:[\u00B7*(]| - )/)[0]
-                .trim()
-                .slice(0, 40);
-              if (!planDate) return null;
-              return (
-                <>
-                  <span className="text-[10px] text-subtle mx-0.5">{'\u00B7'}</span>
-                  <span
-                    className="text-[10px] text-muted truncate max-w-[140px]"
-                    title={dateMatch[1].trim()}
-                  >
-                    {planDate}
-                  </span>
-                </>
-              );
-            })()}
+            <span className="text-[10px] text-muted truncate">{existingPlan.split('\n').length} lines</span>
             {/* History dropdown */}
             {planHistory.length > 0 && (
               <div className="relative ml-1">
@@ -4183,29 +4157,24 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             )}
           </div>
           {planReady && (
-            <div className="mt-1.5 space-y-1.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-amber-500/70">{'\u2193'} Type feedback below to revise the plan, or use a suggestion:</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {[
-                  'Change the output format',
-                  'Add more detail to the steps',
-                  'Simplify the approach',
-                  'Use a different library/tool',
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => {
-                      setInput(suggestion);
-                      textareaRef.current?.focus();
-                    }}
-                    className="text-[10px] px-2 py-0.5 bg-surface hover:bg-elevated text-secondary hover:text-primary rounded-full transition-colors"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {[
+                'Change the output format',
+                'Add more detail to the steps',
+                'Simplify the approach',
+                'Use a different library/tool',
+              ].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => {
+                    setInput(suggestion);
+                    textareaRef.current?.focus();
+                  }}
+                  className="text-[10px] px-2 py-0.5 bg-surface hover:bg-elevated text-secondary hover:text-primary rounded-full transition-colors"
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -4302,7 +4271,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         {isStreaming && reconnecting && !streamStalled && (
           <div className="my-2 p-2 rounded-lg bg-blue-950/30 border border-blue-800/40 text-[11px] flex items-center gap-2">
             <span className="animate-pulse text-blue-700 dark:text-blue-300">{'\u25CF'}</span>
-            <span className="text-blue-200/70">
+            <span className="text-blue-800/80 dark:text-blue-200/70">
               SSH stream quiet — reconnecting (attempt {reconnectAttempts.current}/{MAX_RECONNECTS})…
             </span>
           </div>
@@ -4313,7 +4282,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <p className="text-amber-700 dark:text-amber-300 font-medium mb-1">
               No response received for over {mode === 'agent' ? '8 minutes' : '90 seconds'}
             </p>
-            <p className="text-amber-200/60 mb-2">
+            <p className="text-amber-800/80 dark:text-amber-200/60 mb-2">
               {(mode === 'agent' || mode === 'plan')
                 ? 'The SSH stream may have stalled while the agent continues working. Try reconnecting first.'
                 : 'The remote SSH connection may have stalled. You can wait, or stop and retry.'}
@@ -4341,7 +4310,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       ]);
                     });
                   }}
-                  className="px-2.5 py-1 rounded bg-blue-800/40 hover:bg-blue-800/60 text-blue-200 text-[11px] font-medium transition-colors"
+                  className="px-2.5 py-1 rounded bg-blue-200 dark:bg-blue-800/40 hover:bg-blue-300 dark:hover:bg-blue-800/60 text-blue-900 dark:text-blue-200 text-[11px] font-medium transition-colors"
                 >
                   Reconnect
                 </button>
@@ -4361,7 +4330,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     },
                   ]);
                 }}
-                className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
+                className="px-2.5 py-1 rounded bg-amber-200 dark:bg-amber-800/40 hover:bg-amber-300 dark:hover:bg-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] font-medium transition-colors"
               >
                 Stop session
               </button>
@@ -4451,7 +4420,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               <p className="text-amber-700 dark:text-amber-300 font-medium mb-1">
                 Session is at {elapsedMinutes} / {sessionBudgetMinutes} min (75%+)
               </p>
-              <p className="text-amber-200/60 mb-2">
+              <p className="text-amber-800/80 dark:text-amber-200/60 mb-2">
                 Long monitoring loops can rack up tokens. Consider wrapping up
                 soon, or extending the budget if you need more time.
               </p>
@@ -4460,7 +4429,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   onClick={() => {
                     setInput('Wrap up: summarize current status, save progress to the plan, and stop.');
                   }}
-                  className="px-2.5 py-1 rounded bg-amber-800/40 hover:bg-amber-800/60 text-amber-200 text-[11px] font-medium transition-colors"
+                  className="px-2.5 py-1 rounded bg-amber-200 dark:bg-amber-800/40 hover:bg-amber-300 dark:hover:bg-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] font-medium transition-colors"
                 >
                   Wrap up now
                 </button>
