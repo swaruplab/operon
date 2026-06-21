@@ -86,6 +86,24 @@ fn ai_provider_env(
                         // this token is only here so Claude Code thinks it
                         // has credentials and proceeds.
                         ("ANTHROPIC_AUTH_TOKEN".to_string(), "portkey".to_string()),
+                        // These models can't hit the literal "invalid beta flag"
+                        // 400 (the proxy translates to OpenAI and drops the
+                        // anthropic-beta header), but the same suppression keeps
+                        // Claude Code from emitting beta-only tool-schema fields
+                        // (defer_loading, eager_input_streaming), extended-thinking
+                        // blocks, and cache_control that the translator would have
+                        // to handle — clean, standard requests for the proxy.
+                        ("DISABLE_PROMPT_CACHING".to_string(), "1".to_string()),
+                        (
+                            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
+                            "1".to_string(),
+                        ),
+                        (
+                            "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string(),
+                            "1".to_string(),
+                        ),
+                        ("MAX_THINKING_TOKENS".to_string(), "0".to_string()),
+                        ("ANTHROPIC_BETAS".to_string(), String::new()),
                     ];
                 }
                 // Proxy isn't running yet — fall through to the direct path,
@@ -109,17 +127,29 @@ fn ai_provider_env(
                 .trim_end_matches("/v1")
                 .trim_end_matches('/')
                 .to_string();
-            // Disable Claude Code's beta features that add `anthropic-beta`
-            // headers Bedrock-backed Portkey routes reject ("invalid beta
-            // flag" 400). We do NOT set CLAUDE_CODE_USE_BEDROCK=1 because
-            // that flips auth to AWS SigV4 and overrides the Bearer token
-            // we want Portkey to receive via ANTHROPIC_AUTH_TOKEN.
+            // Suppress the `anthropic-beta` headers that Bedrock-backed Portkey
+            // routes reject ("400 ... invalid beta flag"). Claude Code 2.1.69+
+            // sends `advanced-tool-use-2025-11-20` by DEFAULT, which Bedrock
+            // doesn't support. `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` is the
+            // documented lever for that (and strips the beta-specific tool-schema
+            // fields too). NOTE: `ANTHROPIC_BETAS` *enables* betas — an empty
+            // value is NOT a reliable suppressor — but we leave it empty so no
+            // user-added betas sneak in. We do NOT set CLAUDE_CODE_USE_BEDROCK=1
+            // because that flips auth to AWS SigV4 and overrides the Bearer token
+            // Portkey needs via ANTHROPIC_AUTH_TOKEN.
+            // Upstream caveat: on some 2.1.69+ builds the disable flag still
+            // leaks `advanced-tool-use` (anthropics/claude-code#22893) — if so the
+            // header must be stripped gateway-side or Claude Code pinned < 2.1.69.
             let env = vec![
                 ("ANTHROPIC_BASE_URL".to_string(), base_for_sdk),
                 ("ANTHROPIC_AUTH_TOKEN".to_string(), key.to_string()),
                 ("DISABLE_PROMPT_CACHING".to_string(), "1".to_string()),
                 (
                     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".to_string(),
+                    "1".to_string(),
+                ),
+                (
+                    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS".to_string(),
                     "1".to_string(),
                 ),
                 ("MAX_THINKING_TOKENS".to_string(), "0".to_string()),
@@ -342,6 +372,13 @@ pub struct ClaudeSession {
 pub struct ClaudeManager {
     pub sessions: Mutex<HashMap<String, ClaudeSession>>,
     pub api_key: Mutex<Option<String>>,
+    /// Per-remote-host single-flight guard so two of Operon's OWN `claude`
+    /// launches never trigger an OAuth token refresh at the same instant. On a
+    /// shared-NFS HPC home a refresh rotates+invalidates the token, and a lost
+    /// race can permanently wipe the refresh token (see check_remote_claude_auth).
+    /// Keyed by SSH profile id. The inner Arc<tokio::Mutex> is the real lock; this
+    /// outer std Mutex only guards the map and is never held across `.await`.
+    pub refresh_locks: Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl ClaudeManager {
@@ -349,7 +386,19 @@ impl ClaudeManager {
         Self {
             sessions: Mutex::new(HashMap::new()),
             api_key: Mutex::new(None),
+            refresh_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Get-or-create the per-host OAuth-refresh serialization lock for a profile.
+    /// Holds the map's std Mutex only briefly (no `.await` inside) and returns a
+    /// cloned Arc the caller can `.lock_owned().await` — keeping std locks off
+    /// the await path (project rule #10).
+    pub fn refresh_lock_for(&self, profile_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let mut map = self.refresh_locks.lock().unwrap_or_else(|e| e.into_inner());
+        map.entry(profile_id.to_string())
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     /// Best-effort kill of every tracked session. Drains the map under the lock,
@@ -1280,8 +1329,11 @@ echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev
 }
 
 /// Check if Claude Code on a remote server is authenticated.
-/// First does a fast filesystem scan for credential files, then verifies
-/// the credentials actually work by running a quick `claude -p 'ping'`.
+/// Reads the stored OAuth credential (`expiresAt` + `refreshToken`) directly —
+/// it does NOT run `claude`, because a live `claude -p` would force a token
+/// REFRESH, and on a shared-NFS HPC home that refresh can race a session/other
+/// check and rotate-invalidate (even permanently wipe) the refresh token. The
+/// file read tells us auth status without ever touching the network.
 /// Returns: "authenticated", "not_authenticated", or an error string.
 #[tauri::command]
 pub async fn check_remote_claude_auth(
@@ -1297,83 +1349,73 @@ pub async fn check_remote_claude_auth(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    // Two-phase auth check:
-    // Phase 1: Quick filesystem scan for credential files
-    // Phase 2: If files found, verify they actually work with `claude -p 'ping'`
+    // Determine auth status by READING the stored OAuth credential — NEVER by
+    // running `claude`. A live `claude -p` would force a token REFRESH; on HPC
+    // the credential is on a shared NFS home, and a refresh racing another
+    // claude process (a session, or the old 5s re-check) rotates + invalidates
+    // the refresh token, which a lost race can permanently wipe. Reading the
+    // file's `expiresAt` + `refreshToken` tells us enough without any network
+    // call and without ever triggering that refresh. NO `claude`, NO python.
     let check_script = r#"
-# Make `claude` resolvable however the user installed it (standard dirs first,
-# then profile-provided PATH: custom npm prefix, module/conda) so the live ping
-# below actually RUNS — otherwise an expired credential on a non-standard install
-# falls through to "AUTH:ok" and is misreported as authenticated. Safe now: the
-# whole script runs inside the channel's `( … )` subshell, so a profile `exit`
-# only ends this command, never the persistent parent shell. Redirect profile
-# output to /dev/null so MOTD/conda banners can't corrupt our parsed result.
-export PATH="$HOME/.claude/local/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH"
-for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
-    [ -f "$rc" ] && . "$rc" >/dev/null 2>&1
+# Locate the credential file (first match wins).
+CRED=""
+for f in \
+    "$HOME/.claude/.credentials.json" \
+    "$HOME/.claude/credentials.json" \
+    "$HOME/.claude/.credentials" \
+    "$HOME/.claude.json" \
+    "$HOME/.config/claude/credentials.json" \
+    "$HOME/.config/claude-code/credentials.json"
+do
+    if [ -s "$f" ]; then CRED="$f"; break; fi
 done
-
-CRED_FOUND=0
-
-# Primary check: the known credential file location
-if [ -s "$HOME/.claude/.credentials.json" ]; then
-    CRED_FOUND=1
-fi
-
-# Fallback: check other possible credential locations
-if [ "$CRED_FOUND" -eq 0 ]; then
-    for f in \
-        "$HOME/.claude/credentials.json" \
-        "$HOME/.claude/.credentials" \
-        "$HOME/.claude.json" \
-        "$HOME/.config/claude/credentials.json" \
-        "$HOME/.config/claude-code/credentials.json"
-    do
-        if [ -s "$f" ]; then
-            CRED_FOUND=1
-            break
-        fi
-    done
-fi
-
-# Fallback: scan all hidden json files in ~/.claude/
-if [ "$CRED_FOUND" -eq 0 ]; then
+# Fallback: any non-empty hidden json in ~/.claude/
+if [ -z "$CRED" ]; then
     for f in "$HOME/.claude"/.*.json; do
-        [ -s "$f" ] 2>/dev/null && { CRED_FOUND=1; break; }
+        [ -s "$f" ] 2>/dev/null && { CRED="$f"; break; }
     done
 fi
 
-# No credential files found at all
-if [ "$CRED_FOUND" -eq 0 ]; then
+if [ -z "$CRED" ]; then
     echo "AUTH:none"
     ls -la "$HOME/.claude/" 2>&1 | head -20 | while read line; do echo "DEBUG:$line"; done
     exit 0
 fi
 
-# Credential files exist — try a quick live check, but treat it as best-effort.
-# Use TERM=dumb to avoid TUI mode. On HPC login nodes the API round-trip is
-# often slow/proxied and `timeout` kills the ping (exit 124). A timeout does
-# NOT mean the credentials are bad — the file is right there — so fall back to
-# AUTH:ok instead of falsely reporting the user as logged out.
-if command -v claude >/dev/null 2>&1; then
-    RESULT=$(TERM=dumb timeout 25 claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null)
-    EXIT_CODE=$?
-    if [ "$EXIT_CODE" -eq 0 ] && [ -n "$RESULT" ]; then
-        echo "AUTH:verified"
-        exit 0
-    elif [ "$EXIT_CODE" -eq 124 ] || [ "$EXIT_CODE" -eq 137 ]; then
-        echo "AUTH:ok"
-        echo "DEBUG:claude ping timed out (exit=$EXIT_CODE) — credentials file present, assuming valid"
-        exit 0
-    else
-        echo "AUTH:expired"
-        echo "DEBUG:claude ping exit=$EXIT_CODE"
-        exit 0
-    fi
-fi
+# Parse expiresAt (epoch ms) and refreshToken using grep/sed only. Scanning the
+# whole blob handles BOTH the wrapped {claudeAiOauth:{...}} and flat schemas and
+# tolerates pretty-printed JSON.
+RAW=$(cat "$CRED" 2>/dev/null)
+EXP_MS=$(printf '%s' "$RAW" | grep -o '"expiresAt"[[:space:]]*:[[:space:]]*[0-9][0-9]*' | grep -o '[0-9][0-9]*$' | head -1)
+RT=$(printf '%s' "$RAW" | sed -n 's/.*"refreshToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 
-# claude binary not in PATH but cred files exist — assume ok (may need PATH fix)
-echo "AUTH:ok"
+# ms -> s WITHOUT 64-bit arithmetic inside [ ] (strip the trailing 3 ms digits).
+# Treat a missing/short/non-numeric expiresAt as "unparsable" (EXP_S empty) so we
+# fall through to the refresh-token check rather than a false logout.
+EXP_S=""
+case "$EXP_MS" in
+    "" ) ;;
+    *[!0-9]* ) ;;
+    ??? | ?? | ? ) ;;
+    * ) EXP_S=${EXP_MS%???} ;;
+esac
+NOW_S=$(date +%s 2>/dev/null)
+
+echo "DEBUG:auth file=$CRED exp_ms=${EXP_MS:-none} has_rt=$([ -n "$RT" ] && echo yes || echo no)"
+
+if [ -n "$EXP_S" ] && [ -n "$NOW_S" ] && [ "$EXP_S" -gt "$NOW_S" ] 2>/dev/null; then
+    # Access token still valid by its own expiry — no refresh needed.
+    echo "AUTH:verified"
+elif [ -n "$RT" ]; then
+    # Expired (or expiry unparsable) but a refresh token is present — Claude Code
+    # will silently refresh on the next REAL use. Treat as ok; do NOT refresh here.
+    echo "AUTH:ok"
+else
+    # Expired/unknown AND no refresh token -> genuinely needs re-login.
+    echo "AUTH:expired"
+    echo "DEBUG:access token expired/unparsable and no refresh token present"
+fi
+exit 0
 "#;
 
     let result = super::ssh::ssh_exec_async(profile, check_script.to_string())
@@ -1760,9 +1802,13 @@ pub async fn check_oauth_status() -> Result<bool, String> {
         }
     }
 
-    // Slow path: actually run claude through a login shell to test auth
+    // Slow path: actually run claude through a login shell to test auth.
+    // Unset the proxy vars first so we test the NATIVE OAuth credential, not a
+    // leftover `ANTHROPIC_BASE_URL` (Portkey / custom) that would route this
+    // ping through a gateway to Bedrock — where newer Claude Code beta headers
+    // 400 ("invalid beta flag") and make a valid login look unauthenticated.
     let mut auth_cmd = crate::platform::shell_exec_async(
-        "claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null",
+        "unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN; claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null",
     );
     if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
         auth_cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
@@ -2649,6 +2695,28 @@ pub async fn start_claude_session(
         name: Some(session_name),
     };
     let _ = save_session_to_disk(&meta);
+
+    // --- Serialize Operon's own concurrent OAuth-refresh windows (remote only) ---
+    // A starting `claude` whose access token has expired refreshes + rotates the
+    // shared OAuth token. Two of Operon's launches doing that at the same instant
+    // race on the NFS-backed credentials file, and the loser's failed refresh can
+    // permanently wipe the refresh token. Hold a per-host lock across claude's
+    // brief startup-refresh window so launches serialize. It is uncontended in the
+    // common case (sequential turns take far longer than the window); only a
+    // genuinely concurrent second launch waits. A detached task releases it so it
+    // never blocks the long-running stream. (The auth check no longer refreshes —
+    // it is a pure file read — so it is intentionally NOT gated here.)
+    let refresh_lock = remote
+        .as_ref()
+        .map(|ctx| state.refresh_lock_for(&ctx.profile_id));
+    if let Some(lock) = refresh_lock {
+        let guard = lock.lock_owned().await;
+        tokio::spawn(async move {
+            // Generous enough to cover a slow HPC login-node token refresh.
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            drop(guard);
+        });
+    }
 
     // --- TERMINAL MODE: run Claude inside the user's existing terminal session ---
     // This reuses their tmux/compute node/conda environment

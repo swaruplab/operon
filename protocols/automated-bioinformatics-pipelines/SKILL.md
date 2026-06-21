@@ -1,6 +1,6 @@
 ---
-name: biomaster-workflows
-display_name: "BioMaster: Workflow Orchestrator"
+name: automated-bioinformatics-pipelines
+display_name: "Automated Bioinformatics Pipelines"
 description: Pipeline maestro
 keywords:
   - workflows

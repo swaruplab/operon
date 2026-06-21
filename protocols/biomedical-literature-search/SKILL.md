@@ -1,5 +1,5 @@
 ---
-name: biomedical-search
+name: biomedical-literature-search
 description: Complete biomedical information search combining PubMed, preprints, clinical trials, and FDA drug labels. Powered by Valyu semantic search.
 keywords:
   - biomedical-search

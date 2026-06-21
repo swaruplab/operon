@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { copyText } from '../../lib/clipboard';
 import {
   GitBranch,
   RefreshCw,
@@ -754,7 +755,7 @@ export function GitPanel() {
                     <div
                       className="flex items-center justify-center gap-2 py-2.5 px-3 bg-surface border border-border-strong rounded-lg cursor-pointer hover:border-border-strong transition-colors"
                       onClick={() => {
-                        navigator.clipboard.writeText(loginCode);
+                        copyText(loginCode);
                         setStatusMessage({ type: 'success', text: 'Code copied to clipboard!' });
                       }}
                       title="Click to copy"
@@ -1157,7 +1158,7 @@ export function GitPanel() {
                         </p>
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(c.hash); setStatusMessage({ type: 'success', text: 'Hash copied' }); }}
+                        onClick={(e) => { e.stopPropagation(); copyText(c.hash); setStatusMessage({ type: 'success', text: 'Hash copied' }); }}
                         className="p-0.5 text-subtle hover:text-secondary transition-colors shrink-0"
                         title="Copy hash"
                       >

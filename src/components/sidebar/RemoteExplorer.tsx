@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { copyText } from '../../lib/clipboard';
 import {
   ChevronRight,
   ChevronDown,
@@ -408,7 +409,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
   const copySelectedPaths = useCallback(() => {
     const paths = Array.from(selectedPaths).join('\n');
-    navigator.clipboard.writeText(paths).catch(() => {});
+    copyText(paths).catch(() => {});
   }, [selectedPaths]);
 
   const addToChat = useCallback((entry: FileEntry) => {
@@ -1067,7 +1068,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           </button>
           <button
             onClick={() => {
-              navigator.clipboard.writeText(contextMenu.entry.path);
+              copyText(contextMenu.entry.path);
               setContextMenu(null);
             }}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-[12px] text-secondary hover:bg-elevated transition-colors text-left"

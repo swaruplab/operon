@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { copyText } from '../../lib/clipboard';
 import {
   BookOpen,
   FolderOpen,
@@ -256,7 +257,7 @@ export function ProtocolsView({ activeProtocolIds, onToggle, sshConnection, remo
   const handleCopyContent = async (p: ProtocolEntry) => {
     try {
       const content = await invoke<string>('read_protocol', { protocolId: p.id });
-      await navigator.clipboard.writeText(content);
+      await copyText(content);
       emit('show-notification', { message: `Copied "${p.name}" to clipboard` });
     } catch (e) {
       emit('show-notification', { message: `Failed to copy: ${e}` });

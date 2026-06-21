@@ -8,6 +8,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getSettings } from '../../lib/settings';
 import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
 import { useTheme } from '../../context/ThemeContext';
+import { copyText } from '../../lib/clipboard';
 import '@xterm/xterm/css/xterm.css';
 
 // Xterm theme palettes — kept in sync with the app's CSS variables in
@@ -71,7 +72,12 @@ const XTERM_LIGHT: ITheme = {
  */
 
 // Match only valid URL characters (RFC 3986) — stops before control chars, >, <, etc.
-const OAUTH_URL_REGEX = /https:\/\/claude\.ai\/oauth\/authorize[A-Za-z0-9%&=?._~:/@!$'()*+,;\-[\]]+/;
+// Claude's OAuth URL host/path has changed over time — match the current
+// claude.com/cai/oauth form AND the legacy claude.ai/oauth (and console.anthropic)
+// so the auto-open keeps working across Claude Code versions. (The old regex only
+// matched claude.ai/oauth/authorize, so it silently stopped auto-opening when the
+// CLI switched to https://claude.com/cai/oauth/authorize.)
+const OAUTH_URL_REGEX = /https:\/\/(?:claude\.ai\/oauth|claude\.com\/cai\/oauth|console\.anthropic\.com\/oauth)\/authorize[A-Za-z0-9%&=?._~:/@!$'()*+,;\-[\]]+/;
 
 // Comprehensive ANSI escape code stripper — handles CSI sequences (including
 // private mode with ? like \x1b[?2026l), OSC sequences, and simple two-char escapes.
@@ -105,6 +111,16 @@ function cleanOAuthUrl(url: string): string {
 
   // Remove any residual control characters or non-URL bytes
   cleaned = cleaned.replace(/[\x00-\x1f\x7f]/g, '');
+
+  // The TUI positions its "Paste code here…" prompt immediately after the URL
+  // using cursor escapes (no whitespace delimiter), so once ANSI is stripped the
+  // start of that prose ("Past"/"Paste") gets glued onto the LAST query param,
+  // `state=`, corrupting it (the #1 "invalid link" cause). Claude's `state` and
+  // `code_challenge` are 43-char base64url tokens (256-bit), so truncate `state`
+  // to 43 chars — this drops any glued prose regardless of how much, without
+  // assuming what the prose is. (code_challenge can't be glued — it's mid-URL,
+  // bounded by the following `&`.)
+  cleaned = cleaned.replace(/(state=[A-Za-z0-9_-]{43})[A-Za-z0-9_-]*/, '$1');
 
   // Trim any trailing characters that aren't valid URL chars
   cleaned = cleaned.replace(/[^A-Za-z0-9%&=?._~:/@!$'()*+,;\-[\]]+$/, '');
@@ -216,6 +232,16 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
 
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // Defense-in-depth: tear down any prior xterm instance that leaked — e.g. an
+    // HMR/StrictMode re-run that re-entered this effect before the old cleanup
+    // ran — so we never end up with two live terminals (and thus two onData
+    // input handlers) bound to the same surviving backend PTY, which would
+    // write every keystroke twice ("login" -> "llooggiinn").
+    if (termRef.current) {
+      termRef.current.dispose();
+      termRef.current = null;
+    }
 
     // Create xterm.js terminal instance
     const term = new Terminal({
@@ -400,8 +426,10 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       unlistenExitRef.current = unlisten;
     });
 
-    // Send user input to PTY
-    term.onData((data) => {
+    // Send user input to PTY. Capture the IDisposable so cleanup can detach
+    // THIS handler explicitly — never rely on term.dispose() alone, or a leaked
+    // duplicate terminal could keep a stale onData writing into the shared PTY.
+    const dataDisp = term.onData((data) => {
       invoke('write_terminal', {
         terminalId,
         data: Array.from(new TextEncoder().encode(data)),
@@ -409,16 +437,32 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
     });
 
     // Auto-copy: when user selects text, copy it to clipboard automatically (like iTerm2)
-    term.onSelectionChange(() => {
+    const selDisp = term.onSelectionChange(() => {
       const selection = term.getSelection();
       if (selection) {
-        navigator.clipboard.writeText(selection).catch(() => {});
+        void copyText(selection);
       }
     });
 
     // Track terminal title changes (for tab names)
-    term.onTitleChange((title) => {
+    const titleDisp = term.onTitleChange((title) => {
       onTitleChangeRef.current?.(title);
+    });
+
+    // OSC 52 clipboard-write support. Programs like the `claude login` TUI emit
+    // ESC ] 52 ; c ; <base64> BEL when you press "c to copy"; xterm.js ignores
+    // OSC 52 by default, so that copy silently no-ops. Decode the payload and
+    // write it to the (native, plugin-backed) clipboard. data is "<sel>;<b64>".
+    const osc52Disp = term.parser.registerOscHandler(52, (data) => {
+      const semi = data.indexOf(';');
+      const b64 = semi >= 0 ? data.slice(semi + 1) : data;
+      try {
+        const text = decodeURIComponent(escape(atob(b64)));
+        if (text) void copyText(text);
+      } catch {
+        // malformed / non-base64 OSC 52 payload — ignore
+      }
+      return true; // handled
     });
 
     // Spawn terminal. SSH terminals receive a structured argument vector (the
@@ -489,6 +533,13 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       // (it's rebound recursively), but removing the mql itself is enough —
       // it won't fire after the term is disposed.
       dprMql = null;
+      // Detach the captured xterm handlers BEFORE disposing the terminal, so a
+      // duplicated/leaked instance can never leave a stale onData feeding the
+      // surviving PTY (the double-keystroke bug).
+      dataDisp.dispose();
+      selDisp.dispose();
+      titleDisp.dispose();
+      osc52Disp.dispose();
       term.dispose();
       oauthBuffer = '';
     };

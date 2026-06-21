@@ -61,6 +61,7 @@ import { getSettings, type AppSettings } from '../../lib/settings';
 import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
+import { copyText } from '../../lib/clipboard';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -639,7 +640,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 
   const handleCopy = useCallback(() => {
     const text = getMessageText();
-    if (text) navigator.clipboard.writeText(text).catch(() => {});
+    if (text) void copyText(text);
   }, [getMessageText]);
 
   if (isUser || isSystem) {
@@ -1202,10 +1203,21 @@ export function ChatPanel() {
   const [loginStatus, setLoginStatus] = useState<'idle' | 'fetching' | 'ready' | 'ready_no_url' | 'code_sent' | 'error'>('idle');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [authCode, setAuthCode] = useState('');
+  const [urlCopied, setUrlCopied] = useState(false);
 
-  // Auto-poll for auth completion after OAuth URL is shown
+  // Auto-poll for auth completion after OAuth URL is shown.
+  // NOTE: never poll while a session is streaming — `check_remote_claude_auth`
+  // is now a cheap, non-refreshing file read (it no longer pings `claude`), but
+  // skipping it during a stream avoids needless remote round-trips and keeps the
+  // auth check fully out of the way of an active session. When streaming ends
+  // the effect re-runs and polling resumes.
   useEffect(() => {
-    if (!['ready', 'ready_no_url', 'fetching', 'code_sent'].includes(loginStatus) || !remoteInfo?.profileId) return;
+    if (
+      !['ready', 'ready_no_url', 'fetching', 'code_sent'].includes(loginStatus) ||
+      !remoteInfo?.profileId ||
+      isStreaming
+    )
+      return;
     const interval = setInterval(async () => {
       try {
         const authResult = await invoke<string>('check_remote_claude_auth', { profileId: remoteInfo.profileId });
@@ -1220,7 +1232,7 @@ export function ChatPanel() {
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [loginStatus, remoteInfo?.profileId]);
+  }, [loginStatus, remoteInfo?.profileId, isStreaming]);
 
   // Voice dictation via native macOS speech recognition
   const [isDictating, setIsDictating] = useState(false);
@@ -3693,7 +3705,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 </code>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText('curl -fsSL https://claude.ai/install.sh | bash');
+                    void copyText('curl -fsSL https://claude.ai/install.sh | bash');
                   }}
                   className="text-[9px] text-muted hover:text-secondary shrink-0 px-1"
                   title="Copy to clipboard"
@@ -3760,8 +3772,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       {/* Remote Claude Code setup banner — Step 2: Installed but not authenticated */}
       {/* Show when hasAuth is false OR null (null = couldn't determine, so prompt user).
           Gated on status === 'ok' so it does not flash alongside the
-          unreachable / check-error banners (where hasClaude is unknown). */}
-      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'ok' && remoteDeps.hasClaude && remoteDeps.hasAuth !== true && (
+          unreachable / check-error banners (where hasClaude is unknown).
+          ALSO gated on aiProvider === 'anthropic': for Portkey/custom providers the
+          remote Claude uses the ANTHROPIC_BASE_URL/AUTH_TOKEN Operon injects at
+          session start, NOT its own OAuth/API-key login. The auth check pings bare
+          `claude` (no provider env), so a stale/expired OAuth credential file makes
+          it report AUTH:expired — a false alarm that shouldn't block a Portkey user.
+          Mirrors the local-auth gate fix. */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'ok' && remoteDeps.hasClaude && remoteDeps.hasAuth !== true && aiProvider === 'anthropic' && (
         <div className="px-3 py-2 border-b border-blue-800/30 shrink-0 bg-blue-950/30">
           <div className="flex items-start gap-2">
             <Key className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
@@ -3805,9 +3823,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 
                         const tryExtractUrl = () => {
                           const cleaned = outputBuffer
-                            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-                            .replace(/\x1b\][^\x07]*\x07/g, '')
-                            .replace(/\x1b[()][A-Z0-9]/g, '')
+                            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // CSI (cursor moves, colors)
+                            .replace(/\x1b\][^\x07]*\x07/g, '')       // OSC
+                            .replace(/\x1b[()][A-Z0-9]/g, '')         // charset designators
+                            .replace(/\x1b[=>]/g, '')                 // keypad mode
+                            // tmux paints unused screen area + borders with these
+                            // when its window is smaller than the client; without
+                            // stripping them they truncate/corrupt the captured URL.
+                            .replace(/[\u00b7\u2022\u2500-\u257f]/g, '')  // middot/bullet/box-drawing (NOT spaces)
+                            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') // stray control chars
                             .replace(/[\r\n]/g, '');
                           // Try multiple URL patterns — Claude login URL format may vary
                           const match =
@@ -3818,7 +3842,12 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           if (match) {
                             foundUrl = true;
                             unlisten();
-                            const url = match[0];
+                            // The TUI glues the start of its "Paste code here…"
+                            // prompt onto the last param (state=) because it's
+                            // positioned with cursor escapes, not whitespace.
+                            // state is a 43-char base64url token — truncate to
+                            // drop the glued prose (the "invalid link" cause).
+                            const url = match[0].replace(/(state=[A-Za-z0-9_-]{43})[A-Za-z0-9_-]*/, '$1');
                             console.log('[Operon] Captured OAuth URL from terminal:', url);
                             setLoginUrl(url);
                             setLoginStatus('ready');
@@ -3888,19 +3917,23 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           href={loginUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline break-all font-mono flex-1 leading-relaxed"
+                          className="text-[10px] text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-700 underline break-all font-mono flex-1 leading-relaxed select-all"
                         >
                           {loginUrl}
                         </a>
                         <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(loginUrl);
+                          onClick={async () => {
+                            const ok = await copyText(loginUrl);
+                            if (ok) {
+                              setUrlCopied(true);
+                              setTimeout(() => setUrlCopied(false), 1500);
+                            }
                           }}
                           className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary bg-elevated/60 hover:bg-elevated rounded px-2 py-1 shrink-0 transition-colors"
                           title="Copy URL to clipboard"
                         >
-                          <Copy className="w-3 h-3 pointer-events-none" />
-                          Copy
+                          {urlCopied ? <Check className="w-3 h-3 pointer-events-none" /> : <Copy className="w-3 h-3 pointer-events-none" />}
+                          {urlCopied ? 'Copied' : 'Copy'}
                         </button>
                       </div>
                     </div>
@@ -4023,7 +4056,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <div className="mt-1 flex items-center gap-1.5 bg-surface/80 rounded px-2 py-1 border border-border-strong/30">
                   <code className="text-[10px] text-amber-600 dark:text-amber-400 font-mono select-all flex-1">claude login</code>
                   <button
-                    onClick={() => navigator.clipboard.writeText('claude login')}
+                    onClick={() => void copyText('claude login')}
                     className="text-[9px] text-muted hover:text-secondary shrink-0 px-1"
                   >
                     Copy

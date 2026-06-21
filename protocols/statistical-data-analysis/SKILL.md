@@ -1,5 +1,5 @@
 ---
-name: biomedical-data-analysis
+name: statistical-data-analysis
 description: Omics data forge
 keywords:
   - pandas

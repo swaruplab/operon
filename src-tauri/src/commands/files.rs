@@ -473,7 +473,7 @@ fn detect_category(id: &str, _content: &str) -> String {
         || has("expression-matrix-")
         || has("metabolite-communication")
         || has("bgpt-paper")
-        || has("biokernel")
+        || has("biomedical-api-router")
         || eq("cell-free-expression")
         || eq("single-cellphone-db")
         || eq("universal-single-cell-annotator")
@@ -993,13 +993,13 @@ fn detect_category(id: &str, _content: &str) -> String {
     // --- Multi-agent bio workflows (OpenClaw-style *-agent) -------------
     if id.ends_with("-agent")
         || has("-agent-")
-        || has("biomni")
-        || has("biomaster")
-        || has("biomedical-search")
-        || has("biomedical-data")
+        || has("autonomous-biomedical-agent")
+        || has("automated-bioinformatics-pipelines")
+        || has("biomedical-literature-search")
+        || has("statistical-data-analysis")
         || has("aav-vector")
         || has("ai-physician")
-        || has("biologist-analyst")
+        || has("biological-systems-reasoning")
         || has("chemist-analyst")
     {
         return "bio_agents".to_string();

@@ -1,5 +1,5 @@
 ---
-name: biokernel
+name: biomedical-api-router
 display_name: "Biomedical API Router (MCP)"
 description: Biomedical OS Core & MCP Server
 keywords:

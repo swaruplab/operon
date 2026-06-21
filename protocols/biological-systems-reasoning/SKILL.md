@@ -1,6 +1,6 @@
 ---
-name: biologist-analyst
-display_name: "Biology Systems Analyst"
+name: biological-systems-reasoning
+display_name: "Biological Systems Reasoning"
 version: 1.0.0
 description: |
   Analyzes living systems and biological phenomena through biological lens using evolution, molecular biology,
