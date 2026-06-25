@@ -1,5 +1,5 @@
 ---
-name: bio-metabolomics-statistical-analysis
+name: metabolomics-statistical-analysis
 description: Statistical analysis for metabolomics data. Covers preprocessing (log2 transformation, normalization), limma moderated testing with empirical Bayes, Welch's t-tests with BH correction, fold change estimation, and multivariate methods (PCA, PLS-DA, OPLS-DA). Use when identifying differentially abundant metabolites or building classification models.
 tool_type: mixed
 primary_tool: limma

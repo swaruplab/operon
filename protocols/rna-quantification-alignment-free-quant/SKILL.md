@@ -1,5 +1,5 @@
 ---
-name: bio-rna-quantification-alignment-free-quant
+name: rna-quantification-alignment-free-quant
 description: Quantify transcript expression using pseudo-alignment with Salmon or kallisto. Use when quantifying transcripts with Salmon or kallisto.
 tool_type: cli
 primary_tool: salmon

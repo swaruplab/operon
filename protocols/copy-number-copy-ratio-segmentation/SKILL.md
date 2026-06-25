@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-copy-ratio-segmentation
+name: copy-number-copy-ratio-segmentation
 description: Normalize read-depth copy-ratio profiles and segment them into copy-number regions using circular binary segmentation (CBS, DNAcopy), hidden Markov models, HaarSeg, and fused-lasso methods. Covers GC-content, mappability, and replication-timing (wave-artifact) bias correction, panel-of-normals/PCA denoising, diploid-baseline centering, and algorithm selection by sequencing depth and event size. Use when choosing a segmentation algorithm, correcting depth bias, diagnosing oversegmentation or a mis-centered baseline, tuning CBS or HMM parameters, or understanding why a downstream CNV caller produced fragmented or shifted segments.
 tool_type: mixed
 primary_tool: DNAcopy

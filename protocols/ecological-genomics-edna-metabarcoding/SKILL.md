@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-edna-metabarcoding
+name: ecological-genomics-edna-metabarcoding
 description: Processes eDNA metabarcoding from raw paired-end reads to species tables, navigating ASV (DADA2, UNOISE3) vs OTU (swarm v2) decision (Callahan 2017 vs Schloss multi-copy-16S critique), marker/primer choice (Leray COI, MiFish 12S, 515F/806R 16S, ITS2) with primer-specific bias, OBITools3 v3 command-name break (obi stats plural; .tar.gz taxonomy), tag-jumping with dual-indexing (Schnell 2015; NovaSeq 10x MiSeq), decontam as screening-not-classifier (Davis 2018), read-counts-not-abundance critique (Lamb 2019), site-occupancy modeling (Ficetola 2015), Naive-Bayes calibration limits (Bokulich 2018), and eDNA decay (Strickler 2015). Use when going from raw eDNA FASTQ to species tables, picking marker + denoising pipeline, deciding whether read counts represent abundance, applying occupancy modeling, configuring OBITools3 v3, or interpreting decontam output. Not for clinical 16S microbiome (see microbiome/amplicon-processing).
 tool_type: mixed
 primary_tool: dada2

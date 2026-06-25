@@ -42,6 +42,12 @@ pub struct SSHProfile {
     pub port: u16,
     pub key_file: Option<String>,
     pub use_agent: bool,
+    /// Whether `key_file` is passphrase-protected. When true, Operon loads the
+    /// key into an ssh-agent at connect time using the passphrase stored in the
+    /// OS keychain (see commands/sshauth.rs). The passphrase itself is NEVER
+    /// stored in this struct (it would be serialized to plaintext JSON).
+    #[serde(default)]
+    pub key_has_passphrase: bool,
     /// What kind of auth this server uses
     #[serde(default)]
     pub auth_type: AuthType,
@@ -149,6 +155,10 @@ fn ensure_control_master(profile: &SSHProfile) -> Result<bool, String> {
         return Ok(true);
     }
 
+    // The cold-start master runs under BatchMode=yes and cannot prompt for a
+    // passphrase — so unlock the key into the agent first.
+    crate::commands::sshauth::ensure_key_loaded(profile);
+
     let sock = control_socket_path(profile);
     // Match the ControlPersist of the interactive/mux masters (ssh_mux_args) so
     // a cold-start master and an interactive master persist identically.
@@ -173,6 +183,14 @@ fn ensure_control_master(profile: &SSHProfile) -> Result<bool, String> {
         " -p {} {}@{}",
         profile.port, profile.user, profile.host
     ));
+
+    // shell_exec runs this through a LOGIN shell ($SHELL -l -c), which sources
+    // the user's rc first — a line like `export SSH_AUTH_SOCK=...` there would
+    // override the agent ensure_key_loaded just populated. Prefix an explicit
+    // assignment so this one ssh invocation pins Operon's agent regardless.
+    if let Some(sock) = crate::commands::sshauth::current_auth_sock() {
+        cmd = format!("SSH_AUTH_SOCK='{}' {}", sock.replace('\'', "'\\''"), cmd);
+    }
 
     let status = crate::platform::shell_exec(&cmd)
         .status()
@@ -338,6 +356,38 @@ impl SSHManager {
             cache: SshCache::new(10), // 10-second TTL
         }
     }
+}
+
+/// Return the canonical ControlMaster socket path for a connection. The frontend
+/// MUST use this for the interactive terminal's ControlPath so it matches
+/// exactly where the backend looks for the live master — otherwise the explorer
+/// can't reuse the connection the terminal authenticated (the literal-vs-hashed
+/// filename mismatch that broke passphrase/Duo reuse).
+#[tauri::command]
+pub fn get_ssh_socket_path(host: String, port: u16, user: String) -> String {
+    crate::platform::ssh_socket_path(&host, port, &user)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Pre-load a profile's passphrase-protected key into the ssh-agent before
+/// connecting, so the terminal and the file explorer both authenticate without
+/// prompting. No-op for keys without a passphrase.
+#[tauri::command]
+pub async fn prepare_ssh_auth(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+) -> Result<(), String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles.iter().find(|p| p.id == profile_id).cloned()
+    };
+    if let Some(p) = profile {
+        tokio::task::spawn_blocking(move || crate::commands::sshauth::ensure_key_loaded(&p))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // ── Windows Persistent SSH Exec Channel ──
@@ -1412,6 +1462,8 @@ pub async fn delete_ssh_profile(
     let mut profiles = state.profiles.lock().map_err(|e| e.to_string())?;
     profiles.retain(|p| p.id != profile_id);
     save_profiles_to_disk(&profiles)?;
+    // Don't orphan the key passphrase in the OS keychain (no-op if none stored).
+    let _ = crate::commands::sshauth::delete_passphrase(&profile_id);
     Ok(())
 }
 
@@ -1444,6 +1496,10 @@ pub async fn reorder_ssh_profiles(
 /// On Windows: uses a persistent SSH exec channel (single TCP connection reused
 /// for all commands — the Windows equivalent of ControlMaster).
 pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
+    // Ensure a passphrase-protected key is unlocked into the ssh-agent that all
+    // our ssh/scp children inherit. No-op for keys without a passphrase.
+    crate::commands::sshauth::ensure_key_loaded(profile);
+
     #[allow(unused_mut)]
     let mut _has_mux = crate::platform::supports_ssh_mux();
 
@@ -2376,6 +2432,8 @@ pub async fn scp_from_remote(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
+    crate::commands::sshauth::ensure_key_loaded(&profile);
+
     // Ensure local parent directory exists
     if let Some(parent) = std::path::Path::new(&local_path).parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -2442,6 +2500,8 @@ pub async fn scp_dir_from_remote(
             .cloned()
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
+
+    crate::commands::sshauth::ensure_key_loaded(&profile);
 
     if let Some(parent) = std::path::Path::new(&local_path).parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -2515,15 +2575,23 @@ fn open_ssh2_session(profile: &SSHProfile) -> Result<ssh2::Session, String> {
     let _ = tcp.set_read_timeout(Some(std::time::Duration::from_secs(120)));
     let _ = tcp.set_write_timeout(Some(std::time::Duration::from_secs(120)));
 
+    // Seed the agent (and SSH_AUTH_SOCK) so the agent fallback below can work
+    // for passphrase-protected keys; harmless for keys without a passphrase.
+    crate::commands::sshauth::ensure_key_loaded(profile);
+
     let mut sess = ssh2::Session::new().map_err(|e| format!("ssh2 new: {}", e))?;
     sess.set_tcp_stream(tcp);
     sess.handshake().map_err(|e| format!("handshake: {}", e))?;
 
-    // Try the explicit key file first.
+    // Try the explicit key file first. libssh2's Windows agent client does not
+    // read Git's MSYS agent socket, so for the SFTP download path we pass the
+    // passphrase (from the OS keychain) straight to libssh2 rather than relying
+    // on the agent. `None` for an unencrypted key works as before.
     if let Some(key_path) = &profile.key_file {
         let key = std::path::Path::new(key_path);
         if key.exists() {
-            let _ = sess.userauth_pubkey_file(&profile.user, None, key, None);
+            let passphrase = crate::commands::sshauth::read_passphrase(&profile.id);
+            let _ = sess.userauth_pubkey_file(&profile.user, None, key, passphrase.as_deref());
         }
     }
 
@@ -2906,6 +2974,7 @@ pub async fn setup_ssh_key(
     profile_id: String,
     password: String,
     mfa_method: Option<String>, // "push" (default), "phone", "passcode", or a specific passcode
+    key_passphrase: Option<String>, // optional: encrypt the generated key with this passphrase
 ) -> Result<String, String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::{Read, Write};
@@ -2918,6 +2987,14 @@ pub async fn setup_ssh_key(
             .cloned()
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
+
+    // Optional: encrypt the generated key with a passphrase. Stored in the OS
+    // keychain and auto-loaded into ssh-agent so the user is never prompted.
+    let passphrase_arg = key_passphrase
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    let used_passphrase = !passphrase_arg.is_empty();
 
     let event_name = format!("ssh-key-setup-progress-{}", profile_id);
     let emit_progress = |app: &tauri::AppHandle, stage: &str, msg: &str| {
@@ -2968,7 +3045,7 @@ pub async fn setup_ssh_key(
             "-f",
             &private_key_path.to_string_lossy(),
             "-N",
-            "",
+            passphrase_arg,
             "-C",
             &format!("operon@{}", profile.host),
         ]))
@@ -3401,6 +3478,17 @@ pub async fn setup_ssh_key(
         ));
     }
 
+    // If the generated key is passphrase-protected, store the passphrase in the
+    // OS keychain and load the key into the agent NOW — otherwise the BatchMode
+    // verification below cannot decrypt it and would wrongly report failure.
+    if used_passphrase {
+        let _ = crate::commands::sshauth::store_passphrase(&profile_id, passphrase_arg);
+        let mut p2 = profile.clone();
+        p2.key_file = Some(private_key_path.to_string_lossy().to_string());
+        p2.key_has_passphrase = true;
+        crate::commands::sshauth::ensure_key_loaded(&p2);
+    }
+
     // 4. Verify key-based auth works (quick non-interactive test)
     emit_progress(&app, "verifying", "Verifying key-based authentication...");
     // Run ssh directly (not through cmd.exe) to avoid path resolution issues on Windows
@@ -3443,6 +3531,7 @@ pub async fn setup_ssh_key(
                 p.key_file = Some(key_path_str.clone());
                 p.auth_type = AuthType::DuoMfa;
                 p.use_control_master = true;
+                p.key_has_passphrase = used_passphrase;
             }
             save_profiles_to_disk(&profiles_lock)?;
         }
@@ -3463,6 +3552,7 @@ pub async fn setup_ssh_key(
             p.key_file = Some(key_path_str.clone());
             p.auth_type = AuthType::Key;
             p.use_control_master = true;
+            p.key_has_passphrase = used_passphrase;
         }
         save_profiles_to_disk(&profiles_lock)?;
     }

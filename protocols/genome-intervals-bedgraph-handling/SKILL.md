@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-bedgraph-handling
+name: genome-intervals-bedgraph-handling
 description: Generates, normalizes, and converts bedGraph signal tracks (4-column chrom/start/end/value, 0-based half-open) with bedtools genomecov, deepTools bamCoverage/bamCompare/bigwigCompare, bedtools unionbedg, and UCSC bedGraphToBigWig. Covers why a raw coverage bedGraph is not comparable across samples until normalized, the CPM/RPKM/BPM/RPGC normalization menu and the conserved-total assumption that makes them wrong under a global perturbation, the strict sorted-non-overlapping-chrom.sizes bedGraphToBigWig contract that silently corrupts a bigWig, effective-genome-size selection, and bin-size aliasing. Use when building or normalizing a coverage/signal track from a BAM, comparing tracks across samples or conditions, converting bedGraph to a browser-ready bigWig, or diagnosing a track that looks plausible but reports wrong heights.
 tool_type: mixed
 primary_tool: deeptools

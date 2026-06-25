@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-compartment-analysis
+name: hi-c-analysis-compartment-analysis
 description: Detects A/B chromatin compartments from balanced Hi-C contact matrices via eigenvector decomposition of the distance-normalized, Pearson-correlated cis matrix with cooltools (eigs_cis), then orients (phases) the compartment eigenvector against a GC or gene-density track so the active (A) sign is not arbitrary. Covers the eigenvector-is-a-choice problem (per-arm view_df to remove the centromere gradient; picking the eigenvector by max correlation with activity, not by eigenvalue), GC phasing with bioframe.frac_gc, resolution choice (100kb-1Mb), saddle plots and saddle_strength for compartmentalization strength, the cohesin-loss-strengthens-compartments result, subcompartments (SNIPER/Calder/dcHiC), and cross-condition compartment switching. Use when calling A/B compartments, computing E1/eigenvectors, phasing the eigenvector, building saddle plots, choosing a compartment resolution, quantifying compartment strength, or comparing compartmentalization across conditions.
 tool_type: python
 primary_tool: cooltools

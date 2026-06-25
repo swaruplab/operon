@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-drugz-chemogenomic
+name: crispr-screens-drugz-chemogenomic
 description: Analyzes CRISPR drug-modifier (chemogenomic) screens with drugZ (Li & Hart 2019 Genome Med), a bidirectional Z-score method that identifies synthetic-lethal sensitizing genes and resistance-conferring suppressor genes from vehicle vs drug comparisons. Covers vehicle-anchored design (not Day-0), the bidirectional Z math giving 2-3x sensitivity over MAGeCK / STARS / edgeR / RIGER on drug screens, per-gene sumZ and normZ, synth (sensitizer) vs supp (suppressor) FDR, multi-dose handling, integration with control sgRNAs, and comparison with MAGeCK MLE with dose covariate. Use when running a drug-modifier CRISPR screen, identifying sensitizing or resistance genes for a drug candidate, choosing drugZ vs MAGeCK MLE for chemogenomic analysis, troubleshooting low-effect drug screens where MAGeCK lacks sensitivity, or designing a drug-screen layout (vehicle vs drug arms).
 tool_type: cli
 primary_tool: drugZ

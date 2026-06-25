@@ -1,5 +1,5 @@
 ---
-name: bio-structural-biology-modern-structure-prediction
+name: structural-biology-modern-structure-prediction
 description: Predict protein structures using modern ML models including AlphaFold3, ESMFold, Chai-1, and Boltz-1. Use when predicting structures for novel proteins, protein complexes, or when comparing predictions across multiple methods.
 tool_type: python
 primary_tool: ESMFold

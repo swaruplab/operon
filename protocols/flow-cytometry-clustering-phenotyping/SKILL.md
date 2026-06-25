@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-clustering-phenotyping
+name: flow-cytometry-clustering-phenotyping
 description: Unsupervised clustering and cell-type identification for high-dimensional flow, spectral, and mass cytometry - FlowSOM, PhenoGraph, FlowSOM-via-CATALYST, with UMAP/tSNE for visualization. Covers the type-vs-state marker distinction (cluster on lineage, test state within clusters), over-provision-then-metacluster, the Weber-Robinson benchmark, seed dependence and metacluster stability, why embeddings are for looking not measuring, and median-heatmap annotation/merging. Use when discovering populations without predefined gates, choosing a clustering algorithm, selecting the number of metaclusters, or annotating clusters into cell types.
 tool_type: r
 primary_tool: CATALYST

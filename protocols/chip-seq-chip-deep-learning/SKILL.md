@@ -1,5 +1,5 @@
 ---
-name: bio-chipseq-chip-deep-learning
+name: chipseq-chip-deep-learning
 description: Trains and applies base-resolution deep learning models on ChIP-seq / ChIP-nexus / CUT&RUN data. Uses BPNet (Avsec 2021 Nat Genet 53:354; soft motif syntax from ChIP-nexus), chromBPNet (Pampari A et al 2025 Nat Genet; bias-factorized base-resolution profiles), EnFormer (Avsec 2021 Nat Methods 18:1196; 196 kb input, ~100 kb effective receptive field), DeepSEA (Zhou 2015; multi-task CNN), and JASPAR 2026 deep-learning collection (1259 BPNet ChIP models). Performs in silico mutagenesis for variant-effect prediction, DeepLIFT/Grad attribution, and TF-MoDISco motif discovery from attribution scores. Use when predicting variant effects on TF binding, discovering soft motif syntax / cooperativity, integrating ChIP-seq with sequence-only predictions, or applying precomputed JASPAR Deep Learning models to new variants.
 tool_type: python
 primary_tool: chrombpnet

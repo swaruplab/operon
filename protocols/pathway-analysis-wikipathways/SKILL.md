@@ -1,5 +1,5 @@
 ---
-name: bio-pathway-wikipathways
+name: pathway-wikipathways
 description: WikiPathways enrichment using clusterProfiler and rWikiPathways. Use when analyzing gene lists against community-curated open-source pathways. Performs over-representation analysis and GSEA for 30+ species.
 tool_type: r
 primary_tool: clusterProfiler

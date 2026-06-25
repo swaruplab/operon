@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-hic-differential
+name: hi-c-analysis-hic-differential
 description: Compares Hi-C contact maps between conditions across the right scale -- differential bin-pair contacts (multiHiCcompare, diffHic), differential A/B compartments (dcHiC), differential TAD boundaries (delta insulation), and differential loops (diffloop, DiffHiChIP) -- with distance-stratified between-sample normalization, replicate-aware NB-GLM FDR, HiCRep SCC reproducibility gating, and CNV correction for cancer/aneuploid samples. Use when comparing Hi-C between treatment and control, finding differential contacts/compartments/boundaries/loops, normalizing two maps of unequal depth, choosing a replicate-aware test, gating replicates with SCC, or correcting copy-number artifacts before a tumor-vs-normal comparison.
 tool_type: python
 primary_tool: cooltools

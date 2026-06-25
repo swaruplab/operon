@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-positive-selection
+name: comparative-genomics-positive-selection
 description: Detect positive (diversifying / episodic / pervasive) selection using codon dN/dS frameworks. Implements PAML codeml site models (M0/M1a/M2a/M7/M8/M8a), branch models, branch-site model A (Zhang 2005), and HyPhy methods (BUSTED, BUSTED-S, BUSTED-MH, BUSTED-PH, MEME, FEL, FUBAR, aBSREL, SLAC, RELAX, GARD, FUBAR-MH). Includes McDonald-Kreitman framework (asymptotic alpha, impMKT, polyDFE, DFE-alpha, GRAPES) for within-species + divergence inference, RERconverge for trait-correlated rate shifts, CSUBST for convergent substitution, and PhyloAcc for accelerated noncoding evolution. Use when testing adaptive evolution at codons, branches, or full gene; running GARD recombination pre-screen; controlling alignment-error and gBGC false positives; reconciling PAML vs HyPhy results; or performing genome-scale selection scans.
 tool_type: mixed
 primary_tool: PAML

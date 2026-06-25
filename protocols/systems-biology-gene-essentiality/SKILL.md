@@ -1,5 +1,5 @@
 ---
-name: bio-systems-biology-gene-essentiality
+name: systems-biology-gene-essentiality
 description: Perform in silico gene knockout analysis and synthetic lethality screens using COBRApy single and double deletions. Predict essential genes and identify synthetic lethal pairs for drug target discovery. Use when identifying essential genes or finding synthetic lethal drug targets.
 tool_type: python
 primary_tool: cobrapy

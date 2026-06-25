@@ -1,5 +1,5 @@
 ---
-name: bio-machine-learning-biomarker-discovery
+name: machine-learning-biomarker-discovery
 description: Selects informative features for biomarker discovery using Boruta all-relevant selection, mRMR minimum redundancy, and LASSO regularization. Use when identifying biomarkers from high-dimensional omics data.
 tool_type: python
 primary_tool: boruta

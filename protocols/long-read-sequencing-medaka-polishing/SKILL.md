@@ -1,5 +1,5 @@
 ---
-name: bio-longread-medaka
+name: longread-medaka
 description: Polish assemblies and call variants from Oxford Nanopore data using medaka. Uses neural networks trained on specific basecaller versions. Use when improving ONT-only assemblies or calling variants from Nanopore data without short-read polishing.
 tool_type: cli
 primary_tool: medaka

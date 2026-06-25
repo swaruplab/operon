@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-bigwig-tracks
+name: genome-intervals-bigwig-tracks
 description: Reads, queries, and writes bigWig indexed binary signal tracks (coverage, fold-change, conservation, methylation-rate) with pyBigWig (Python) and the UCSC Kent tools (bedGraphToBigWig, bigWigToBedGraph, bigWigInfo, bigWigSummary, bigWigAverageOverBed) and deepTools (multiBigwigSummary, computeMatrix, bigwigCompare). Covers the central trap that a wide query returns a precomputed zoom-level summary (by default the mean, which annihilates narrow peaks) not per-base data, when exact=True/values() is mandatory, the NaN-not-zero gap-handling fork, choosing mean vs max vs sum vs coverage by biological question, and the sorted-bedGraph plus chrom.sizes build requirement. Use when extracting signal at regions, computing mean signal per gene/peak, building a browser track from bedGraph, comparing tracks, or building TSS/gene-body metaprofiles.
 tool_type: mixed
 primary_tool: pyBigWig

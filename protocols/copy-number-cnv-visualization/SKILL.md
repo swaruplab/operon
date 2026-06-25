@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-cnv-visualization
+name: copy-number-cnv-visualization
 description: Visualize copy number profiles, segments, allele-specific tracks, and cohort patterns from CNVkit, GATK, ASCAT, FACETS, Sequenza, and other callers. Covers genome-wide and per-chromosome log2 scatter plots, B-allele-frequency/minor-allele-fraction tracks, ideograms, cohort heatmaps, circos views, and caller-native plots. Use when creating publication CNV figures, choosing which plot answers a given question, diagnosing a wrong diploid baseline visually, displaying loss of heterozygosity, or deciding what depth-only plots cannot reveal.
 tool_type: mixed
 primary_tool: matplotlib

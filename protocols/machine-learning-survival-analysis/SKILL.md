@@ -1,5 +1,5 @@
 ---
-name: bio-machine-learning-survival-analysis
+name: machine-learning-survival-analysis
 description: Analyzes time-to-event data using Kaplan-Meier curves, log-rank tests, and Cox proportional hazards regression with lifelines. Builds survival models from clinical and omics features. Use when predicting patient survival or modeling time-to-event outcomes.
 tool_type: python
 primary_tool: lifelines

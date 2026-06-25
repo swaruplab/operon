@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-assembly-polishing
+name: genome-assembly-assembly-polishing
 description: Decides whether and how to polish a draft genome assembly to raise consensus accuracy (QV) with read-type-matched tools - Racon and medaka (ONT consensus), dorado polish, Polypolish and pypolca (Illumina, repeat-aware), Pilon (legacy short-read), NextPolish/NextPolish2, Hapo-G (haplotype-aware), ntEdit, and DeepPolisher/PEPPER-Margin-DeepVariant for human. Covers the do-not-polish-HiFi rule, the medaka basecaller-model footgun, held-out Merqury QV as the only honest stop signal, and the haplotype-collapse trap. Use when correcting homopolymer indels or residual SNPs in a long-read assembly, deciding if a HiFi assembly needs polishing, or choosing an ONT vs hybrid vs short-read polishing chain.
 tool_type: cli
 primary_tool: Pilon

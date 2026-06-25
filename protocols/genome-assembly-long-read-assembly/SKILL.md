@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-long-read-assembly
+name: genome-assembly-long-read-assembly
 description: Assembles genomes de novo from noisy long reads (Oxford Nanopore R9/R10/Dorado, PacBio CLR) with Flye (repeat graph), Canu (correct-trim-assemble OLC), NextDenovo, Shasta, Raven, wtdbg2, or miniasm, and reconciles bacterial assemblies into a consensus with Trycycler/Autocycler. Covers matching the input flag to the basecaller era (--nano-hq vs --nano-raw), why a raw long-read assembly is contiguous but low-QV and not finished until polished, haplotig false-duplication and purge_dups, coverage and read-N50 as non-substitutable inputs, and mid-read adapter de-chimerization. Use when assembling a bacterial or eukaryotic genome from ONT or PacBio noisy reads, choosing a long-read assembler, or diagnosing an over-collapsed or duplicated assembly. For PacBio HiFi use hifi-assembly instead.
 tool_type: cli
 primary_tool: Flye

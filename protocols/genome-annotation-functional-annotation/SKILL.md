@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-functional-annotation
+name: genome-annotation-functional-annotation
 description: Assigns GO terms, Pfam/InterPro domains, KEGG orthologs, EC numbers, and product names to predicted proteins using eggNOG-mapper (orthology), InterProScan (domain signatures), and KofamScan (KEGG), routing specialized functions to dbCAN/antiSMASH/AMRFinderPlus/SignalP. Covers the orthology-vs-domain-vs-homology paradigms, the annotation-error percolation cascade, domain-presence-is-not-function, GO IEA circularity in enrichment, evidence tiering, and bit-score/coverage thresholds. Use when adding functional annotation to predicted genes, choosing between eggNOG-mapper and InterProScan, or judging how much to trust a functional label.
 tool_type: cli
 primary_tool: eggNOG-mapper

@@ -1,5 +1,5 @@
 ---
-name: bio-proteomics-dia-analysis
+name: proteomics-dia-analysis
 description: Data-independent acquisition (DIA) proteomics analysis with DIA-NN and other tools. Use when analyzing DIA mass spectrometry data with library-free or library-based workflows for deep proteome profiling.
 tool_type: cli
 primary_tool: diann

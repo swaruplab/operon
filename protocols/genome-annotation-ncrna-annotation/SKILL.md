@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-ncrna-annotation
+name: genome-annotation-ncrna-annotation
 description: Identifies non-coding RNAs (tRNA, rRNA, snoRNA, snRNA, riboswitches, sRNAs) using Infernal covariance-model search against Rfam, tRNAscan-SE 2.0 for tRNA, barrnap for rRNA, and ARAGORN for tmRNA, plus the small-RNA-seq boundary for miRNA and the transcript-assembly boundary for lncRNA. Covers the structure-conserved-not-sequence-conserved principle (why BLAST fails), GA-threshold and clan-competition correctness, tRNAscan-SE domain modes and pseudogene flags, rDNA copy-number collapse, and why homology annotation is a recall floor. Use when performing genome-wide ncRNA annotation, choosing the right tool for an RNA class, or interpreting ncRNA counts.
 tool_type: cli
 primary_tool: Infernal

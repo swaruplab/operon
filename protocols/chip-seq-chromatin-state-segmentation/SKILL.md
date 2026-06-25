@@ -1,5 +1,5 @@
 ---
-name: bio-chipseq-chromatin-state-segmentation
+name: chipseq-chromatin-state-segmentation
 description: Segments the genome into chromatin states from combinatorial histone modification and chromatin factor ChIP-seq data. Uses ChromHMM (multivariate HMM on binarized signal, v1.27), Segway (Dynamic Bayesian Network on continuous signal), EpiSegMix (flexible-distribution HMM with duration modeling, 2024), EpiLogos (multi-biosample visualization), IDEAS (cell-type-aware joint), and full-stack ChromHMM (Vu Ernst 2022) for cross-cell-type segmentations. Handles state-count selection (15 vs 18 vs 25 states), binarization choice, OverlapEnrichment / NeighborhoodEnrichment downstream analysis, and cross-biosample integration. Use when learning chromatin states from a histone mark panel, characterizing learned states by genomic feature enrichment, or comparing chromatin landscapes across cell types.
 tool_type: cli
 primary_tool: ChromHMM

@@ -1,5 +1,5 @@
 ---
-name: bio-methylation-differential-cpg
+name: methylation-differential-cpg
 description: Per-CpG differential methylation testing from bisulfite sequencing count data or beta-value matrices. Covers beta and M-value computation, coverage filtering, statistical tests (Welch t-test, Mann-Whitney, limma, DSS beta-binomial), multiple testing correction, and effect size calculation. Use when comparing methylation at individual CpG sites between experimental groups from WGBS, RRBS, or targeted bisulfite sequencing.
 tool_type: mixed
 primary_tool: scipy

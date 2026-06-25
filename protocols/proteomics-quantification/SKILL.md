@@ -1,5 +1,5 @@
 ---
-name: bio-proteomics-quantification
+name: proteomics-quantification
 description: Protein quantification from mass spectrometry data including label-free (LFQ, intensity-based), isobaric labeling (TMT, iTRAQ), and metabolic labeling (SILAC) approaches. Use when extracting protein abundances from MS data for differential analysis.
 tool_type: mixed
 primary_tool: MSstats

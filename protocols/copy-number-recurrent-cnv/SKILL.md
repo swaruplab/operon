@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-recurrent-cnv
+name: copy-number-recurrent-cnv
 description: Identify recurrent and driver copy number alterations across a tumor cohort with GISTIC2 (G-score, Ziggurat deconstruction, focal vs broad/arm-level analysis, q-values from permutation) and quantify copy-number signatures with the Steele 2022 COSMIC framework and the Drews 2022 CINSignatures framework. Covers driver-gene localization from recurrence peaks, distinguishing focal drivers from arm-level passengers, and the caller-sensitivity caveats of copy-number signatures. Use when finding recurrently amplified or deleted regions in a cohort, localizing driver genes, separating focal from broad events, running GISTIC2, or extracting copy-number mutational signatures.
 tool_type: mixed
 primary_tool: gistic2

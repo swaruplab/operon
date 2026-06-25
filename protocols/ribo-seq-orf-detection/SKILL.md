@@ -1,5 +1,5 @@
 ---
-name: bio-ribo-seq-orf-detection
+name: ribo-seq-orf-detection
 description: Detect and quantify translated ORFs from Ribo-seq data including uORFs and novel ORFs using RiboCode and ORFquant. Use when identifying translated regions beyond annotated coding sequences or quantifying ORF-level translation.
 tool_type: mixed
 primary_tool: RiboCode

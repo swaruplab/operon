@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-germline-cnv-interpretation
+name: copy-number-germline-cnv-interpretation
 description: Classify constitutional (germline) copy number variants for clinical reporting using the 2019 ACMG/ClinGen technical standards points-based framework, with ClassifyCNV and AnnotSV for semi-automated scoring. Covers the separate copy-number-loss and copy-number-gain rubrics, the five-tier classification, ClinGen haploinsufficiency/triplosensitivity and dosage-sensitive regions, de novo and segregation evidence, and population-frequency benign evidence. Use when assigning pathogenic/likely-pathogenic/VUS/likely-benign/benign to a constitutional CNV, scoring a CNV against ACMG/ClinGen criteria, or distinguishing the automatable evidence from the case-specific evidence requiring manual input.
 tool_type: mixed
 primary_tool: ClassifyCNV

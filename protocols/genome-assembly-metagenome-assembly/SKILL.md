@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-metagenome-assembly
+name: genome-assembly-metagenome-assembly
 description: Assembles microbial-community sequencing into metagenome-assembled genomes (MAGs) with metaFlye (ONT), metaSPAdes/MEGAHIT (Illumina), and hifiasm-meta/metaMDBG (PacBio HiFi), then recovers genomes via multi-binner consolidation (MetaBAT2, MaxBin2, CONCOCT, SemiBin2, VAMB -> DAS_Tool) and QCs them against MIMAG with CheckM2, GUNC, and GTDB-Tk. Covers why a metagenome is not a genome (uneven coverage, micro-diversity, strain collapse to consensus), differential-coverage binning, co-assembly vs per-sample, the rRNA-operon collapse that fails short-read MAGs, and strain resolution with inStrain. Use when reconstructing genomes from a microbiome, soil, ocean, or gut community, recovering MAGs, or resolving strain-level variation.
 tool_type: cli
 primary_tool: metaFlye

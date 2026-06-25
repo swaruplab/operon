@@ -1,5 +1,5 @@
 ---
-name: bio-pdb-structure-navigation
+name: pdb-structure-navigation
 description: Navigate protein structure hierarchy using Biopython Bio.PDB SMCRA model. Use when accessing models, chains, residues, and atoms, iterating over structure levels, or extracting sequences from PDB files.
 tool_type: python
 primary_tool: Bio.PDB

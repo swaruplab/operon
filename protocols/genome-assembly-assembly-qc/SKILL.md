@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-assembly-qc
+name: genome-assembly-assembly-qc
 description: Evaluates genome assembly quality across the three orthogonal axes - contiguity (QUAST auN/NG50/NGx, not bare N50), completeness (BUSCO/compleasm gene-space plus Merqury k-mer completeness), and correctness (reference-free Merqury QV, Inspector/CRAQ structural errors, asmgene false-duplication/collapse). Covers why N50 is the most-gamed metric, why QV measured on the polishing reads is circular, distinguishing uncollapsed haplotigs from real WGD, and the EBP/VGP 6.C.Q40 standard. Use when judging whether an assembly is good enough to annotate or publish, comparing assemblers, diagnosing a fragmented or duplicated assembly, or assessing a phased diploid assembly.
 tool_type: cli
 primary_tool: QUAST

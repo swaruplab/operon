@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-coverage-analysis
+name: genome-intervals-coverage-analysis
 description: Computes and interprets sequencing read depth and coverage over a genome, windows, or target regions with mosdepth (windowed depth, cumulative distribution, --quantize callable BEDs), bedtools genomecov/coverage (bedGraph tracks, per-target stats), samtools depth/coverage (per-base depth, per-contig depth+breadth). Covers the breadth-vs-mean distinction, the cumulative-coverage curve, evenness (CV/Fano/fold-80/Gini), what each tool silently counts (duplicates, secondary/supplementary, MAPQ, read span vs fragment, mate-overlap), the samtools-depth 8000-cap version trap, and the bedtools coverage -a/-b orientation flip. Use when assessing sequencing adequacy, building coverage tracks, computing breadth at a depth threshold, defining callable regions, or QCing target-capture uniformity.
 tool_type: mixed
 primary_tool: bedtools

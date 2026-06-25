@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-scenic-regulons
+name: gene-regulatory-networks-scenic-regulons
 description: Infer transcription factor regulons from single-cell RNA-seq with pySCENIC by combining GRNBoost2 co-expression, cisTarget motif-enrichment pruning, and AUCell per-cell activity scoring. Covers the motif-pruning-as-directionality principle, regulon specificity scoring, run-to-run stability, and database/species matching. Use when identifying TF regulons, scoring TF activity per cell, finding master regulators of cell identity, or comparing regulon activity across conditions. For enhancer-driven multiomic GRNs see multiomics-grn; for bulk inference and VIPER protein-activity see grn-inference.
 tool_type: python
 primary_tool: pySCENIC

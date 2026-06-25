@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-synteny-analysis
+name: comparative-genomics-synteny-analysis
 description: Detect syntenic blocks and structural rearrangements between genomes using MCScanX (Wang 2012), JCVI/MCScan (Tang 2008 Python), GENESPACE (Lovell 2022) for orthology-anchored riparian visualization, SyRI for structural variation, AnchorWave for sequence-level synteny, i-ADHoRe 3.0 for highly diverged species, SynNet for synteny networks, and ntSynt for multi-genome macrosynteny. Use when identifying collinear gene blocks across species, distinguishing macrosynteny from microsynteny, detecting inversions/translocations/duplications, anchoring orthology in WGD lineages, producing publication riparian plots, computing synteny block age via Ks (cross-references whole-genome-duplication), or running synteny-aware ortholog inference in polyploids.
 tool_type: mixed
 primary_tool: MCScanX

@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-matrix-operations
+name: hi-c-analysis-matrix-operations
 description: Balances Hi-C contact matrices (ICE via cooler.balance_cooler, KR/SCALE/VC context), computes distance-decay expected with cooltools (expected_cis per-diagonal P(s), expected_trans scalar), builds observed/expected (O/E) matrices, and diagnoses polymer state from the P(s) log-derivative. Covers the within-matrix-vs-cross-sample distinction (balancing is NOT a normalizer), the equal-visibility assumption that CNV/aneuploidy violates (use raw counts for copy-number), cis-only balancing, mad_max/blacklist masking before balancing, multiplicative cooler weights vs divisive juicer weights, and the resolution-vs-depth budget. Use when balancing a .cool/.mcool, computing expected or P(s), making O/E matrices for compartments/loops, deciding ICE vs KR vs SCALE, choosing a resolution for a given depth, or troubleshooting NaN/all-NaN balanced matrices; route cross-sample comparison to hic-differential.
 tool_type: python
 primary_tool: cooler

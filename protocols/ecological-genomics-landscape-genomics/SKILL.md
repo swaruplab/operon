@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-landscape-genomics
+name: ecological-genomics-landscape-genomics
 description: Tests genotype-environment associations and identifies adaptive loci while correcting for the four-confound landscape (structure, demography, background selection, sampling design) using LFMM2 with mandatory K via sNMF cross-entropy elbow (LEA 3), BayPass Core/AUX/C2/IS with Omega covariance matrix, RDA / pRDA for polygenic adaptation (Forester 2018; requires imputed genotypes), OutFLANK with trimmed FST null, pcadapt, gradient forests (Ellis-Smith-Pitcher 2012, NOT mis-cited Ellis-Manel), Capblancq & Forester 2021 RDA Swiss-army-knife, genomic-offset prediction with Lind & Lotterhos 2025 three-regime caveat, Lotterhos-Whitlock sampling optima, Wang & Bradburd 2014 IBD vs IBE, and Circuitscape + ResistanceGA. Use when identifying adaptive loci across gradients, choosing K for LFMM2, deciding among GEA methods, predicting maladaptation with the novel-environment caveat, distinguishing IBD vs IBE, or optimizing sampling design.
 tool_type: r
 primary_tool: LEA

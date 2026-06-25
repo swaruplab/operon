@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-qc
+name: clip-seq-clip-qc
 description: Comprehensive quality control for CLIP-seq libraries (eCLIP, iCLIP, iCLIP2, PAR-CLIP) covering library complexity (preseq), FRiP, IDR replicate reproducibility, read-distribution metagene, SMInput vs IgG control rationale, rRNA / snoRNA contamination, fragment-length distribution, and ENCODE-compliance thresholds. Use when assessing whether a CLIP library passed, deciding lenient vs stringent peak thresholds, comparing replicates with IDR rescue and self-consistency ratios, or distinguishing failed IP from over-amplified library.
 tool_type: mixed
 primary_tool: preseq

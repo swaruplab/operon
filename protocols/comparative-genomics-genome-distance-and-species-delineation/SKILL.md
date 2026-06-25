@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-genome-distance-and-species-delineation
+name: comparative-genomics-genome-distance-and-species-delineation
 description: Compute genome-to-genome distances (ANI, AAI, dDDH, k-mer Mash) and assign taxonomic classifications using skani (Shaw 2023), FastANI (Jain 2018), pyani / pyANI ANIb / ANIm, OrthoANI (Lee 2016), AAI (amino-acid identity), dDDH via TYGS / GGDC, GTDB-Tk (Chaumeil 2020 standard prokaryote taxonomy), and Mash MinHash (Ondov 2016). Use when delineating prokaryote species (95% ANI threshold; Jain 2018 Nat Commun 9:5114), assigning genomes to GTDB taxonomy with ANI radius, computing genome similarity matrices for clustering, classifying archaea, evaluating MAG (metagenome-assembled genome) species assignment, applying skani for fast metagenomic ANI screening, or reconciling 16S rRNA-based taxonomy with whole-genome ANI.
 tool_type: cli
 primary_tool: skani

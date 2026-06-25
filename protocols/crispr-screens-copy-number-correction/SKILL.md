@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-copy-number-correction
+name: crispr-screens-copy-number-correction
 description: Corrects the gene-independent copy-number artifact in CRISPR-Cas9 screens (Aguirre 2016 / Munoz 2016 Cancer Discov) where amplified loci appear essential from DNA-damage burden of simultaneous cuts. Covers the p53-dependent G2-arrest mechanism, CRISPRcleanR (Iorio 2018) unsupervised pre-hoc correction, CERES (Meyers 2017) joint CN + gene-effect model, Chronos (Dempster 2021) DepMap-standard population-dynamics + CN model with lowest residual bias, the decision tree by data availability, the Spearman LFC-vs-CN diagnostic, focal-amplification examples (ERBB2 in HER2+, MYC in colorectal, FGFR1 in head and neck), and CRISPRi/a alternatives that bypass the artifact. Use when screening cancer cell lines, diagnosing essentiality at amplified loci, choosing CRISPRcleanR / CERES / Chronos, deciding whether CN correction is needed before MAGeCK / BAGEL2 / drugZ, or switching from Cas9 to CRISPRi.
 tool_type: mixed
 primary_tool: CRISPRcleanR

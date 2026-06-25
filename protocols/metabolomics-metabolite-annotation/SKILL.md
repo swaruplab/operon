@@ -1,5 +1,5 @@
 ---
-name: bio-metabolomics-metabolite-annotation
+name: metabolomics-metabolite-annotation
 description: Metabolite identification from m/z and retention time. Covers database matching, MS/MS spectral matching, and confidence level assignment. Use when assigning compound identities to detected features in untargeted metabolomics.
 tool_type: mixed
 primary_tool: HMDB

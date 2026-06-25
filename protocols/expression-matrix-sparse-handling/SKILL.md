@@ -1,5 +1,5 @@
 ---
-name: bio-expression-matrix-sparse-handling
+name: expression-matrix-sparse-handling
 description: Stores and operates on sparse expression matrices for single-cell and large bulk RNA-seq, covering dgCMatrix/dgRMatrix/dgTMatrix when-each-is-fast, the dgCMatrix (CSC, R) <-> CSR (Python) implicit transpose, AnnData (cells-rows) <-> SingleCellExperiment (cells-cols) orientation flip, HDF5/h5ad vs Zarr cloud-native shift, HDF5SummarizedExperiment + DelayedArray for out-of-memory bulk, scanpy backed mode for large h5ad, the ~10-15% density crossover where dense beats sparse, 10X format proliferation (MTX vs CellRanger H5 vs h5ad), the dense-conversion memory blow-up, and Dask + Zarr for consortium-scale matrices. Use when choosing sparse format, working with single-cell-sized matrices, importing/exporting 10X, debugging R/Python interop transposes, processing matrices too large for RAM, or building cloud-native pipelines.
 tool_type: python
 primary_tool: scipy.sparse

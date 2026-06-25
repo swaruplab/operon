@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-conservation-genetics
+name: ecological-genomics-conservation-genetics
 description: Assesses genetic health of populations for conservation with Ne estimation across time horizons (LDNe NeEstimator V2 option-file API + SNeP physical-linkage correction; recent trajectory via GONE/GONE2; deep history via Stairway Plot 2 / dadi / fastsimcoal2 / PSMC), F-statistics, runs of homozygosity binned by length class to date inbreeding, genetic-load decomposition (Bertorelle 2022 realized vs masked), the modern 100/1000 Ne rule (Frankham 2014), Ne/Nc 2-6 orders of magnitude in marine fish (Hauser & Carvalho 2008), tree-sequence forward simulations (SLiM 4 + pyslim + tskit), and the Sukumaran-Knowles caveat against MSC methods for management-unit definition. Use when estimating Ne by time horizon, detecting inbreeding via F_ROH, decomposing genetic load, justifying conservation thresholds, distinguishing ESU/MU/DPS, configuring NeEstimator V2, or correcting LDNe physical linkage.
 tool_type: mixed
 primary_tool: hierfstat

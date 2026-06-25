@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-pangenome-analysis
+name: comparative-genomics-pangenome-analysis
 description: Build and analyze pangenomes for prokaryotes (Panaroo, PPanGGOLiN, PEPPAN, GET_HOMOLOGUES, anvi'o pangenomics) and eukaryotes (Minigraph-Cactus, PGGB, vg pangenome graphs). Implement Tettelin core/accessory/cloud genome decomposition (Tettelin 2005), Heap's law open/closed pangenome modeling, gene presence/absence GWAS (Scoary, pyseer), pangenome graph variant calling (vg, PanGenie), and structural-variation graph indexing. Use when assembling species- or genus-level pan-gene catalogs, separating core from accessory/shell/cloud genes, testing gene-content associations with phenotypes, building pangenome graphs from haplotype-resolved assemblies, calling SVs from pangenome graphs, or selecting between bacterial-pangenome and eukaryotic-pangenome workflows.
 tool_type: cli
 primary_tool: Panaroo

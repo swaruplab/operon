@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-interactive-annotation
+name: imaging-mass-cytometry-interactive-annotation
 description: Interactive cell annotation and image QC for IMC/MIBI using napari, napari-imc, Mantis Viewer, and cytomapper, covering the pixels-to-cell-table bridge, overlaying masks to catch segmentation/spillover artifacts, inter-annotator variability as the accuracy ceiling, contrast-as-threshold, and building class-balanced ground-truth label sets. Use when manually labeling cells, generating training data for a classifier, QC-ing segmentation on the image, confirming clusters are spatially real, or choosing an annotation viewer.
 tool_type: python
 primary_tool: napari

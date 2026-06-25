@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-data-preprocessing
+name: imaging-mass-cytometry-data-preprocessing
 description: Load and preprocess imaging mass cytometry (IMC) and MIBI data from raw MCD/TXT through hot-pixel removal, spillover compensation, and variance-stabilizing transformation, covering readimc/steinbock ingestion, NNLS spillover compensation (CATALYST), IMC-Denoise, and the IMC arcsinh-cofactor question. Use when starting analysis from raw MCD files, building per-channel TIFF stacks, compensating channel spillover, choosing an arcsinh cofactor, or preparing single-cell intensities for phenotyping.
 tool_type: mixed
 primary_tool: steinbock

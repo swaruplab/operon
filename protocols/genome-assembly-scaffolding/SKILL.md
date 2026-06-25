@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-scaffolding
+name: genome-assembly-scaffolding
 description: Orders and orients assembled contigs into chromosome-scale scaffolds from long-range linking data, inserting N-gap spacers (adds no sequence). Covers Hi-C/Omni-C scaffolding (YaHS, SALSA2, 3D-DNA/Juicer), Hi-C read-mapping prerequisites (map each end separately, no mate rescue, dedup, enzyme-aware), reading the contact map for misjoins/inversions/false-duplications, manual curation in Juicebox/PretextView (the VGP/DToL standard), reference-guided scaffolding (RagTag) and its karyotype-erasure hazard, genetic-map (ALLMAPS) and Bionano optical-map integration, chimera-breaking before scaffolding, gap-filling, and telomere/contig-vs-scaffold-N50 QC (tidk). Use when turning contigs into chromosomes with Hi-C, integrating a linkage map or optical map, choosing a scaffolder by available linking data, or judging whether a chromosome-scale assembly is trustworthy.
 tool_type: cli
 primary_tool: YaHS

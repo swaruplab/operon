@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-preprocessing
+name: clip-seq-clip-preprocessing
 description: Preprocess CLIP-seq reads (eCLIP, iCLIP, iCLIP2, iCLIP3, irCLIP, PAR-CLIP, FLASH) with protocol-specific UMI extraction, adapter trimming, length filtering, and post-alignment PCR-duplicate collapse. Use when raw CLIP FASTQ must be turned into deduplicated, crosslink-preserving BAM input for peak calling; choosing between two-pass and single-pass adapter trimming; deciding minimum read length; or mapping UMI patterns to specific eCLIP/iCLIP/iCLIP2/iCLIP3 library preps.
 tool_type: cli
 primary_tool: umi_tools

@@ -1,5 +1,5 @@
 ---
-name: bio-temporal-genomics-temporal-clustering
+name: temporal-genomics-temporal-clustering
 description: Clusters genes by temporal expression profile shape using Mfuzz soft clustering, TCseq, and DEGreport degPatterns. Groups co-regulated genes into shared trajectory patterns via fuzzy c-means or hierarchical approaches. Use when categorizing temporally dynamic genes into response groups or identifying co-expression modules across time points. Requires temporally variable genes identified first (see differential-expression/timeseries-de).
 tool_type: mixed
 primary_tool: Mfuzz

@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-peak-calling
+name: clip-seq-clip-peak-calling
 description: Call protein-RNA binding sites from CLIP-seq BAM with CLIPper, PureCLIP, Skipper, Piranha, omniCLIP, CTK, CLAM, or Paraclu. Use when choosing between coverage-based, HMM-based, beta-binomial window-based, and crosslink-site-based peak callers; applying ENCODE eCLIP thresholds (log2 IP/SMInput >= 3, -log10 p >= 3); deciding when SMInput is mandatory; or reconciling peak-set discordance between callers for the same RBP.
 tool_type: cli
 primary_tool: CLIPper

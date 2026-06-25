@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-grn-inference
+name: gene-regulatory-networks-grn-inference
 description: Infer gene regulatory networks from bulk or general expression data with mutual-information (ARACNe) and tree-ensemble (GENIE3, GRNBoost2) methods, and infer transcription-factor protein activity from regulons with VIPER and msVIPER. Covers the activity-not-edges paradigm, the undirected-association caveat, the DREAM5 wisdom-of-crowds and method-complementarity result, AUPRC-over-AUROC evaluation, and gold-standard incompleteness. Use when inferring a regulatory network from a bulk expression matrix, finding master regulators, or scoring TF activity from a signature. For single-cell motif-pruned regulons see scenic-regulons; for co-expression modules see coexpression-networks.
 tool_type: mixed
 primary_tool: VIPER

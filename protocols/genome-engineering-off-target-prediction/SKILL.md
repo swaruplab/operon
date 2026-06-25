@@ -1,5 +1,5 @@
 ---
-name: bio-genome-engineering-off-target-prediction
+name: genome-engineering-off-target-prediction
 description: Nominates and assesses CRISPR off-target sites genome-wide. Enumerates candidate sites by mismatch and bulge tolerance with Cas-OFFinder/CRISPRitz, ranks them with the published CFD score (SpCas9-only, relative ranker) or MIT/CRISTA/energy models, runs variant-aware screening against gnomAD/individual genomes (CRISPRme), and frames the empirical genome-wide discovery assays (GUIDE-seq, CIRCLE-seq, CHANGE-seq, DISCOVER-seq, Digenome-seq) and high-fidelity nuclease choice (HiFi Cas9, Sniper-Cas9, eSpCas9, SpCas9-HF1). Use when assessing guide RNA specificity, choosing among candidate guides, screening a therapeutic guide against population variation, or planning empirical off-target validation. Distinguishes predicted vs detected vs validated. On-target activity scoring and deaminase (Cas-independent) base/prime-editor off-targets are separate skills.
 tool_type: mixed
 primary_tool: Cas-OFFinder

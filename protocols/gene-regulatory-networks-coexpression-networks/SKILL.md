@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-coexpression-networks
+name: gene-regulatory-networks-coexpression-networks
 description: Build weighted gene co-expression networks to identify modules of co-regulated genes, relate them to phenotypes, and find hub genes using WGCNA, hdWGCNA, MEGENA, CEMiTool, and Gaussian graphical models. Covers signed-network choice, soft-threshold selection, module preservation, and the marginal-vs-partial-correlation distinction. Use when finding co-expression modules, identifying hub genes, relating gene networks to clinical or experimental traits, or building single-cell co-expression networks. For directed TF-target inference see scenic-regulons and grn-inference; for condition rewiring see differential-networks.
 tool_type: r
 primary_tool: WGCNA

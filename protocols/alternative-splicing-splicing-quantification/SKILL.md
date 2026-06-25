@@ -1,5 +1,5 @@
 ---
-name: bio-splicing-quantification
+name: splicing-quantification
 description: Quantifies alternative splicing as PSI (percent spliced in) from RNA-seq using rMATS-turbo (BAM-based event), SUPPA2 (TPM-based event), MAJIQ V3 (LSV-based Bayesian), leafcutter (annotation-free intron clusters), VAST-TOOLS (cross-species with microexon support), Shiba (junction-imbalance-corrected, 2025 SOTA at low coverage), or IRFinder-S (intron retention coverage-aware). Distinguishes the five canonical event classes (SE, A5SS, A3SS, MXE, RI), special classes (microexons, exitrons, AFE/ALE), intron retention subtypes (canonical RI vs detained introns), and applies effective-length normalization. Use when measuring splice-site usage or isoform inclusion ratios from short-read RNA-seq.
 tool_type: mixed
 primary_tool: rMATS-turbo

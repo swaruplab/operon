@@ -1,5 +1,5 @@
 ---
-name: bio-machine-learning-model-validation
+name: machine-learning-model-validation
 description: Implements nested cross-validation and stratified splits for unbiased model evaluation on biomedical datasets. Prevents data leakage and overfitting in biomarker discovery. Use when validating classifiers or optimizing hyperparameters on omics data.
 tool_type: python
 primary_tool: sklearn

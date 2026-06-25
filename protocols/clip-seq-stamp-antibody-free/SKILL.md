@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-stamp-antibody-free
+name: clip-seq-stamp-antibody-free
 description: Profiles RNA-binding protein targets without antibody or UV crosslinking using STAMP (APOBEC1-RBP fusion, C-to-U editing), scSTAMP (single-cell), TRIBE/HyperTRIBE (ADAR-RBP, A-to-I editing), DART-seq (APOBEC1-YTH for m6A), or Bullseye/SAILOR edit-site detection pipelines. Use when antibody is unavailable or specificity is doubtful, when single-cell RBP profiling is needed (scSTAMP), or when in vivo RBP profiling without UV is preferred.
 tool_type: mixed
 primary_tool: STAMP

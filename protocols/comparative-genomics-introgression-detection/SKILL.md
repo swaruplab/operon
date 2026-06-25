@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-introgression-detection
+name: comparative-genomics-introgression-detection
 description: Detect introgression and admixture between species or populations using Dsuite (Malinsky 2021 fast D-statistics), Patterson's D / ABBA-BABA test (Green 2010; Durand 2011), f4-ratio and f-branch statistic (Malinsky 2018), TreeMix (Pickrell & Pritchard 2012), HyDe (Blischak 2018), QuIBL (Edelman 2019), sprime (Browning 2018), Twisst (Martin 2017), PhyloNet (Solis-Lemus 2017) for explicit phylogenetic networks, and qpAdm / qpGraph (Patterson 2012; Lipson 2013). Distinguish introgression from incomplete lineage sorting (ILS), ancestral structure, ghost-lineage admixture, and rate variation. Use when testing inter-species gene flow, dating admixture events, identifying introgressed segments, building phylogenetic networks for reticulate evolution, or applying the ABBAclustering (Koppetsch-Malinsky-Matschiner 2024) framework for divergent-species gene flow.
 tool_type: cli
 primary_tool: Dsuite

@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-library-design
+name: crispr-screens-library-design
 description: Designs pooled sgRNA libraries for CRISPR knockout, interference (CRISPRi), activation (CRISPRa), Cas12a multiplex, base-editor, and prime-editor screens. Covers on-target scoring (Rule Set 2, Azimuth, DeepSpCas9, CRISPRon), off-target scoring (CFD, MIT), TSS-relative positioning for CRISPRi/a (Horlbeck, Dolcetto, Calabrese), PAM-variant chemistries, control-guide composition, oligo cloning architecture, and library QC. Use when choosing a genome-wide library (GeCKOv2 vs Avana vs Brunello vs TKOv3 vs Inzolia), designing a focused or paralog-focused custom library, picking CRISPRi vs CRISPRa TSS windows, deciding control-guide proportions, or diagnosing library skew and dropout in a freshly cloned pool.
 tool_type: mixed
 primary_tool: CRISPOR

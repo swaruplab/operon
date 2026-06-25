@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-mageck-analysis
+name: crispr-screens-mageck-analysis
 description: Analyzes pooled CRISPR screens with MAGeCK (Li et al 2014), covering count generation (mageck count), the RRA two-condition workflow (mageck test using alpha-RRA over per-sgRNA negative-binomial p-values), the MLE multi-condition workflow (mageck mle with explicit design matrix and beta-score output), normalization choice (median vs total vs control-sgRNA vs spike-in), sgRNA efficiency injection, paired-sample testing, time-course design, drug-screen versus dropout-screen design matrices, MAGeCKFlute and MAGeCK-VISPR downstream visualization, and decision logic for when to use MAGeCK vs JACKS / BAGEL2 / drugZ / Chronos. Use when running a fresh CRISPR screen analysis, picking RRA vs MLE for the experimental design, choosing a normalization method from QC signatures, debugging MLE convergence failure or NaN beta scores, comparing MAGeCK output across tools, or building a batch-aware multi-cell-line / multi-condition MLE design matrix.
 tool_type: cli
 primary_tool: MAGeCK

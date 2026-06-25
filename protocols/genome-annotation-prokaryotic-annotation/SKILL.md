@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-prokaryotic-annotation
+name: genome-annotation-prokaryotic-annotation
 description: Annotates bacterial and archaeal genomes (isolates, MAGs, plasmids) with Bakta (active versioned databases, NCBI-compliant output) or Prokka (legacy), producing GFF3/GenBank/EMBL/FASTA with INSDC locus tags. Covers Bakta-vs-Prokka-vs-PGAP-vs-DFAST choice, light-vs-full database tiers, translation-table selection (11/4/25), archaeal and leaderless-gene caveats, the small-ORF blind spot, pseudogene-vs-phase-variation, the pangenome re-annotation trap, and submission compliance. Use when annotating a newly assembled prokaryotic genome, choosing an annotation tool, re-annotating a collection for pangenomics, or preparing annotations for NCBI/DDBJ submission.
 tool_type: cli
 primary_tool: Bakta

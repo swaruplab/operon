@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-gating-analysis
+name: flow-cytometry-gating-analysis
 description: Defines cell populations in flow and spectral cytometry through manual gates (rectangle, polygon, quadrant, boolean) and reproducible automated gating (openCyto gating templates, flowDensity data-driven thresholds, flowClust model-based gates), organized as a hierarchical GatingSet (flowWorkspace) and round-tripped with FlowJo via CytoML. Covers the canonical gate order (time -> debris -> singlets -> live -> lineage), FMO-vs-isotype boundary setting, gate-order dependence and recompute semantics, rare-event/MRD gating, and per-population statistics. Use when building a gating strategy, automating a manual FlowJo scheme across samples, choosing manual vs data-driven gates, or extracting population frequencies.
 tool_type: r
 primary_tool: flowWorkspace

@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-hifi-assembly
+name: genome-assembly-hifi-assembly
 description: Assembles haplotype-resolved diploid and telomere-to-telomere (T2T) genomes from PacBio HiFi reads with hifiasm (HiFi-only, Hi-C, or trio phasing) and verkko (HiFi + ultralong ONT for T2T), extracting contigs from GFA and routing phasing QC to k-mer/trio metrics. Covers why a primary assembly is a haplotype mosaic that exists in no cell, partial-vs-full phasing (the .bp. vs .dip. filename convention), the purge-default trap on inbred samples, the --hom-cov coverage-estimate alarm, and verkko-vs-hifiasm for T2T. Use when assembling a diploid eukaryote from HiFi, phasing haplotypes with parents (trio) or Hi-C, deciding whether to chase T2T, or diagnosing switch errors invisible to N50/BUSCO/QV.
 tool_type: cli
 primary_tool: hifiasm

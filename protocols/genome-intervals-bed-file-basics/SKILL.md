@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-bed-file-basics
+name: genome-intervals-bed-file-basics
 description: Handles BED-format genomic intervals (BED3 through BED12, narrowPeak/broadPeak) and the coordinate-system substrate the whole interval category rests on, with bedtools (CLI) and pybedtools/pyranges/pandas (Python). Covers the 0-based half-open vs 1-based-closed convention boundary and the start-1/end-unchanged conversion, the silent failures (chrom-name mismatch, CRLF, lexicographic-vs-version sort under -sorted), genome/chrom.sizes generation, sorting contracts, BED12 block invariants, validation, makewindows, cross-assembly liftover (liftOver/CrossMap), and BED<->VCF/BAM/FASTA conversion. Use when reading, creating, validating, sorting, lifting between genome builds, or converting interval files, preparing inputs for bedtools/tabix/bigBed, or debugging an off-by-one or empty-overlap result.
 tool_type: mixed
 primary_tool: bedtools

@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-power-sample-size
+name: clinical-biostatistics-power-sample-size
 description: Computes sample size and power for clinical trials including continuous, binary, and time-to-event endpoints; superiority, non-inferiority, and equivalence designs; FDA 2016 non-inferiority margin selection with M1/M2 framework; Schoenfeld 1981 and Lakatos 1988 for survival; Schuirmann TOST and 80-125% bioequivalence; minimum clinically important difference (MCID) vs δ distinction. Use when justifying trial size in protocol or SAP per CONSORT 2025 item 7.
 tool_type: mixed
 primary_tool: statsmodels

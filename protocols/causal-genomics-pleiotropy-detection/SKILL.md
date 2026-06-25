@@ -1,5 +1,5 @@
 ---
-name: bio-causal-genomics-pleiotropy-detection
+name: causal-genomics-pleiotropy-detection
 description: Detect and adjust for horizontal pleiotropy in two-sample Mendelian randomization by distinguishing uncorrelated (UHP) from correlated (CHP) pleiotropy and choosing among Egger, MR-PRESSO, MR-RAPS, CAUSE, LHC-MR, LCV, MR-Clust, MR-Mix, and contamination-mixture methods. Use when validating an MR causal claim, running the STROBE-MR sensitivity battery, suspecting a shared heritable confounder, working under weak-instrument or polygenic-exposure regimes, or reconciling discordant estimates across robust methods.
 tool_type: r
 primary_tool: TwoSampleMR

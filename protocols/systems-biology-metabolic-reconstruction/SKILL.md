@@ -1,5 +1,5 @@
 ---
-name: bio-systems-biology-metabolic-reconstruction
+name: systems-biology-metabolic-reconstruction
 description: Build genome-scale metabolic models from genome sequences using CarveMe and gapseq for automated reconstruction. Generate draft models ready for curation and analysis. Use when creating metabolic models for organisms without existing models.
 tool_type: cli
 primary_tool: CarveMe

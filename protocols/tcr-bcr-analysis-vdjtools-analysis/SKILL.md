@@ -1,5 +1,5 @@
 ---
-name: bio-tcr-bcr-analysis-vdjtools-analysis
+name: tcr-bcr-analysis-vdjtools-analysis
 description: Calculate immune repertoire diversity metrics, compare samples, and track clonal dynamics using VDJtools. Use when analyzing repertoire diversity, finding shared clonotypes, or comparing immune profiles between conditions.
 tool_type: cli
 primary_tool: VDJtools

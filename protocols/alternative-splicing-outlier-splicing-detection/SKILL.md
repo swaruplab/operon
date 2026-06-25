@@ -1,5 +1,5 @@
 ---
-name: bio-outlier-splicing-detection
+name: outlier-splicing-detection
 description: Detects aberrant splicing in single rare-disease patients vs a control panel using FRASER 2.0 (Bioconductor; Beta-binomial autoencoder on Intron Jaccard Index, default delta cutoff 0.1, q hyperparameter), OUTRIDER (gene-level outlier expression via autoencoder denoising), LeafcutterMD (Dirichlet-multinomial outlier mode of LeafCutter for annotation-free junctions), and DROP (Snakemake pipeline integrating FRASER2 + OUTRIDER + monoallelic expression for clinical diagnostics). The statistical model is fundamentally different from differential splicing — single-sample-vs-cohort outlier detection rather than two-group comparison. Standard tool in EU rare-disease (Solve-RD) and NIH UDN programs. Use when applying RNA-seq to undiagnosed Mendelian disease, validating predicted splice variants in clinical samples, or detecting cryptic splicing in disease tissue.
 tool_type: r
 primary_tool: FRASER

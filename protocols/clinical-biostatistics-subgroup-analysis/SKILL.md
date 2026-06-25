@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-subgroup-analysis
+name: clinical-biostatistics-subgroup-analysis
 description: Performs subgroup and heterogeneous treatment effect (HTE) analyses for clinical trials. Covers Mantel-Haenszel pooling, Breslow-Day, interaction tests in regression, RERI for additive interaction, modern data-adaptive HTE methods (STEPP, SIDES, causal forests, X/R-learners), Bayesian shrinkage (Dixon-Simon, MAP, EXNEX), graphical multiplicity (Bretz-Maurer), and credibility frameworks (Sun BMJ, EMA 2019). Use when analyzing treatment effects across patient subgroups for regulatory submissions or precision-medicine claims.
 tool_type: python
 primary_tool: statsmodels

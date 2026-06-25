@@ -15,6 +15,7 @@ pub mod session;
 pub mod settings;
 pub mod slurm;
 pub mod ssh;
+pub mod sshauth;
 pub mod terminal;
 pub mod watchdog;
 

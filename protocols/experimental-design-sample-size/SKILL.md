@@ -1,5 +1,5 @@
 ---
-name: bio-experimental-design-sample-size
+name: experimental-design-sample-size
 description: Estimates the minimum biological replicates (or cells/events) for a target power at a target FDR in genomics experiments using ssizeRNA, PROPER, powsimR for scRNA-seq, and pilot-data dispersion estimation from DESeq2/edgeR. Covers the biological-versus-technical replication distinction (technical replicates do not add degrees of freedom for biological inference), replicate-number-versus-sequencing-depth budgeting, scRNA-seq sample-versus-cell allocation under a pseudobulk model, and the critique that "n=3" is a publication convention rather than a power calculation. Use when budgeting a sequencing experiment, writing the sample-size justification in a grant, estimating replicates from pilot data, allocating a fixed budget between samples and depth, or planning scRNA-seq cohort size. For clinical-trial sample size see clinical-biostatistics/power-and-sample-size; for the power-given-n direction see experimental-design/power-analysis.
 tool_type: r
 primary_tool: ssizeRNA

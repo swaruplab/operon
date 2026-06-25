@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-spatial-analysis
+name: imaging-mass-cytometry-spatial-analysis
 description: Analyze spatial cell-cell interactions, neighborhoods, and niches in IMC/MIBI data with squidpy and imcRtools, covering neighborhood-enrichment permutation nulls, the abundance-vs-density confound, inhomogeneous Ripley's K, cellular-neighborhood discovery, graph-construction (contact vs proximity), and edge effects. Use when testing whether cell types co-locate, choosing a spatial null, building a neighbor graph, discovering tissue niches, or deciding whether a spatial pattern is real or a density/segmentation artifact.
 tool_type: python
 primary_tool: squidpy

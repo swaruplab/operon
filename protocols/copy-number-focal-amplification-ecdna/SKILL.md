@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-focal-amplification-ecdna
+name: copy-number-focal-amplification-ecdna
 description: Resolve the architecture of focal oncogene amplifications — extrachromosomal DNA (ecDNA), breakage-fusion-bridge (BFB) cycles, homogeneously staining regions (HSR), and linear amplification — from whole-genome sequencing with AmpliconArchitect, the AmpliconSuite pipeline, and AmpliconClassifier. Covers copy-number seed selection, breakpoint-graph reconstruction, balanced-flow optimization, ecDNA classification, and the limits of depth-only amplification calls. Use when a focal amplification needs structural characterization, when distinguishing ecDNA from chromosomal amplification, suspecting ecDNA-driven oncogene amplification or therapy resistance, or selecting copy-number seeds for amplicon reconstruction.
 tool_type: cli
 primary_tool: AmpliconArchitect

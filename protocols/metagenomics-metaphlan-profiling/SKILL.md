@@ -1,5 +1,5 @@
 ---
-name: bio-metagenomics-metaphlan
+name: metagenomics-metaphlan
 description: Marker gene-based taxonomic profiling using MetaPhlAn 4. Provides accurate species-level relative abundances using clade-specific markers. Use when accurate taxonomic profiling is needed and computational resources are limited, or for comparison with HMP/other MetaPhlAn studies.
 tool_type: cli
 primary_tool: metaphlan

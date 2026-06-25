@@ -1,5 +1,5 @@
 ---
-name: bio-genome-engineering-hdr-template-design
+name: genome-engineering-hdr-template-design
 description: Designs donor/repair templates for precise CRISPR knock-ins -- choosing the format (ssODN, long-ssDNA/Easi-CRISPR, dsDNA/plasmid, AAV6), sizing homology arms, placing the cut within ~10 bp of the edit, and adding a mandatory codon-checked blocking (PAM/seed) mutation so the edited allele is not re-cut. Frames the HDR-vs-NHEJ-vs-MMEJ pathway competition, the MMEJ (PITCh) and homology-independent (HITI/HMEJ) alternatives for post-mitotic cells, ssODN strand/asymmetry choice, phosphorothioate end-protection, and ranked HDR enhancers. Use when designing a donor for a point mutation, epitope/fluorophore tag, allele replacement, or knock-in, or when HDR efficiency is low. Guide design and base/prime editing are separate skills.
 tool_type: python
 primary_tool: primer3-py

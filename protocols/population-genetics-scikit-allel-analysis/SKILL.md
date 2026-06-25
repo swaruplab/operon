@@ -1,5 +1,5 @@
 ---
-name: bio-population-genetics-scikit-allel-analysis
+name: population-genetics-scikit-allel-analysis
 description: Python population genetics with scikit-allel. Read VCF files, compute allele frequencies, calculate diversity statistics, perform PCA, and run selection scans using GenotypeArray and HaplotypeArray data structures. Use when analyzing population genetics in Python.
 tool_type: python
 primary_tool: scikit-allel

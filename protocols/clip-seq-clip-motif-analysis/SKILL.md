@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-motif-analysis
+name: clip-seq-clip-motif-analysis
 description: Discover RBP binding motifs from CLIP-seq peaks or single-nucleotide crosslink sites using HOMER, MEME/STREME, kpLogo, mCross (CL-position-registered motifs), PEKA (positional k-mer enrichment), RBPamp (affinity), and RNA Bind-n-Seq (RBNS) cross-validation. Use when characterizing RBP sequence specificity, registering motifs to crosslink positions, validating in vivo CLIP motifs against in vitro RBNS Kd, reconciling motif disagreements across tools, or correcting for the uracil crosslinking bias that contaminates raw CLIP motif logos.
 tool_type: mixed
 primary_tool: HOMER

@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-genome-profiling
+name: genome-assembly-genome-profiling
 description: Profiles a genome from raw reads BEFORE assembly with a k-mer spectrum (KMC or Jellyfish histogram), then models it with GenomeScope2 to estimate genome size, heterozygosity, repeat content, and ploidy, and Smudgeplot to infer ploidy from heterozygous k-mer pairs (diploid AB vs triploid AAB vs tetraploid AABB). Covers choosing k via Merqury best_k.sh, the k-mer-coverage vs sequencing-coverage confusion, reading het/repeat/contamination/organelle peaks, why noisy ONT must not be used for counting, and how the estimate becomes the NG50 denominator, the Flye -g value, the hifiasm --hom-cov/purge setting, and the 1.5-2x-too-big haplotig sanity check. Use when starting any de novo assembly, deciding whether short reads can work, estimating genome size for an unknown organism, diagnosing ploidy, or sanity-checking an assembly's size against expectation.
 tool_type: cli
 primary_tool: GenomeScope2

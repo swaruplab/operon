@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-proximity-operations
+name: genome-intervals-proximity-operations
 description: Performs proximity operations on genomic intervals with bedtools (closest, window, flank, slop) and pybedtools - nearest-feature queries with signed/strand-aware distance, fixed-radius window searches, strand-aware promoter construction, and interval extension. Covers the closest -d/-D a/b/ref/-t/-k/-io/-iu/-id flags, the -D ref strand sign-flip, silent chromosome-end clipping in slop/flank, -t all tie double-counting, and the critical distinction between a geometry answer (nearest TSS) and a biology answer (which gene an element regulates). Use when assigning peaks or variants to genes, defining promoters from a gene model, building distance-to-TSS distributions, finding features within a window, or extending intervals - and when deciding whether nearest-gene is a fair prior (GWAS locus) or a trap (distal enhancer).
 tool_type: mixed
 primary_tool: bedtools

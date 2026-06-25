@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-crosslink-site-detection
+name: clip-seq-crosslink-site-detection
 description: Detect single-nucleotide crosslink (CL) sites in CLIP-seq data using truncation patterns (iCLIP/eCLIP CITS), crosslink-induced mutations (HITS-CLIP CIMS deletions, PAR-CLIP T-to-C), or HMM/kernel-density methods (PureCLIP, PARalyzer, CTK). Use when single-nucleotide resolution is required for motif registration (mCross), allele-specific binding (BEAPR), variant-effect prediction, or comparing crosslink chemistry across CLIP variants.
 tool_type: cli
 primary_tool: PureCLIP

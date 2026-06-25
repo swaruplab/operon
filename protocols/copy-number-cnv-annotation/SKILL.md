@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-cnv-annotation
+name: copy-number-cnv-annotation
 description: Annotate copy number variant segments with overlapping genes, dosage-sensitivity scores, cancer driver databases, population frequencies, and clinical-variant content. Covers bedtools/pybedtools interval intersection, AnnotSV comprehensive annotation and ranking, ClinGen haploinsufficiency/triplosensitivity scoring, gnomAD-SV/DGV frequency filtering, COSMIC Cancer Gene Census, and ClinVar overlap. Use when interpreting which genes a CNV affects, distinguishing the driver gene of a focal event from passengers, filtering against population CNVs, separating whole-gene from partial-gene overlap, or preparing CNVs for clinical classification.
 tool_type: mixed
 primary_tool: bedtools

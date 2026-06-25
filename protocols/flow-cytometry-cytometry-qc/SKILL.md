@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-cytometry-qc
+name: flow-cytometry-cytometry-qc
 description: Quality control for flow, spectral, and mass cytometry - time-based anomaly cleaning (flowAI, flowCut, PeacoQC, flowClean), margin/boundary event removal, signal-drift detection, dead-cell exclusion, CyTOF Gaussian/DNA/event-length checks, instrument calibration/standardization (MESF, CS&T, peak-2), and batch-level outlier flagging. Use when assessing acquisition quality, choosing a cleaning tool, ordering QC relative to compensation, deciding margin removal before density-based steps, or flagging problematic samples before clustering or differential analysis.
 tool_type: r
 primary_tool: flowAI

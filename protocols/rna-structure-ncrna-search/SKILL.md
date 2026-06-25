@@ -1,5 +1,5 @@
 ---
-name: bio-rna-structure-ncrna-search
+name: rna-structure-ncrna-search
 description: Searches for non-coding RNA homologs and classifies RNA families using Infernal covariance model searches against the Rfam database. Identifies structured RNAs by sequence and secondary structure conservation. Use when querying sequences against Rfam, building custom covariance models for novel RNA families, or classifying non-coding transcripts by family.
 tool_type: cli
 primary_tool: Infernal

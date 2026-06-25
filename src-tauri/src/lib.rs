@@ -257,6 +257,11 @@ use commands::proxy::ProxyManager;
 use commands::session::SessionStateManager;
 use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
+use commands::ssh::{get_ssh_socket_path, prepare_ssh_auth};
+use commands::sshauth::{
+    add_ssh_key_passphrase, delete_ssh_key_passphrase, has_ssh_key_passphrase, key_needs_passphrase,
+    set_ssh_key_passphrase,
+};
 use commands::terminal::TerminalManager;
 use commands::watchdog::WatchdogManager;
 
@@ -402,6 +407,13 @@ pub fn run() {
             clear_ssh_cache,
             setup_ssh_key,
             test_ssh_connection,
+            get_ssh_socket_path,
+            prepare_ssh_auth,
+            set_ssh_key_passphrase,
+            add_ssh_key_passphrase,
+            delete_ssh_key_passphrase,
+            has_ssh_key_passphrase,
+            key_needs_passphrase,
             check_control_master,
             stop_control_master,
             get_ssh_diagnostics,
@@ -570,6 +582,9 @@ pub fn run() {
                 // Kill the translation proxy sidecar if running
                 let proxy = window.state::<ProxyManager>();
                 let _ = proxy.stop();
+                // Kill the ssh-agent Operon spawned for passphrase-protected keys
+                // (no-op if we reused an existing agent).
+                commands::sshauth::shutdown_agent();
             }
         })
         .run(tauri::generate_context!())

@@ -1,5 +1,5 @@
 ---
-name: bio-proteomics-proteomics-qc
+name: proteomics-proteomics-qc
 description: Quality control and assessment for proteomics data. Use when evaluating proteomics data quality before downstream analysis. Covers sample metrics, missing value patterns, replicate correlation, batch effects, and intensity distributions.
 tool_type: mixed
 primary_tool: pandas

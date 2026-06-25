@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-tad-detection
+name: hi-c-analysis-tad-detection
 description: Detects TAD boundaries from balanced Hi-C contact matrices via the diamond-window insulation score (cooltools insulation) and HiCExplorer hicFindTADs, returning a continuous log2 insulation track, valley-prominence boundary_strength, and Li/Otsu-thresholded is_boundary flags across a list of window sizes. Covers the multi-scale window sweep (sub-TAD to compartment-domain), why the boundary is reproducible but the domain partition is not, cross-condition comparison via differential SCORE not differential partition, and the insulation-vs-compartment orthogonality. Use when calling TADs or domain boundaries, computing insulation scores, choosing a window size, ranking boundary strength, comparing boundaries across conditions, or annotating CTCF-backed boundaries; route domain rendering to hic-visualization and boundary-feature overlap to genome-intervals.
 tool_type: mixed
 primary_tool: cooltools

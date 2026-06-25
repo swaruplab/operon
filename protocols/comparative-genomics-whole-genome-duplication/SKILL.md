@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-whole-genome-duplication
+name: comparative-genomics-whole-genome-duplication
 description: Detect, date, and contextualize whole-genome duplication (WGD / paleopolyploidy) events using wgd v2 (Chen & Zwaenepoel 2024), KsRates (Sensalari 2022 substitution-rate-corrected Ks dating), DupGen_finder (Qiao 2019), MAPS (Li 2018 phylogenomic), POInT (Conant 2008 ordered-block), SLEDGe (2024 ML-based), Whale.jl (Bayesian DTL+WGD), and synteny-anchored paranome construction. Use when identifying ancient polyploidy from Ks distributions and synteny block analysis, positioning WGD events relative to speciation, distinguishing tandem from segmental from WGD duplications, dating the 2R/3R vertebrate / fish / salmonid WGDs, building paranome and Ks-age mixture models, applying KsRates substitution-rate correction across lineages, or testing alternative biased-fractionation / dosage-balance models post-WGD.
 tool_type: mixed
 primary_tool: wgd

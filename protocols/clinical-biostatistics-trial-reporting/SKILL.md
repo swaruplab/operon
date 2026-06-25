@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-trial-reporting
+name: clinical-biostatistics-trial-reporting
 description: Prepares statistical reports for clinical trials following CONSORT 2025, SPIRIT 2025, ICH E9(R1) estimands, and FDA 2023 covariate adjustment guidance. Covers Table 1 generation, analysis populations (ITT/FAS/PP/Safety), the 5 ICH E9(R1) intercurrent-event strategies, MMRM under MAR (mmrm), reference-based MI (rbmi J2R/CR/CIR), Permutt tipping-point sensitivity, and Rubin's-rules vs frequentist variance debate. Use when preparing regulatory submissions, defining estimands, or implementing missing-data sensitivity analyses.
 tool_type: python
 primary_tool: tableone

@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-base-editing-analysis
+name: crispr-screens-base-editing-analysis
 description: Analyzes base-editing screens for variant function. Covers library design (Sanson 2020 GRACE, Hanna 2021 BRCA1/2 SNV scanning, Cuella-Martin 2021), CBE vs ABE chemistry choice (BE3/BE4 vs ABE7.10/ABE8.20/ABE8e), editing-window math (positions 4-8 from PAM-distal end, wider for ABE8e), bystander-edit quantification and the variant-call ambiguity it creates, sgRNA-efficiency filtering before hit calling, indel byproduct interpretation, the substitution-vs-indel diagnostic, variant annotation against ClinVar / COSMIC, and the Broad be-validation-pipeline. Use when designing a BE variant screen, choosing CBE vs ABE for a specific edit, interpreting bystander-confounded hits, distinguishing functional signal from indel artifact, integrating CRISPResso2 output with screen scoring, or deciding BE vs PE for SNV installation.
 tool_type: mixed
 primary_tool: CRISPResso2

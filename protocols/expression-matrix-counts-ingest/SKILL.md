@@ -1,5 +1,5 @@
 ---
-name: bio-expression-matrix-counts-ingest
+name: expression-matrix-counts-ingest
 description: Imports gene expression count matrices from featureCounts, HTSeq, STAR ReadsPerGene, Salmon/kallisto via tximport or tximeta, RSEM, 10X Genomics MTX/H5, AnnData H5AD, and RDS. Handles silent-miscounting traps (featureCounts -p v2.0.2 API break, STAR strandedness column choice, salmon NumReads-sum without tximport, RSEM non-integer expected_count, GENCODE _PAR_Y suffix, zero-length-transcript TPM divide-by-zero), and encodes the tximport countsFromAbundance decision tree with the "lengthScaledTPM is not TPM" warning. Use when assembling a gene-by-sample count matrix from aligner or quantifier output, importing salmon/kallisto for DESeq2 vs limma-voom, choosing strandedness column for STAR, debugging zero-count panics, or building tx2gene mapping.
 tool_type: mixed
 primary_tool: tximport

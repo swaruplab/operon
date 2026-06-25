@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-subclonal-copy-number
+name: copy-number-subclonal-copy-number
 description: Resolve subclonal copy number, whole-genome doubling, and copy-number tumor evolution from bulk sequencing with Battenberg, TITAN, and MEDICC2. Covers clonal versus subclonal copy-number states, haplotype phasing for subclonal resolution, cancer cell fraction, whole-genome-doubling detection and timing relative to mutations, mirrored subclonal allelic imbalance, and copy-number phylogenies. Use when a tumor is heterogeneous and bulk data shows non-integer copy number, when calling subclonal CNAs, detecting or timing whole-genome doubling, reconstructing copy-number evolution, or deciding between Battenberg and TITAN.
 tool_type: mixed
 primary_tool: battenberg

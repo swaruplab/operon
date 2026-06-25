@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-bead-normalization
+name: flow-cytometry-bead-normalization
 description: Bead-based signal normalization and cross-batch harmonization for CyTOF and high-parameter cytometry - EQ four-element bead normalization of instrument sensitivity drift (CATALYST normCytof, premessa), and reference-anchor cross-batch normalization (CytoNorm, per-cluster quantile splines). Covers the distinction between within-run drift correction and between-batch correction, the mandatory anchor/reference sample, why normalization is per-cluster with many quantiles, and the over-correction risk. Use when correcting CyTOF signal drift, harmonizing multi-batch or multi-site studies, or deciding whether to normalize data versus model batch in the design.
 tool_type: r
 primary_tool: CATALYST

@@ -1,5 +1,5 @@
 ---
-name: bio-genome-engineering-prime-editing-design
+name: genome-engineering-prime-editing-design
 description: Designs pegRNAs and nicking guides for prime editing (PE) -- choosing the nick/strand, tuning the primer-binding site (PBS) and reverse-transcription template (RTT) as a per-locus panel, selecting the PE system (PE2/PE3/PE3b/PE4/PE5/PEmax/PE7), adding MMR-evading and PAM-disrupting silent edits, appending epegRNA 3' motifs (tevopreQ1/mpknot), and ranking with PRIDICT/DeepPrime. Covers twinPE/PASTE for large insertions and the prime-vs-base-editing decision. Use when designing a scarless point mutation, small insertion/deletion, or any of the 12 base conversions without a double-strand break, when efficiency is low and MMR inhibition or pegRNA stabilization is needed, or when routing a large insertion to an integrase method. Generic guide scoring and base editing are separate skills.
 tool_type: mixed
 primary_tool: PrimeDesign

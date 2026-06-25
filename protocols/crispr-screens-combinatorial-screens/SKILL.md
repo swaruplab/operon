@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-combinatorial-screens
+name: crispr-screens-combinatorial-screens
 description: Designs and analyzes combinatorial CRISPR screens covering paired-Cas9 (Big Papi, Najm 2018), enhanced AsCas12a multiplex (enCas12a, DeWeirdt 2021), in4mer 4-guide-array Cas12a (Esmaeili Anvar N et al 2024 Nat Commun 15:3577) and the Inzolia paralog-pair library, paralog-buffering detection (Dede 2020 Genome Biol; Thompson 2021 Cell Reports 36:109597), genetic-interaction (GI) scoring as observed_double_LFC minus expected_additive_double_LFC, synthetic-lethal and synthetic-rescue interaction interpretation, the half-of-essentiality buffered by paralogs phenomenon, multiplex screen statistical analysis with MAGeCK MLE interaction terms, and the relationship to single-cell combinatorial Perturb-seq. Use when designing a paralog or pathway-pair screen, choosing between paired-Cas9 (Big Papi) and Cas12a multiplex (Inzolia), interpreting genetic interaction scores, identifying synthetic-lethal targets for drug development, or scaling beyond single-gene CRISPR screens.
 tool_type: mixed
 primary_tool: enCas12a

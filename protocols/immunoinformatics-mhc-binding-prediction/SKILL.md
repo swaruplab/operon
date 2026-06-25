@@ -1,5 +1,5 @@
 ---
-name: bio-immunoinformatics-mhc-binding-prediction
+name: immunoinformatics-mhc-binding-prediction
 description: Predict peptide-MHC class I and II binding affinity using MHCflurry and NetMHCpan neural network models. Identify potential T-cell epitopes from protein sequences. Use when predicting MHC binding for vaccine design or neoantigen identification.
 tool_type: python
 primary_tool: mhcflurry

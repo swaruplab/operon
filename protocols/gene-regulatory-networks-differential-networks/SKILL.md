@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-differential-networks
+name: gene-regulatory-networks-differential-networks
 description: Compare gene co-expression and regulatory networks between biological conditions to find rewired relationships using DiffCorr, DiffCoEx, DINGO/iDINGO, and CoDiNA. Covers the differential-connectivity-is-not-differential-expression distinction, the pairwise multiple-testing explosion, marginal vs partial (direct) rewiring, and the underpowered-rewiring failure mode. Use when comparing co-expression networks between disease vs control, treatment, or developmental stages, or finding hub genes that rewire without changing mean expression. For single-condition modules see coexpression-networks; for differential expression of means see differential-expression/de-results.
 tool_type: r
 primary_tool: DiffCorr

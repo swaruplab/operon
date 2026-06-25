@@ -1,5 +1,5 @@
 ---
-name: bio-experimental-design-randomization-blocking
+name: experimental-design-randomization-blocking
 description: Structures biological experiments so inference is valid by construction, covering Fisher's principles (randomization, replication, local control), the experimental-vs-observational unit distinction and pseudoreplication (Hurlbert 1984; Lazic 2018), randomization mechanics (complete, restricted, stratified, rerandomization, run-order), blocking layouts (randomized complete block, Latin square, incomplete block), factorial designs and interactions, and the split-plot/nested error strata hidden inside multi-batch genomics. Use when deciding the experimental unit and what counts as a replicate, planning randomization and run order, choosing a blocked/factorial/split-plot/nested layout, avoiding pseudoreplication in cell-culture or animal studies, or specifying the random-effects structure of the analysis model. For assigning samples to sequencing batches/lanes/plates and batch-effect correction see experimental-design/batch-design; for regulated clinical-trial randomization see clinical-biostatistics.
 tool_type: r
 primary_tool: designit

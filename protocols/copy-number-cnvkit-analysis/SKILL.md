@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-cnvkit-analysis
+name: copy-number-cnvkit-analysis
 description: Detect somatic and germline copy number variants from targeted, exome, and whole-genome sequencing with CNVkit, a read-depth caller that combines on-target and off-target (antitarget) coverage. Covers panel-of-normals construction, flat-reference tumor-only calling, hybrid/amplicon/WGS modes, CBS vs HMM segmentation selection, purity-aware integer calling, and reconciliation against GATK and allele-specific callers. Use when calling CNVs from hybrid-capture panels or exomes, deciding whether CNVkit (depth-only) is the right tool versus an allele-specific caller, building a panel of normals, diagnosing flat-reference false positives, or interpreting log2 ratios into copy-number states.
 tool_type: cli
 primary_tool: cnvkit

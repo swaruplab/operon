@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-alignment
+name: clip-seq-clip-alignment
 description: Align preprocessed CLIP-seq reads (eCLIP, iCLIP, iCLIP2, PAR-CLIP) to genome with STAR or bowtie2 using crosslink-preserving parameters, choosing between unique-mapper-only and multi-mapper-aware alignment for repeat-binding RBPs, deciding STAR vs HISAT2 memory trade-offs, and applying ENCODE-compatible filters. Use when turning preprocessed CLIP FASTQ into a deduplicated, MAPQ-filtered BAM ready for peak calling or crosslink-site detection.
 tool_type: cli
 primary_tool: STAR

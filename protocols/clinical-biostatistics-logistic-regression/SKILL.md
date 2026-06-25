@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-logistic-regression
+name: clinical-biostatistics-logistic-regression
 description: Performs logistic regression for clinical trial outcomes (binary, ordinal, multinomial) with marginal-vs-conditional estimand reporting per FDA 2023 covariate adjustment guidance, g-computation/standardisation for marginal effects, modified Poisson for RR, Brant test for proportional odds, Firth penalty for separation, and Hauck-Donner detection. Use when modeling binary or ordinal endpoints in confirmatory or exploratory clinical trials.
 tool_type: python
 primary_tool: statsmodels

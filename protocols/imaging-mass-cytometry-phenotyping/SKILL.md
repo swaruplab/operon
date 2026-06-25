@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-phenotyping
+name: imaging-mass-cytometry-phenotyping
 description: Assign cell types from marker expression in IMC/MIBI data using clustering (PhenoGraph/FlowSOM/Leiden/Pixie), marker-based probabilistic classifiers (Astir), or image-context CNNs (CellSighter), covering the double-positive segmentation artifact, lineage-vs-state markers, the two spillover types, and why a "cell type" in imaging is conditioned on a segmentation guess. Use when phenotyping segmented IMC cells, choosing clustering vs classification, diagnosing implausible double-positive populations, separating lineage from functional markers, or transferring labels across a cohort.
 tool_type: python
 primary_tool: scanpy

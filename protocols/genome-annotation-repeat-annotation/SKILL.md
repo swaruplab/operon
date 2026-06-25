@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-repeat-annotation
+name: genome-annotation-repeat-annotation
 description: Discovers, classifies, and masks repetitive elements and transposable elements with RepeatModeler2 (de novo family library), RepeatMasker (masking against a library), EDTA (plant/structural TEs), or EarlGrey (auto-curating wrapper), and quantifies TE expression from RNA-seq with TEtranscripts/SQuIRE. Covers de-novo-library-as-curation-project, soft-vs-hard masking, the domesticated-gene over-masking massacre, Dfam-vs-RepBase, TE classification (Class I/II, family-vs-copy), Kimura repeat landscapes, LAI, and the RNA-seq multimapping problem. Use when masking repeats before gene prediction, building a TE library for a non-model genome, or analyzing transposable-element content or expression.
 tool_type: cli
 primary_tool: RepeatMasker

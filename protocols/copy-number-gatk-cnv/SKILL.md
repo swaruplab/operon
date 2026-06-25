@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-gatk-cnv
+name: copy-number-gatk-cnv
 description: Call copy number variants with the GATK best-practices workflows — the somatic CNV pipeline (CollectReadCounts, DenoiseReadCounts with tangent normalization, ModelSegments, CallCopyRatioSegments) and the germline GATK-gCNV pipeline (DetermineGermlineContigPloidy, GermlineCNVCaller cohort/case mode, PostprocessGermlineCNVCalls). Covers panel-of-normals construction, AnnotateIntervals/FilterIntervals, allelic-count integration, and QS-based filtering. Use when integrating CNV calling into a GATK variant pipeline, calling rare germline CNVs from an exome cohort, deciding between the somatic and germline GATK workflows, or diagnosing why tangent normalization removed a real event or why gCNV output has low precision.
 tool_type: cli
 primary_tool: gatk

@@ -539,7 +539,10 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
   const cdToTerminalPath = (path: string) => {
     if (!path || !terminalId) return;
-    const encoded = Array.from(new TextEncoder().encode(`cd '${path.replace(/'/g, "'\\''")}'\n`));
+    // Lead with Ctrl-U (\x15) to clear anything already buffered on the shell's
+    // input line before the cd — so a stray terminal reply (e.g. a device-
+    // attributes response that slipped in) can't fuse onto this command.
+    const encoded = Array.from(new TextEncoder().encode(`\x15cd '${path.replace(/'/g, "'\\''")}'\n`));
     invoke('write_terminal', {
       terminalId,
       data: encoded,

@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-comparative-annotation-projection
+name: comparative-genomics-comparative-annotation-projection
 description: Project gene annotations across genomes using TOGA (Kirilenko 2023 whole-genome-alignment chain-based projection with intactness classification), CESAR 2.0 (Sharma & Hiller 2017 codon-aware exon projection), LiftOff (Shumate & Salzberg 2020 reference-based annotation transfer), Liftover (UCSC), GeMoMa (Keilwagen 2019 evidence-based projection), and Comparative Annotation Toolkit (CAT). Use when transferring annotations from a well-annotated reference to query genome(s), classifying gene-loss vs gene-intact across many genomes at scale, building Zoonomia-style comparative annotations across hundreds of mammals or birds (Kirilenko 2023), detecting pseudogenization, projecting alternative isoforms, or selecting between WGA-anchored (TOGA) vs ortholog-based (LiftOff) annotation transfer strategies.
 tool_type: cli
 primary_tool: TOGA

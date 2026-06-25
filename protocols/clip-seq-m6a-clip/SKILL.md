@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-m6a-clip
+name: clip-seq-m6a-clip
 description: Map N6-methyladenosine (m6A) RNA modifications at single-nucleotide resolution using miCLIP (Linder 2015), miCLIP2 + m6Aboost machine learning (Kortel 2021), GLORI (Liu 2023, antibody-free chemical conversion), DART-seq (Meyer 2019, APOBEC1-YTH fusion), m6Anet (nanopore direct RNA), or MeRIP-seq with calibration. Use when distinguishing antibody-based from antibody-free m6A detection methods, applying the DRACH motif constraint, reconciling cross-method disagreements (DART 44% in DRACH vs GLORI), or detecting m6Am at the cap.
 tool_type: mixed
 primary_tool: miCLIP2

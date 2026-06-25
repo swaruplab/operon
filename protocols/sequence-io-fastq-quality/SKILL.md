@@ -1,5 +1,5 @@
 ---
-name: bio-fastq-quality
+name: fastq-quality
 description: Work with FASTQ quality scores using Biopython. Use when analyzing read quality, filtering by quality, trimming low-quality bases, or generating quality reports.
 tool_type: python
 primary_tool: Bio.SeqIO

@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-fcs-handling
+name: flow-cytometry-fcs-handling
 description: Reads, inspects, and writes Flow Cytometry Standard (FCS) files from conventional, spectral, and mass cytometry (CyTOF), and parses FlowJo/Cytobank/Diva workspaces. Covers FCS 2.0/3.0/3.1/3.2 internals ($PnE linear-vs-log, $DATATYPE, $SPILLOVER vs SPILL vs $COMP, $TIMESTEP), channel/parameter metadata, the silent linearize/truncate defaults, and R (flowCore, flowWorkspace, CytoML) plus Python (FlowKit, readfcs) readers. Use when loading flow or mass cytometry data, mapping detector channels to antibodies, extracting the event matrix, choosing a reader, or bridging FCS to the scanpy/AnnData ecosystem before preprocessing.
 tool_type: mixed
 primary_tool: flowCore

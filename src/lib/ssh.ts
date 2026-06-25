@@ -16,6 +16,8 @@ export interface SSHProfile {
   mfa_method: string | null;
   /** Whether to use ControlMaster multiplexing */
   use_control_master: boolean;
+  /** Whether key_file is passphrase-protected (passphrase lives in the OS keychain) */
+  key_has_passphrase?: boolean;
   /** Server-level config: SLURM accounts, partitions, conda envs, etc. */
   server_config: Record<string, string>;
 }
@@ -71,12 +73,56 @@ export async function setupSSHKey(
   profileId: string,
   password: string,
   mfaMethod?: string,
+  keyPassphrase?: string,
 ): Promise<string> {
-  return invoke('setup_ssh_key', { profileId, password, mfaMethod });
+  return invoke('setup_ssh_key', { profileId, password, mfaMethod, keyPassphrase });
 }
 
 export async function checkControlMaster(profileId: string): Promise<boolean> {
   return invoke('check_control_master', { profileId });
+}
+
+// ── SSH key passphrase (OS keychain + ssh-agent) ──
+
+/** Canonical ControlMaster socket path — frontend uses this so the terminal's
+ *  master lands exactly where the backend looks for it. */
+export async function getSshSocketPath(host: string, port: number, user: string): Promise<string> {
+  return invoke('get_ssh_socket_path', { host, port, user });
+}
+
+/** Load a profile's passphrase-protected key into the ssh-agent before connecting. */
+export async function prepareSshAuth(profileId: string): Promise<void> {
+  return invoke('prepare_ssh_auth', { profileId });
+}
+
+/** Store (and verify) a key passphrase in the OS keychain. */
+export async function setKeyPassphrase(profileId: string, passphrase: string, keyFile: string | null): Promise<void> {
+  return invoke('set_ssh_key_passphrase', { profileId, passphrase, keyFile });
+}
+
+/** Remove a stored key passphrase. */
+export async function deleteKeyPassphrase(profileId: string): Promise<void> {
+  return invoke('delete_ssh_key_passphrase', { profileId });
+}
+
+/** Whether a passphrase is already stored for this profile. */
+export async function hasKeyPassphrase(profileId: string): Promise<boolean> {
+  return invoke('has_ssh_key_passphrase', { profileId });
+}
+
+/** Whether the private key at keyFile is encrypted (needs a passphrase). */
+export async function keyNeedsPassphrase(keyFile: string): Promise<boolean> {
+  return invoke('key_needs_passphrase', { keyFile });
+}
+
+/** Encrypt an existing key with a passphrase (ssh-keygen -p) and save it to the keychain. */
+export async function addKeyPassphrase(
+  profileId: string,
+  keyFile: string,
+  newPassphrase: string,
+  oldPassphrase?: string,
+): Promise<void> {
+  return invoke('add_ssh_key_passphrase', { profileId, keyFile, newPassphrase, oldPassphrase });
 }
 
 export async function stopControlMaster(profileId: string): Promise<void> {

@@ -1,5 +1,5 @@
 ---
-name: bio-expression-matrix-normalization
+name: expression-matrix-normalization
 description: Normalizes and transforms RNA-seq count matrices for DE, visualization, clustering, and ML. Covers between-sample (TMM, TMMwsp, RLE/median-of-ratios, upper quartile), within-sample (TPM, FPKM/RPKM), variance-stabilizing (VST, rlog, log-CPM), GC-content correction (cqn, EDASeq), and single-cell (scran deconvolution, scanpy normalize_total). Encodes the composition-bias rationale, the "most genes not DE" assumption and its catastrophic failure modes (MYC amplification, apoptosis, viral host shutoff, prokaryotic stress), the "lengthScaledTPM is not TPM" naming trap, the "TPM is not for DE" rule, the blind=TRUE vs FALSE decision, ERCC spike-in normalization (SBN), and the single-cell zero-inflation breakdown of TMM/RLE. Use when choosing or applying normalization, debugging shifted-MA-plot diagnostics, handling zero-heavy single-cell data, or correcting GC bias.
 tool_type: mixed
 primary_tool: DESeq2

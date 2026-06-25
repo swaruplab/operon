@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-whole-genome-alignment
+name: comparative-genomics-whole-genome-alignment
 description: Build whole-genome alignments using Progressive Cactus (Armstrong 2020 reference-free clade-level WGA), Minigraph-Cactus (Hickey 2024 pangenome-aware), LASTZ chain/net (UCSC pipeline), MUMmer4 (Marçais 2018 pairwise), minimap2 -x asm5/10/20 (Li 2018 fast pairwise), AnchorWave (Song 2022 WGD-aware), and Mauve / progressiveMauve (bacterial). Operates the HAL toolkit (Hickey 2013) for downstream extraction including halSynteny, halLiftover, halBranchMutations, and hal2maf. Use when constructing multi-species alignments for comparative-annotation projection (TOGA), synteny detection, conservation analyses (phyloP / PhastCons), or pangenome graph construction; selecting between reference-free (Cactus) and reference-anchored (LASTZ chains/nets) approaches; tuning sensitivity for closely vs distantly related genomes; or producing HAL files for genome-wide downstream tools.
 tool_type: cli
 primary_tool: Cactus

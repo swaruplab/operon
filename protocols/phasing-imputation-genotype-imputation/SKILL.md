@@ -1,5 +1,5 @@
 ---
-name: bio-phasing-imputation-genotype-imputation
+name: phasing-imputation-genotype-imputation
 description: Impute missing genotypes using reference panels with Beagle or Minimac4. Use when increasing variant density for GWAS, harmonizing data across genotyping platforms, or inferring variants not directly typed in array data.
 tool_type: cli
 primary_tool: beagle

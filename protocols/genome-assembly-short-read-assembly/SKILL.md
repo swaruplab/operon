@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-short-read-assembly
+name: genome-assembly-short-read-assembly
 description: Assembles a genome de novo from Illumina short reads with SPAdes (isolate/careful/sc/meta/plasmid/rna modes), MEGAHIT (low-memory, huge datasets), Unicycler (bacterial finishing/hybrid), MaSuRCA (large hybrid), ABySS (Bloom-filter), and Platanus (heterozygous diploids), using multi-k de Bruijn graphs. Covers the repeat-resolution limit, why N50 plateaus at the genome not the depth, GenomeScope2 k-mer profiling first, the heterozygosity/haplotig trap, error-correction erasing rare alleles, GC dropout, and NG50/auN/BUSCO reporting. Use when assembling a bacterial isolate, fungal, small-eukaryotic, single-cell, or metagenome genome from Illumina reads, or when deciding whether short reads can even produce the assembly being asked for.
 tool_type: cli
 primary_tool: SPAdes

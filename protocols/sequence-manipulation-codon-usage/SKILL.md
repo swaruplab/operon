@@ -1,5 +1,5 @@
 ---
-name: bio-codon-usage
+name: codon-usage
 description: Analyze codon usage, calculate CAI (Codon Adaptation Index), and examine synonymous codon bias using Biopython. Use when analyzing coding sequences for expression optimization or evolutionary analysis.
 tool_type: python
 primary_tool: Bio.SeqUtils.CodonUsage

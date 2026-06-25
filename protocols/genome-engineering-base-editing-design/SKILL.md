@@ -1,5 +1,5 @@
 ---
-name: bio-genome-engineering-base-editing-design
+name: genome-engineering-base-editing-design
 description: Designs cytosine (CBE, C-to-T) and adenine (ABE, A-to-G) base-editor guides by positioning the target base at the activity-peak of the editing window (protospacer positions ~5-7, PAM-distal numbering), minimizing bystander edits for product purity, reading dinucleotide context (APOBEC1 TC favored / GC disfavored), and selecting the editor variant (BE4max, ABEmax, ABE8e, YE1/SECURE, TadCBE, CGBE, SpG/SpRY-BE). Covers knockout by premature stop (CRISPR-STOP/iSTOP) and splice-site disruption, the three off-target classes (Cas-dependent, Cas-independent DNA, RNA), outcome prediction (BE-Hive/DeepBE), and the base-vs-prime-vs-HDR decision. Use when installing a transition mutation without a double-strand break, knocking out a gene without indels, or choosing CBE vs ABE. Generic guide scoring, prime editing, and HDR donors are separate skills.
 tool_type: python
 primary_tool: BioPython

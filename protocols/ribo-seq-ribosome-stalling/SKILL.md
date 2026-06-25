@@ -1,5 +1,5 @@
 ---
-name: bio-ribo-seq-ribosome-stalling
+name: ribo-seq-ribosome-stalling
 description: Detect ribosome pausing and stalling sites from Ribo-seq data at codon resolution. Use when studying translational regulation, identifying pause sites, or analyzing codon-specific translation dynamics.
 tool_type: python
 primary_tool: Plastid

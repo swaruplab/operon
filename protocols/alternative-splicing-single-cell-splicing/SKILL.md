@@ -1,5 +1,5 @@
 ---
-name: bio-single-cell-splicing
+name: single-cell-splicing
 description: Analyzes alternative splicing at single-cell resolution. The first decision is library chemistry — 10X 3' is fundamentally limited (RT primes from poly-A, R2 falls in 3' UTR, <0.1 junction read per cell per AS event). Plate-based full-length methods (Smart-seq3, FLASH-seq, VASA-seq, STORM-seq) and single-cell long-read (MAS-Iso-seq, scISOr-Seq2) are the chemistries that give per-cell isoform structure. Tools include MARVEL (R, Smart-seq integrated), BRIE2 (Bayesian PSI with regulatory features and ELBO_gain test), scQuint (junction-cluster, plate-based; not for 10X), SpliZ (annotation-free Z-score), Psix (graph-smoothness regulated AS), and Sierra (alternative polyadenylation, often confused with AS). Use when analyzing isoform usage in scRNA-seq, identifying cell-type-specific splicing, or determining whether scRNA-seq chemistry supports splicing analysis at all.
 tool_type: python
 primary_tool: MARVEL

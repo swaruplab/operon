@@ -1,5 +1,5 @@
 ---
-name: bio-differential-splicing
+name: differential-splicing
 description: Detects differential alternative splicing between conditions using rMATS-turbo (binomial LRT on junction counts), leafcutter (Dirichlet-multinomial GLM on intron clusters), MAJIQ V3 deltapsi/HET (Bayesian posterior on LSVs), SUPPA2 (empirical-null on TPM-derived PSI), or Shiba (junction-imbalance-corrected, 2025 SOTA at low coverage). Reports FDR-corrected significance and delta PSI effect sizes. Tools differ in statistical model, annotation dependence, calibration regime, and replicate-count requirements. Use when comparing splicing patterns between treatment groups, tissues, or disease states.
 tool_type: mixed
 primary_tool: rMATS-turbo

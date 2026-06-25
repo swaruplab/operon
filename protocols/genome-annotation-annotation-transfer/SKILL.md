@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-annotation-transfer
+name: genome-annotation-annotation-transfer
 description: Transfers gene annotations between genome assemblies via coordinate liftover (UCSC liftOver, CrossMap for same-species version updates) or feature/sequence projection (Liftoff for same/close species, miniprot for protein-level cross-species, TOGA/GeMoMa/CAT for distant clades). Covers the coordinate-vs-projection decision by divergence, why a successful lift is not biological confirmation, reference bias, the silent-dropping of unmapped features, build/PAR/MHC/inversion hazards, and transfer-vs-de-novo validation. Use when annotating a new assembly of a species with an existing reference, harmonizing coordinates across builds, or mapping annotations across related species.
 tool_type: cli
 primary_tool: Liftoff

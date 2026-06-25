@@ -1,6 +1,6 @@
 [package]
 name = "operon"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 
 [lib]
@@ -31,3 +31,15 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 zip = "0.6"
 futures-util = "0.3"
 regex = "1"
+wait-timeout = "0.2"
+
+# OS keychain for SSH key passphrases. Per-target backends so non-Linux builds
+# don't pull in the Secret Service (dbus/zbus) dependency tree.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }

@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-contact-pairs
+name: hi-c-analysis-contact-pairs
 description: Turns Hi-C/Micro-C FASTQ into a deduplicated, filtered .pairs file with pairtools and decides whether the library worked. Covers the bwa mem -SP5M / bwa-mem2 / chromap --preset hic alignment idiom (mates mapped as independent single-end reads), pairtools parse vs parse2 and the walks-policy choice (5unique pairwise vs all for Pore-C/Micro-C concatemers), pair-type classification (keep UU and rescued UC), dedup (PCR vs optical/by-tile), select by pair_type/MAPQ/distance, restriction-fragment handling (restrict, Arima dual-enzyme, Micro-C/DNase fragment-free), and allele-specific phasing (pairtools phase to two coolers). The library-QC decision uses % long-range cis as the one-number quality metric, trans as the noise floor, orientation balance as fragment-map-free dangling-end/self-circle QC, and % duplicates as a complexity proxy. Use when processing Hi-C/Micro-C/Omni-C reads into pairs, judging library quality, handling multi-enzyme or restriction-agnostic protocols, or generating allele-specific contacts.
 tool_type: cli
 primary_tool: pairtools

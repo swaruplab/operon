@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-ancestral-reconstruction
+name: comparative-genomics-ancestral-reconstruction
 description: Reconstruct ancestral states at internal phylogenetic nodes for sequences (PAML codeml, IQ-TREE --ancestral, GRASP, FastML), discrete traits (corHMM hidden-rate Markov, ape::ace, phytools::make.simmap stochastic mapping, BayesTraits), and continuous traits (phytools::fastAnc, geiger Brownian/OU, RPANDA). Use when designing constructs for ancestral protein resurrection, tracing trait evolution along a tree, performing stochastic character mapping, testing models of trait evolution (BM vs OU vs EB), inferring ancestral genome content via Dollo or DTL reconciliation, or quantifying ancestral-state uncertainty for downstream comparative analyses.
 tool_type: mixed
 primary_tool: PAML

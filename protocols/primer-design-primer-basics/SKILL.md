@@ -1,5 +1,5 @@
 ---
-name: bio-primer-design-primer-basics
+name: primer-design-primer-basics
 description: Design PCR primers for a target sequence using primer3-py. Specify target regions, product size, melting temperature, and other constraints. Returns ranked primer pairs with quality metrics. Use when designing standard PCR primers.
 tool_type: python
 primary_tool: primer3-py

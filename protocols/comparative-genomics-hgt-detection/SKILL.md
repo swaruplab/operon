@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-hgt-detection
+name: comparative-genomics-hgt-detection
 description: Detect horizontal gene transfer (HGT / LGT) using compositional methods (GC%, codon usage, tetranucleotide z-scores via SIGI-HMM, AlienHunter, IslandViewer 4, IslandPath-DIMOB), phylogenetic-incongruence methods (AvP, HGTphyloDetect, ALE / GeneRax / AleRax reconciliation, RANGER-DTL), and BLAST-distribution methods (HGTector v2, DarkHorse, Alien Index). Use when screening prokaryote genomes for genomic islands and HGT events, distinguishing HGT from incomplete lineage sorting / differential gene loss / hybridization, mapping donor lineages via phylogenetic placement, separating eukaryotic HGT from contamination, ruling out gBGC as a false signal, or quantifying DTL rates with ALE/GeneRax on bacterial trees.
 tool_type: mixed
 primary_tool: HGTector

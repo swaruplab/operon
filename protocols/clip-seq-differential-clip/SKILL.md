@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-differential-clip
+name: clip-seq-differential-clip
 description: Identify differentially bound regions across CLIP-seq conditions (knockdown vs control, treatment vs vehicle, disease vs healthy) using DEWSeq (sliding-window DESeq2), Flipper (Skipper-downstream), ASpeak, edgeR, or limma-voom. Use when computing condition-level changes in RBP binding intensity, choosing peak-level vs window-level vs crosslink-level testing, designing replicate experiments, or distinguishing biological binding shifts from technical confounders.
 tool_type: r
 primary_tool: DEWSeq

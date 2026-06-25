@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-differential-analysis
+name: flow-cytometry-differential-analysis
 description: Differential abundance (DA) and differential state (DS) analysis for flow and mass cytometry - tests which cell populations change in frequency or marker expression between conditions using diffcyt (edgeR/voom/GLMM for DA, limma/LMM for DS), with cydar, CITRUS, and compositional methods (sccomp, scCODA, DCATS) as alternatives. Covers the sample-is-the-experimental-unit principle, design/contrast and mixed-model formulas, compositionality of cluster proportions, and FDR across clusters. Use when comparing populations between groups, choosing a DA method, handling paired/batch designs, or deciding whether compositional correction is needed.
 tool_type: r
 primary_tool: diffcyt

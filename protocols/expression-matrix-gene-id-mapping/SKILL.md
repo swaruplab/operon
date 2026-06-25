@@ -1,5 +1,5 @@
 ---
-name: bio-expression-matrix-gene-id-mapping
+name: expression-matrix-gene-id-mapping
 description: Maps between gene identifier systems (Ensembl, Entrez, HGNC symbol, UniProt, RefSeq, MANE) using AnnotationDbi, biomaRt, mygene, pyensembl, and Ensembl REST. Encodes Ensembl version stripping with GENCODE _PAR_Y preservation, the Ziemann 2016 Excel autocorrect debacle and Bruford 2020 HGNC renames (SEPT*->SEPTIN*, MARCH*->MARCHF*, MARC*->MTARC*, DEC1->DELEC1), OCT4/POU5F1 alias resolution, biomaRt archive endpoints for release pinning, the `filters` (plural) gotcha, MANE Select for clinical reporting, cross-species orthology via Ensembl Compara / OMA / OrthoDB, and tx2gene construction for tximport. Use when converting gene IDs across systems, handling renamed symbols, building tx2gene, pinning to a specific Ensembl release for reproducibility, or mapping cross-species orthologs.
 tool_type: mixed
 primary_tool: biomaRt

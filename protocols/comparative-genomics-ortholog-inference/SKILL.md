@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-ortholog-inference
+name: comparative-genomics-ortholog-inference
 description: Infer orthologous genes and gene families across species using OrthoFinder3 (HOG-based phylogenetic orthology), SonicParanoid2, Broccoli, ProteinOrtho, OMA / FastOMA hierarchical orthologous groups, eggNOG-mapper, JustOrthologs, and TOGA whole-genome-alignment orthology. Use when building single-copy ortholog sets for phylogenomics, classifying co-orthologs and in/out-paralogs after gene duplication, propagating functional annotation via orthology with awareness of the ortholog conjecture, distinguishing speciation from duplication via gene-tree species-tree reconciliation, computing Quest-for-Orthologs benchmark performance, or running synteny-aware ortholog detection in WGD-affected lineages.
 tool_type: mixed
 primary_tool: OrthoFinder

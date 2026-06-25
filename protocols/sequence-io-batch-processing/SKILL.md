@@ -1,5 +1,5 @@
 ---
-name: bio-batch-processing
+name: batch-processing
 description: Process multiple sequence files in batch using Biopython. Use when working with many files, merging/splitting sequences, or automating file operations across directories.
 tool_type: python
 primary_tool: Bio.SeqIO

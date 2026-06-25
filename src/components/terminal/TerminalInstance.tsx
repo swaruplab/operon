@@ -243,6 +243,13 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       termRef.current = null;
     }
 
+    // Guards late-resolving listen() promises: under StrictMode (mount→cleanup→
+    // mount) the first mount's listen() can resolve AFTER its cleanup ran, when
+    // the unlisten ref was still null — leaking a second pty-output listener
+    // that renders every echoed byte twice ("ssqqhhuujj"). If cleanup already
+    // ran, the late listener unlistens itself instead of being stored.
+    let cancelled = false;
+
     // Create xterm.js terminal instance
     const term = new Terminal({
       rows: 24,
@@ -413,6 +420,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
         }
       }
     }).then((unlisten) => {
+      if (cancelled) { unlisten(); return; }
       unlistenOutputRef.current = unlisten;
     });
 
@@ -423,6 +431,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       term.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n');
       onExitRef.current?.(event.payload?.exit_code ?? null);
     }).then((unlisten) => {
+      if (cancelled) { unlisten(); return; }
       unlistenExitRef.current = unlisten;
     });
 
@@ -430,9 +439,18 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
     // THIS handler explicitly — never rely on term.dispose() alone, or a leaked
     // duplicate terminal could keep a stale onData writing into the shared PTY.
     const dataDisp = term.onData((data) => {
+      // Strip terminal-generated Device-Attributes REPLIES (DA1 `ESC[?…c`,
+      // DA2 `ESC[>…c`) before they reach the PTY. xterm.js auto-answers a
+      // device-attributes query (e.g. tmux probing capabilities on attach)
+      // through this same onData callback; if that reply reaches the remote
+      // shell's stdin it fuses onto the next command (`0;276;0ccd '…'` →
+      // bash splits on `;`). A real user never types these, so dropping them
+      // on the way OUT is safe and kills the corruption regardless of timing.
+      const clean = data.replace(/\x1b\[[>?]?[0-9;]*c/g, '');
+      if (!clean) return;
       invoke('write_terminal', {
         terminalId,
-        data: Array.from(new TextEncoder().encode(data)),
+        data: Array.from(new TextEncoder().encode(clean)),
       }).catch(console.error);
     });
 
@@ -525,6 +543,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
     // The terminal process should survive panel hide/show toggles.
     // kill_terminal is called explicitly from TerminalArea.closeTab instead.
     return () => {
+      cancelled = true;
       resizeObserver.disconnect();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       unlistenOutputRef.current?.();

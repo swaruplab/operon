@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-binding-site-annotation
+name: clip-seq-binding-site-annotation
 description: Annotate CLIP-seq peaks or crosslink sites to RNA features (5'UTR, CDS, 3'UTR, intron, splice junction, snoRNA, tRNA, ncRNA, repeat elements) with ChIPseeker, RCAS, RBP-Maps (Yeo splicing regulatory maps), and bedtools, applying feature-priority hierarchies, transcript-context resolution, and metagene aggregation. Use when characterizing where in transcripts an RBP binds, comparing peak distribution across regions, generating splicing-regulatory maps relative to alternative-splicing events, or distinguishing exonic vs intronic vs UTR binding.
 tool_type: mixed
 primary_tool: ChIPseeker

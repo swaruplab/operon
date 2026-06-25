@@ -1,5 +1,5 @@
 ---
-name: bio-rna-structure-secondary-structure-prediction
+name: rna-structure-secondary-structure-prediction
 description: Predicts RNA secondary structures using minimum free energy folding and partition function analysis with ViennaRNA (RNAfold, RNAalifold, RNAcofold). Computes base-pair probabilities, centroid structures, and consensus structures from alignments. Use when predicting RNA folding, evaluating structural stability, or comparing structures across homologs.
 tool_type: cli
 primary_tool: ViennaRNA

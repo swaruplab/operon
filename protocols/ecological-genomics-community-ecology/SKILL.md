@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-community-ecology
+name: ecological-genomics-community-ecology
 description: Analyzes species-environment relationships with constrained ordination (CCA, RDA, db-RDA), variance partitioning, indicator species (indicspecies IndVal.g group-equalized), PERMANOVA paired MANDATORILY with PERMDISP (Anderson & Walsh 2013; dispersion confounds centroid tests), Joint Species Distribution Models (HMSC, sjSDM, gjam) with explicit rejection of "residual covariance equals biotic interaction", phylogenetic community ecology (SES_MPD/MNTD), trait-environment via RLQ + fourth-corner with corrected modeltype=6 (Dray 2014), bipartite network metrics (NODF, modularity) with curveball null (Strona 2014), and Mantel-test replacements (dbRDA, GDM) for spatial data. Use when testing how environmental gradients structure communities, identifying habitat indicator taxa, partitioning variance among predictors, deciding whether PERMANOVA significance is location vs dispersion, picking among HMSC/sjSDM/gjam, or replacing Mantel tests for landscape data.
 tool_type: r
 primary_tool: vegan

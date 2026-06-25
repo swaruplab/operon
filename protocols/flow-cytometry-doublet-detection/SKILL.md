@@ -1,5 +1,5 @@
 ---
-name: bio-flow-cytometry-doublet-detection
+name: flow-cytometry-doublet-detection
 description: Detects and removes doublets/aggregates from flow, spectral, and mass cytometry before clustering or quantification. Covers FSC-A vs FSC-H singlet discrimination (the Area-Height non-proportionality, not a 1D area gate), FSC-W/SSC width gating, CyTOF Gaussian discrimination parameters (Center/Offset/Width/Residual/Event_length) and DNA intercalator gating, and the residual heterotypic conjugates that survive scatter gating and masquerade as double-positive populations. Use when filtering aggregates before phenotyping, choosing a doublet method for flow vs CyTOF, or diagnosing a suspicious double-positive cluster.
 tool_type: r
 primary_tool: flowCore

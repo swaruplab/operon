@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-effect-measures
+name: clinical-biostatistics-effect-measures
 description: Computes and interprets treatment effect measures (OR, RR, RD, HR, NNT) with calibrated confidence intervals (Wilson, Newcombe, Miettinen-Nurminen, MOVER, profile likelihood, Bender NNT) and reports marginal vs conditional estimands per FDA 2023 covariate adjustment guidance. Use when reporting treatment effects in confirmatory trials, comparing effect sizes across studies, or constructing forest plots.
 tool_type: python
 primary_tool: statsmodels

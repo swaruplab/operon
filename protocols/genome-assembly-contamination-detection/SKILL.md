@@ -1,5 +1,5 @@
 ---
-name: bio-genome-assembly-contamination-detection
+name: genome-assembly-contamination-detection
 description: Detects and removes contamination in genome assemblies via two disjoint workflows - foreign-sequence screening of a single-organism (eukaryote/isolate) assembly with NCBI FCS-GX (GenBank-submission-mandatory), FCS-adaptor, and BlobToolKit blob plots; and MAG/bin quality assessment with CheckM2 plus GUNC (chimerism) plus GTDB-Tk taxonomy, judged against MIMAG. Covers why CheckM2 alone is blind to disjoint-marker chimeras, the FCS-GX RAM wall, organelle/NUMT triage, strain heterogeneity, and the HGT-vs-contamination (tardigrade) trap. Use when screening an assembly for foreign contamination before GenBank submission, assessing MAG completeness/contamination/chimerism, deciding which contigs to remove, or distinguishing real HGT from contaminant contigs.
 tool_type: cli
 primary_tool: CheckM2

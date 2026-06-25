@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-species-delimitation
+name: ecological-genomics-species-delimitation
 description: Delimits putative species boundaries from molecular data within the de Queiroz 2007 unified-lineage framework using ASAP (Puillandre 2021 successor to ABGD), mPTP C++ (Kapli 2017 successor to bPTP; bPTP is Python NOT R), GMYC single/multi-threshold (Pons 2006; Fujisawa 2013), multilocus BPP v4 with prior calibration from data (NOT defaults; Yang 2015), SNAPP + BFD* for SNP delimitation, DELINEATE (Sukumaran 2021) speciation-process modeling to address Sukumaran & Knowles 2017 PNAS critique that MSC delimits structure not species, integrative-taxonomy congruence (Padial 2010; Carstens 2013), Dsuite for introgression testing before sister claims (Malinsky 2021), and Meyer & Paulay 2005 barcoding-gap-absence caveat. Use when delineating species from DNA barcoding data, resolving cryptic complexes, choosing among ASAP/mPTP/BPP/DELINEATE, calibrating BPP priors, distinguishing introgression from ILS, or applying the Sukumaran-Knowles oversplitting correction.
 tool_type: mixed
 primary_tool: ASAP

@@ -1,5 +1,5 @@
 ---
-name: bio-causal-genomics-genetic-correlation
+name: causal-genomics-genetic-correlation
 description: Estimate bivariate genetic correlation (rg) between traits from GWAS summary statistics or individual-level genotypes using cross-trait LDSC, HDL, LAVA, rho-HESS, GREML-bivariate, Popcorn, and HDL-L. Use when quantifying shared genetic architecture between two traits, screening MR validity before causal inference, distinguishing global from locus-level rg, estimating trans-ancestry rg, separating partial from full causation via LCV gcp, or producing a STROBE-MR-compliant cross-trait sensitivity battery. Cross-trait LDSC intercept absorbs sample overlap and is NOT a bias; HDL is biased under sample overlap above ~5%. High rg between exposure and outcome motivates CHP-aware MR sensitivity (CAUSE, LHC-MR).
 tool_type: mixed
 primary_tool: ldsc

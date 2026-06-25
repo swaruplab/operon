@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-screen-qc
+name: crispr-screens-screen-qc
 description: Quality control for pooled CRISPR screens covering library representation, Gini index, log-skew, replicate Pearson and Spearman concordance, essentialome precision-recall AUC against CEGv2 (Hart 2017), Cas9 cut-toxicity diagnostics, copy-number amplicon detection (Aguirre 2016 / Munoz 2016), bottleneck propagation through plasmid pool, infection, selection, and endpoint stages, MOI verification, and DepMap-style screen-quality scoring. Use when assessing screen quality before hit calling, deciding whether to repeat or rescue a screen, diagnosing low-confidence hits, choosing between MAGeCK / BAGEL2 / Chronos based on quality grade, picking a normalization strategy from QC signatures, or evaluating whether an in-vivo screen retained adequate library complexity.
 tool_type: python
 primary_tool: MAGeCK-VISPR

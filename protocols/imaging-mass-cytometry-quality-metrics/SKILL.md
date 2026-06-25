@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-quality-metrics
+name: imaging-mass-cytometry-quality-metrics
 description: Quality control for IMC/MIBI data across pixel, channel, image, slide, and batch levels, covering Poisson-count SNR (cell-level Gaussian-mixture and empty-channel comparison), spillover-matrix QC (the three physical sources), drift and the missing EQ-bead analog, acquisition artifacts, and sample-of-origin batch effects. Use when deciding whether to keep or drop a channel, ROI, or slide, distinguishing a dim antibody from a failed one, reading a spillover matrix, or diagnosing batch-driven clustering before analysis.
 tool_type: mixed
 primary_tool: CATALYST

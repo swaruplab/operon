@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-overlap-significance
+name: genome-intervals-overlap-significance
 description: Tests whether two genomic interval sets overlap (colocalize) more than expected by chance using a permutation test against a structured-genome null model. Covers bedtools fisher (analytic 2x2 screen), bedtools shuffle + jaccard permutation, GAT (isochore/GC-conditioned simulation with FDR), regioneR (flexible permutation, randomizeRegions vs circularRandomizeRegions, localZScore), LOLA (universe-relative Fisher against a region database), and GREAT/rGREAT (regulatory-domain binomial + hypergeometric for ontology-from-regions). Stresses the universe/background choice, matched background, blacklist exclusion, and multiple-testing control. Use when asking whether peaks/regions are enriched at enhancers/TFBS/features, scoring region-set colocalization or region-set enrichment, comparing CNV/SV concordance, or turning an overlap count into a defensible p-value.
 tool_type: mixed
 primary_tool: regioneR

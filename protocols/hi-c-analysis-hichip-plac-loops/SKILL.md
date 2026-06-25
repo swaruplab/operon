@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-hichip-plac-loops
+name: hi-c-analysis-hichip-plac-loops
 description: Calls significant loops from protein-directed and targeted 3C assays (HiChIP, PLAC-seq, Capture Hi-C/PCHi-C, ChIA-PET) where the contact background is peak-anchored and coverage-biased, so generic Hi-C loop callers (cooltools dots, Juicer HiCCUPS) use the wrong null. Covers FitHiChIP (config-driven coverage+distance-decay spline regression, peak-to-peak vs peak-to-all foreground, loose vs stringent background, coverage vs ICE bias), MAPS (positive Poisson regression on bias factors for PLAC-seq/HiChIP), hichipper (restriction-site-distance bias model + library QC), CHiCAGO (Delaporte two-component Brownian+technical background for asymmetric bait x other-end Capture Hi-C), the with/without separate-ChIP anchor decision, and differential loops via diffloop. Use when calling loops from HiChIP/PLAC-seq/Capture Hi-C, choosing FitHiChIP/MAPS/CHiCAGO, picking peak-to-all vs peak-to-peak, setting the loop FDR, supplying ChIP peaks as anchors, QCing a HiChIP library, or comparing loops between conditions.
 tool_type: mixed
 primary_tool: fithichip

@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-hrd-scoring
+name: copy-number-hrd-scoring
 description: Quantify homologous recombination deficiency (HRD) from tumor copy number using the three genomic-scar metrics — loss of heterozygosity (LOH), large-scale state transitions (LST), and telomeric allelic imbalance (TAI) — with scarHRD, and via the whole-genome HRDetect and CHORD models. Covers the genomic instability score, the PARP-inhibitor clinical context, whole-genome-doubling correction, and the scar-versus-state distinction. Use when computing an HRD score for PARP-inhibitor eligibility, deriving LOH/LST/TAI scars from allele-specific copy number, deciding between scar-based and mutational-signature HRD methods, or interpreting an HRD result in a BRCA-reverted or low-purity tumor.
 tool_type: mixed
 primary_tool: scarHRD

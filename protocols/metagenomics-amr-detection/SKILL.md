@@ -1,5 +1,5 @@
 ---
-name: bio-metagenomics-amr-detection
+name: metagenomics-amr-detection
 description: Detect antimicrobial resistance genes using AMRFinderPlus, ResFinder, and CARD. Screen isolates and metagenomes for resistance determinants. Use when characterizing resistance profiles in clinical isolates, surveillance samples, or metagenomic data.
 tool_type: cli
 primary_tool: AMRFinderPlus

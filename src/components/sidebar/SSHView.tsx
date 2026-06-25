@@ -20,7 +20,17 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { SSHProfile, AuthType, KeySetupProgress } from '../../lib/ssh';
-import { SERVER_CONFIG_FIELDS, reorderSSHProfiles } from '../../lib/ssh';
+import {
+  SERVER_CONFIG_FIELDS,
+  reorderSSHProfiles,
+  getSshSocketPath,
+  prepareSshAuth,
+  setKeyPassphrase,
+  deleteKeyPassphrase,
+  hasKeyPassphrase,
+  keyNeedsPassphrase,
+  addKeyPassphrase,
+} from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
 
 interface SSHViewProps {
@@ -56,6 +66,15 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   const [serverConfig, setServerConfig] = useState<Record<string, string>>({});
   const [showServerConfig, setShowServerConfig] = useState(false);
 
+  // Encrypted-key passphrase. The passphrase is stored in the OS keychain via
+  // the backend, never in the profile JSON. `keyEncrypted` reveals the field
+  // when the selected key actually needs a passphrase.
+  const [keyPass, setKeyPass] = useState('');
+  const [keyEncrypted, setKeyEncrypted] = useState(false);
+  const [passphraseSaved, setPassphraseSaved] = useState(false);
+  const [passphraseError, setPassphraseError] = useState('');
+  const [encryptingKey, setEncryptingKey] = useState(false);
+
   // SSH key setup state
   const [keySetupPassword, setKeySetupPassword] = useState('');
   const [keySetupStatus, setKeySetupStatus] = useState<'idle' | 'working' | 'mfa_waiting' | 'success' | 'error'>('idle');
@@ -83,6 +102,9 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
   // Live drag bookkeeping kept in a ref so the window mouse listeners always
   // read fresh values — the state above is only for rendering the feedback.
   const dragRef = useRef<{ from: number; over: number; active: boolean } | null>(null);
+  // Bumped on each encrypted-key detection so a stale async result from a
+  // previously-selected key/profile can't overwrite the current form state.
+  const keyDetectToken = useRef(0);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -206,11 +228,22 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     setKeySetupPassword('');
     setKeySetupStatus('idle');
     setKeySetupMessage('');
+    setKeyPass('');
+    setKeyEncrypted(false);
+    setPassphraseSaved(false);
+    setPassphraseError('');
     setShowForm(false);
   };
 
   const handleSave = async (andConnect = false) => {
     if (!host || !user) return;
+
+    // An encrypted key needs its passphrase, or the file explorer (and every
+    // background connection) silently fails. Require it unless one is already saved.
+    if (keyFile && keyEncrypted && !keyPass && !passphraseSaved) {
+      setPassphraseError('Enter the key passphrase — it is required for the file explorer to work.');
+      return;
+    }
 
     // Strip empty values from server config before saving
     const cleanConfig: Record<string, string> = {};
@@ -229,18 +262,30 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
       auth_type: authType,
       mfa_method: authType === 'duo_mfa' ? mfaMethod : null,
       use_control_master: true,
+      key_has_passphrase: !!keyFile && keyEncrypted,
       server_config: cleanConfig,
     };
 
     try {
       await invoke('save_ssh_profile', { profile });
+      if (keyFile && keyEncrypted && keyPass) {
+        // Verifies the passphrase against the key, then stores it in the OS keychain.
+        await setKeyPassphrase(profile.id, keyPass, profile.key_file);
+      } else if (!keyEncrypted) {
+        deleteKeyPassphrase(profile.id).catch(() => {});
+      }
       await loadProfiles();
       resetForm();
       if (andConnect) {
         handleConnect(profile);
       }
     } catch (err) {
-      console.error('Failed to save SSH profile:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/passphrase/i.test(msg)) {
+        setPassphraseError(msg); // keep the form open so the user can correct it
+      } else {
+        console.error('Failed to save SSH profile:', err);
+      }
     }
   };
 
@@ -369,6 +414,10 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
     const terminalId = crypto.randomUUID();
 
+    // Unlock a passphrase-protected key into the ssh-agent first, so both the
+    // key test below and the terminal authenticate without re-prompting.
+    await prepareSshAuth(profile.id).catch(() => {});
+
     // Test SSH connection with key before using -i flag
     let useKeyFile = false;
     if (profile.key_file) {
@@ -393,9 +442,16 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     // ControlMaster — the terminal becomes the master connection. macOS/Linux
     // only; spawn_terminal strips these on Windows (no Unix-socket support).
     if (profile.use_control_master) {
-      const homeDir = await invoke<string>('get_home_dir').catch(() => '/tmp');
-      const sockPath = `${homeDir}/.operon/sockets/ctrl_${profile.host}_${profile.port}_${profile.user}`;
-      sshArgs.push('-o', 'ControlMaster=auto', '-o', `ControlPath=${sockPath}`, '-o', 'ControlPersist=4h');
+      try {
+        // Canonical (backend-hashed) socket path so the master the terminal
+        // creates lands exactly where the backend's reuse sites look for it.
+        const sockPath = await getSshSocketPath(profile.host, profile.port, profile.user);
+        sshArgs.push('-o', 'ControlMaster=auto', '-o', `ControlPath=${sockPath}`, '-o', 'ControlPersist=4h');
+      } catch {
+        // Couldn't get the canonical path — connect WITHOUT a shared master
+        // rather than fabricating a literal name the backend would never find
+        // (which would silently reintroduce the explorer-can't-reuse bug).
+      }
     }
     if (useKeyFile && profile.key_file) {
       sshArgs.push('-i', profile.key_file);
@@ -471,7 +527,46 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     setMfaMethod(profile.mfa_method || 'push');
     setServerConfig(profile.server_config || {});
     setShowServerConfig(Object.keys(profile.server_config || {}).length > 0);
+    setKeyPass('');
+    setPassphraseError('');
+    setKeyEncrypted(!!profile.key_has_passphrase);
+    setPassphraseSaved(false);
+    const t = ++keyDetectToken.current;
+    if (profile.key_file) {
+      keyNeedsPassphrase(profile.key_file)
+        .then((enc) => { if (keyDetectToken.current === t) setKeyEncrypted(enc); })
+        .catch(() => {});
+    }
+    hasKeyPassphrase(profile.id)
+      .then((has) => { if (keyDetectToken.current === t) setPassphraseSaved(has); })
+      .catch(() => {});
     { setShowForm(true); loadAvailableKeys(); loadConfigHosts(); };
+  };
+
+  // Encrypt an existing, passphrase-less key in place (ssh-keygen -p) and save
+  // the new passphrase to the keychain. The keypair/server access are unchanged.
+  const handleEncryptKey = async () => {
+    if (!keyFile) return;
+    if (!keyPass) {
+      setPassphraseError('Enter a passphrase to encrypt the key.');
+      return;
+    }
+    const profileId = editProfile?.id || savedProfileId || crypto.randomUUID();
+    setSavedProfileId(profileId);
+    setEncryptingKey(true);
+    setPassphraseError('');
+    try {
+      await addKeyPassphrase(profileId, keyFile, keyPass);
+      // Invalidate any in-flight detection so it can't flip keyEncrypted back.
+      keyDetectToken.current += 1;
+      setKeyEncrypted(true);
+      setPassphraseSaved(true);
+      setKeyPass('');
+    } catch (e) {
+      setPassphraseError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setEncryptingKey(false);
+    }
   };
 
   const handleKeySetup = async () => {
@@ -521,11 +616,13 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
         profileId,
         password: keySetupPassword,
         mfaMethod: authType === 'duo_mfa' ? mfaMethod : null,
+        keyPassphrase: keyPass || null,
       });
       setKeyFile(keyPath);
       setKeySetupStatus('success');
       setKeySetupMessage(keyPath);
       setKeySetupPassword('');
+      setKeyPass('');
       await loadProfiles();
     } catch (err) {
       setKeySetupStatus('error');
@@ -742,7 +839,21 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                 <div className="mb-2">
                   <select
                     value={keyFile}
-                    onChange={(e) => setKeyFile(e.target.value)}
+                    onChange={(e) => {
+                      const path = e.target.value;
+                      setKeyFile(path);
+                      setKeyPass('');
+                      setPassphraseError('');
+                      setPassphraseSaved(false);
+                      const t = ++keyDetectToken.current;
+                      if (path) {
+                        keyNeedsPassphrase(path)
+                          .then((enc) => { if (keyDetectToken.current === t) setKeyEncrypted(enc); })
+                          .catch(() => { if (keyDetectToken.current === t) setKeyEncrypted(false); });
+                      } else {
+                        setKeyEncrypted(false);
+                      }
+                    }}
                     className="w-full px-2.5 py-1.5 bg-surface border border-border-strong rounded text-sm text-primary outline-none focus:border-blue-500"
                   >
                     <option value="">No key selected (generate below)</option>
@@ -752,6 +863,67 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                     })}
                   </select>
                 </div>
+
+                {/* Passphrase for an encrypted key — stored in the OS keychain */}
+                {keyFile && keyEncrypted && (
+                  <div className="p-2.5 mb-2 bg-surface/50 border border-border-strong/50 rounded-lg space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <KeyRound className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                      <span className="text-[11px] text-secondary font-medium">This key is passphrase-protected</span>
+                    </div>
+                    <input
+                      type="password"
+                      value={keyPass}
+                      onChange={(e) => { setKeyPass(e.target.value); setPassphraseError(''); }}
+                      placeholder={passphraseSaved ? 'Passphrase saved — leave blank to keep' : 'Key passphrase'}
+                      className="w-full px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-blue-500"
+                    />
+                    {passphraseError && (
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-700 dark:text-red-300">
+                        <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                        {passphraseError}
+                      </div>
+                    )}
+                    <p className="text-[9px] text-subtle">
+                      Stored securely in your OS keychain — never written to disk. Operon unlocks the key into ssh-agent so the file explorer works too.
+                    </p>
+                  </div>
+                )}
+
+                {/* Offer to encrypt a passphrase-less key in place */}
+                {keyFile && !keyEncrypted && (
+                  <div className="p-2.5 mb-2 bg-surface/50 border border-border-strong/50 rounded-lg space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <KeyRound className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                      <span className="text-[11px] text-secondary font-medium">This key has no passphrase</span>
+                    </div>
+                    <p className="text-[10px] text-muted">
+                      Encrypt it with a passphrase (recommended). The keypair and your server access are unchanged — only the on-disk file is encrypted, and Operon unlocks it for you automatically.
+                    </p>
+                    <input
+                      type="password"
+                      value={keyPass}
+                      onChange={(e) => { setKeyPass(e.target.value); setPassphraseError(''); }}
+                      placeholder="New passphrase"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleEncryptKey(); }}
+                      className="w-full px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-amber-500"
+                    />
+                    {passphraseError && (
+                      <div className="flex items-start gap-1.5 text-[10px] text-red-700 dark:text-red-300">
+                        <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                        {passphraseError}
+                      </div>
+                    )}
+                    <button
+                      onClick={handleEncryptKey}
+                      disabled={!keyPass || encryptingKey}
+                      className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:bg-elevated rounded text-xs text-white transition-colors"
+                    >
+                      {encryptingKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <KeyRound className="w-3 h-3" />}
+                      Encrypt key with passphrase
+                    </button>
+                  </div>
+                )}
 
                 {/* Option 2: Generate key with password (+ optional Duo) */}
                 {!keyFile && host && user && (
@@ -773,6 +945,17 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       onKeyDown={(e) => { if (e.key === 'Enter') handleKeySetup(); }}
                       className="w-full px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-amber-500"
                     />
+                    <input
+                      type="password"
+                      value={keyPass}
+                      onChange={(e) => setKeyPass(e.target.value)}
+                      placeholder="Key passphrase (optional — encrypts the key)"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleKeySetup(); }}
+                      className="w-full px-2.5 py-1.5 bg-panel border border-border-strong rounded text-sm text-primary placeholder:text-subtle outline-none focus:border-amber-500"
+                    />
+                    <p className="text-[9px] text-subtle">
+                      Optional: set a passphrase to encrypt the key on disk (recommended). Operon saves it to your OS keychain and unlocks it automatically — you're never prompted again.
+                    </p>
                     {keySetupStatus === 'error' && (
                       <div className="flex items-start gap-1.5 text-[10px] text-red-700 dark:text-red-300">
                         <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />

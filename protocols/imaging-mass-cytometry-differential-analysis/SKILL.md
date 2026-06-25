@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-differential-analysis
+name: imaging-mass-cytometry-differential-analysis
 description: Compare cell-type composition and spatial features across conditions in IMC/MIBI cohorts with the patient as the experimental unit, covering pseudoreplication, per-patient aggregation, mixed models, compositional (Dirichlet/scCODA) differential abundance, diffcyt, per-image-to-patient spatial differential testing (SpaceANOVA), batch covariates, and FDR. Use when testing whether a cell type or spatial niche differs between groups, avoiding cell-level pseudoreplication, choosing a differential-abundance method, or correctly powering an IMC cohort comparison.
 tool_type: mixed
 primary_tool: diffcyt

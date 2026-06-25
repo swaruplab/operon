@@ -1,5 +1,5 @@
 ---
-name: bio-motif-search
+name: motif-search
 description: Find patterns, motifs, and subsequences in biological sequences using Biopython. Use when searching for transcription factor binding sites, regulatory elements, or any sequence pattern. For restriction enzyme analysis, use the restriction-analysis skill.
 tool_type: python
 primary_tool: Bio.motifs

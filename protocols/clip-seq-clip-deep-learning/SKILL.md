@@ -1,5 +1,5 @@
 ---
-name: bio-clip-seq-clip-deep-learning
+name: clip-seq-clip-deep-learning
 description: Predict RBP binding from RNA sequence using deep learning models (RBPNet sequence-to-signal, RNAProt RNN, GraphProt2 GCN with structure, DeepCLIP, DeepRiPe multi-modal CNN) for variant-effect prediction, in silico binding-site discovery, model interpretation, and transfer learning from CLIP and RBNS datasets. Use when computational prediction of RBP binding from sequence is needed, evaluating variant effects on binding without further wet-lab experiments, comparing model performance, or training a custom model on ENCODE eCLIP data.
 tool_type: python
 primary_tool: RBPNet

@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-gene-family-evolution
+name: comparative-genomics-gene-family-evolution
 description: Model gene-family birth-death dynamics across a species tree using CAFE5 (Mendes et al 2020 Bioinformatics 36:5516 gamma-distributed rate categories), CAFE5-error (annotation-error-aware), Count (Csurös 2010 ancestral state reconstruction), BadiRate (Librado 2012 likelihood + parsimony), DupliPHY-Family, and ALE/AleRax (for per-family DTL; see [[gene-tree-species-tree-reconciliation]]). Test lineage-specific gene-family expansions and contractions, distinguish biological dynamics from annotation artifacts, account for assembly fragmentation, identify functional enrichment in expanded / contracted families. Use when correlating gene-family changes with phenotype evolution, ranking lineages by adaptive gene-family-rate shifts, post-WGD dosage-balance analysis, or building Birth-death models from OrthoFinder presence/absence matrices.
 tool_type: cli
 primary_tool: CAFE5

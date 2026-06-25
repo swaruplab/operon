@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-loop-calling
+name: hi-c-analysis-loop-calling
 description: Detects focal chromatin loops (point interactions / corner-dots) in balanced Hi-C and Micro-C contact maps and aggregates/validates a loop set. Covers de-novo calling with cooltools dots (HiCCUPS-style 4-background local enrichment with lambda-chunked FDR), chromosight (template-correlation), and Mustache (scale-space blob detection); aggregate peak analysis (APA) via cooltools pileup for confirmation; the depth/resolution prerequisite (de-novo needs ~5-10kb resolution = hundreds of millions to billions of valid pairs); consensus across callers and convergent-CTCF support as validation; and differential loops via union anchors plus chromosight quantify. Use when calling chromatin loops or dots from a cooler, deciding whether a map is deep enough to call de-novo vs running APA on known CTCF/cohesin anchors, building an aggregate peak pileup, comparing loops across conditions, or validating loop calls. For HiChIP/PLAC-seq/PCHi-C protein-anchored data use FitHiChIP/MAPS, not dots.
 tool_type: mixed
 primary_tool: cooltools

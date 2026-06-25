@@ -1,5 +1,5 @@
 ---
-name: bio-ribo-seq-ribosome-periodicity
+name: ribo-seq-ribosome-periodicity
 description: Validate Ribo-seq data quality by checking 3-nucleotide periodicity and calculating P-site offsets. Use when assessing library quality or determining read offsets for downstream analysis.
 tool_type: python
 primary_tool: Plastid

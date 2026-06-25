@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-survival-analysis
+name: clinical-biostatistics-survival-analysis
 description: Performs time-to-event analysis for clinical trials including Cox proportional hazards regression with PH diagnostics, restricted mean survival time (RMST) under non-PH, competing risks via Fine-Gray vs cause-specific Cox, weighted log-rank and MaxCombo for non-proportional hazards, recurrent events (Andersen-Gill, PWP, WLW), and interval-censored data. Use when analyzing time-to-event endpoints (OS, PFS, DOR, TTR, TTNT) in oncology or other clinical trials.
 tool_type: mixed
 primary_tool: lifelines

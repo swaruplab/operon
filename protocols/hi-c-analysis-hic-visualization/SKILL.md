@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-hic-visualization
+name: hi-c-analysis-hic-visualization
 description: Renders Hi-C contact matrices honestly and reproducibly with matplotlib, cooltools, HiCExplorer, pyGenomeTracks, FAN-C, CoolBox, and plotgardener. Covers the raw/ICE-balanced/observed-over-expected transform choice, LogNorm vs symmetric-diverging colormaps with vmax/percentile clipping, resolution-to-feature matching (compartments 100-500kb, TADs 10-40kb, loops 5-10kb), square vs rotated-triangle track-stacking, NaN/white-stripe handling, virtual 4C, APA/saddle/on-diagonal pileups, two-condition side-by-side and log2-ratio maps, and interactive (HiGlass) vs scripted-static publication figures. Use when plotting a contact matrix, choosing a normalization or color scale, building a multi-track Hi-C figure, making a virtual 4C profile, piling up loops/boundaries, or comparing two conditions.
 tool_type: python
 primary_tool: matplotlib

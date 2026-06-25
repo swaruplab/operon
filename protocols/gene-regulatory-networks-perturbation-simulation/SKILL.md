@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-perturbation-simulation
+name: gene-regulatory-networks-perturbation-simulation
 description: Simulate transcription factor perturbation effects on cell state in silico with CellOracle and Dynamo, and predict transcriptional responses to genetic perturbations with GEARS, scGen, and CPA. Covers the direction-not-magnitude principle, local-linear validity, the GRN/velocity error it inherits, baseline discipline (mean and additive baselines), and the validation gap. Use when predicting TF knockout or overexpression effects, ranking driver TFs for fate transitions, or planning perturbation experiments. For GRN construction see multiomics-grn; for experimental Perturb-seq see single-cell/perturb-seq.
 tool_type: python
 primary_tool: CellOracle

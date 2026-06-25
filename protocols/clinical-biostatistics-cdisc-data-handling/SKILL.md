@@ -1,5 +1,5 @@
 ---
-name: bio-clinical-biostatistics-cdisc-data
+name: clinical-biostatistics-cdisc-data
 description: Reads, validates, and prepares CDISC SDTM and ADaM clinical trial data for analysis. Covers SDTM domain joins (DM, AE, EX, VS, LB, DS), ADaM architecture (ADSL, BDS, OCCDS, ADTTE) with traceability, treatment-emergent AE conventions, baseline derivation, SUPPQUAL/NSV handling, Define-XML 2.1, and Pinnacle 21 / CORE validation. Use when working with clinical trial datasets in CDISC SDTM/ADaM format, preparing analysis-ready data, or validating for regulatory submission.
 tool_type: python
 primary_tool: pyreadstat

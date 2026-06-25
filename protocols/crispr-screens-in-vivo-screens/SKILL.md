@@ -1,5 +1,5 @@
 ---
-name: bio-crispr-screens-in-vivo-screens
+name: crispr-screens-in-vivo-screens
 description: Designs and analyzes in vivo CRISPR screens in animal tumor models, organoids, and immune-cell adoptive transfers. Covers bottleneck math (250x cells/sgRNA requires ~25M cells implanted; impossible for most syngeneic models, forcing focused libraries), focused library design (Manguso 2017 Nature 547:413 immune screen; Chen 2015 tumor screens), CRISPR-StAR intrinsic-control screening (Uijttewaal 2025 Nat Biotechnol 43:1848), clonal-dynamics-limited detection, tumor-explant DNA recovery, syngeneic vs xenograft vs PDX considerations, and the relationship to downstream MAGeCK / drugZ analysis. Use when designing in vivo CRISPR screens for tumor / immune / metastasis biology, choosing focused vs genome-wide for animal models, addressing bottleneck-induced clonal collapse, picking the syngeneic / xenograft / PDX model, integrating in vivo with in vitro results, or applying CRISPR-StAR for animal experiments.
 tool_type: mixed
 primary_tool: MAGeCK

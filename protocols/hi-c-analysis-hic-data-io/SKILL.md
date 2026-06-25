@@ -1,5 +1,5 @@
 ---
-name: bio-hi-c-analysis-hic-data-io
+name: hi-c-analysis-hic-data-io
 description: Loads, converts, and manipulates Hi-C contact matrices in cooler format (.cool/.mcool/.scool) and Juicer .hic, using cooler (Python + CLI), hic2cool, and hictk. Covers the single-resolution mcool URI (file.mcool::/resolutions/<bp>), the load-bearing divisive-vs-multiplicative weight-naming rule (KR/VC/VC_SQRT auto-divisive vs cooler's multiplicative weight), what survives .hic<->.cool conversion (FRAG matrices and norm vectors do not), raw-vs-balanced coarsening, the .pairs upper-triangle/chromsize-order contract, and chrom-naming/bin-table provenance. Use when loading a cooler, converting .hic to .mcool, selecting a resolution, building a cooler from pairs or a matrix, coarsening/zoomifying, importing Juicer norm vectors, or debugging all-NaN balanced matrices and chr1-vs-1 empty fetches.
 tool_type: mixed
 primary_tool: cooler

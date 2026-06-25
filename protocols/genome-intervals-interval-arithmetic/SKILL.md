@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-interval-arithmetic
+name: genome-intervals-interval-arithmetic
 description: Performs set operations on genomic intervals - intersect (-wa/-wb/-wo/-wao/-loj/-c/-v/-u), subtract (-A), merge (-d, -c/-o), complement, cluster, multiinter, unionbedg, map, and groupby - with bedtools (CLI) and pybedtools/pyranges/bioframe (Python). Covers the sorted-input contract and the -sorted chromosome-order footgun, reciprocal/fractional overlap (-f/-F/-r/-e) and the A-vs-B asymmetry, -split for spliced/BED12/BAM features, and jaccard/fisher as mechanics only. Use when finding overlapping or unique regions between BED/peak/feature files, building consensus peaksets, removing blacklisted regions, transferring annotation values onto intervals, or computing interval-set similarity; route overlap-significance testing to overlap-significance.
 tool_type: mixed
 primary_tool: bedtools

@@ -1,5 +1,5 @@
 ---
-name: bio-fragment-analysis
+name: fragment-analysis
 description: Analyzes cfDNA fragment size distributions and fragmentomics features using FinaleToolkit or Griffin. Extracts nucleosome positioning patterns, fragment ratios, and DELFI-style fragmentation profiles for cancer detection. Use when leveraging fragment patterns for tumor detection or tissue-of-origin analysis.
 tool_type: python
 primary_tool: FinaleToolkit

@@ -1,5 +1,5 @@
 ---
-name: bio-imaging-mass-cytometry-cell-segmentation
+name: imaging-mass-cytometry-cell-segmentation
 description: Segment single cells from multiplexed IMC/MIBI tissue images using Mesmer/DeepCell, Cellpose, or ilastik+CellProfiler, covering whole-cell vs nuclear segmentation, the summed-membrane-channel decision, nuclear-expansion bias, lateral spillover, resolution-floor parameters, and downstream-proxy evaluation. Use when delineating cells after preprocessing, choosing a segmentation model, building a cell mask for quantification, diagnosing impossible double-positive populations, or troubleshooting over/under-segmentation.
 tool_type: python
 primary_tool: deepcell

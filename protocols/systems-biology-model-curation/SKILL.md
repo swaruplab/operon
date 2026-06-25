@@ -1,5 +1,5 @@
 ---
-name: bio-systems-biology-model-curation
+name: systems-biology-model-curation
 description: Validate, gap-fill, and curate genome-scale metabolic models using memote for quality scores and COBRApy for manual curation. Ensure models meet SBML standards and produce biologically meaningful predictions. Use when improving draft models or preparing models for publication.
 tool_type: python
 primary_tool: memote

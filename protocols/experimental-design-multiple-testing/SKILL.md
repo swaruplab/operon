@@ -1,5 +1,5 @@
 ---
-name: bio-experimental-design-multiple-testing
+name: experimental-design-multiple-testing
 description: Controls error rates across thousands of simultaneous tests in genomics discovery using false-discovery-rate methods (Benjamini-Hochberg 1995; Benjamini-Yekutieli 2001 for arbitrary dependence; Storey q-value with pi0 estimation; local FDR; independent filtering Bourgon 2010; covariate-weighted FDR via IHW Ignatiadis 2016), plus family-wise error control (Bonferroni, Holm) and the GWAS genome-wide threshold. Covers the FDR-versus-FWER choice as the discovery-versus-confirmatory distinction, the dependence assumptions behind BH (PRDS) versus BY, pi0 estimation, the independent-filtering and false-coverage-rate traps, and reproducibility ranking via IDR (Li 2011). Use when correcting p-values from genome-wide tests, choosing between BH/BY/q-value/Bonferroni, setting an FDR threshold, applying IHW or independent filtering, or interpreting q-values. For confirmatory trials with few pre-specified endpoints (closed testing, graphical/gatekeeping), see clinical-biostatistics/multiplicity-graphical.
 tool_type: mixed
 primary_tool: qvalue

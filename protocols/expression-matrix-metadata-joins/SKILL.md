@@ -1,5 +1,5 @@
 ---
-name: bio-expression-matrix-metadata-joins
+name: expression-matrix-metadata-joins
 description: Aligns sample metadata with count matrices and constructs design matrices for downstream DE, handling the alphabetical-reference-level trap (relevel BEFORE DESeq), LRT reduced-model rules, the interaction-term resultsNames trap, continuous-covariate scaling and splines, repeated measures via duplicateCorrelation or dream, high-cardinality categorical pseudo-singular designs, sample swap detection via XIST/RPS4Y1 expression and somalier/NGSCheckMate genotypes, SABV (sex-as-biological-variable) mandate, Simpson's-paradox collapsing of technical replicates, and the `~ 0 + group` parameterization for clean contrasts. Use when building a design matrix, troubleshooting reversed fold-change direction, encoding paired or repeated-measures designs, detecting sample swaps, deciding sex-as-covariate, or aggregating technical replicates.
 tool_type: mixed
 primary_tool: pandas

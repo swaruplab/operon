@@ -1,5 +1,5 @@
 ---
-name: bio-genome-annotation-annotation-qc
+name: genome-annotation-annotation-qc
 description: Assesses the quality and completeness of a genome annotation with BUSCO (conserved single-copy ortholog recovery), OMArk (proteome completeness, consistency, and contamination), CheckM2 (prokaryotic completeness/contamination), and a gene-set sanity panel (gene count, mono-exonic fraction, protein-length distribution, mRNA:gene ratio, coding density). Covers the assembly-BUSCO-vs-proteome-BUSCO diagnostic, what BUSCO-Duplicated really means, why gene count is a vanity metric, and the QC of transferred annotations. Use when judging whether an annotation is good enough to publish or submit, diagnosing a suspect annotation, or comparing annotation completeness across pipelines.
 tool_type: cli
 primary_tool: BUSCO

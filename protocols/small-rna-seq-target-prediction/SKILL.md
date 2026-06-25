@@ -1,5 +1,5 @@
 ---
-name: bio-small-rna-seq-target-prediction
+name: small-rna-seq-target-prediction
 description: Predict miRNA target genes using sequence-based algorithms and database lookups. Use when identifying potential mRNA targets of differentially expressed or functionally important miRNAs.
 tool_type: mixed
 primary_tool: miRanda

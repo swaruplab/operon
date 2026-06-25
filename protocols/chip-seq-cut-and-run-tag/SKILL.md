@@ -1,5 +1,5 @@
 ---
-name: bio-chipseq-cut-and-run-tag
+name: chipseq-cut-and-run-tag
 description: Analyzes CUT&RUN (Skene Henikoff 2017) and CUT&Tag (Kaya-Okur 2019) chromatin profiling data. Handles SEACR vs MACS2 peak calling (with the btaf375 2025 benchmark guidance), pA-MNase vs pA-Tn5 vs pAG-Tn5 chimera differences, E. coli spike-in carryover normalization, IgG-only control logic (no input), characteristic fragment-size signatures (25-75 bp for CUT&Tag), and lower depth requirements (5M reads typical vs 25M for ChIP). Use when calling peaks from CUT&RUN/CUT&Tag, scaling by E. coli spike-in carryover, choosing SEACR norm mode, or comparing CUT&RUN/Tag results to traditional ChIP.
 tool_type: mixed
 primary_tool: SEACR

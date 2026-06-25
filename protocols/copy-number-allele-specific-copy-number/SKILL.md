@@ -1,5 +1,5 @@
 ---
-name: bio-copy-number-allele-specific-copy-number
+name: copy-number-allele-specific-copy-number
 description: Infer integer allele-specific copy number, tumor purity, and ploidy from tumor sequencing by jointly modeling read depth (logR) and B-allele frequency (BAF) with ASCAT, Sequenza, FACETS, PURPLE, and PureCN (tumor-only). Covers the purity-ploidy identifiability problem, the diploid-baseline (dipLogR) anchor, major/minor copy number, loss of heterozygosity, sunrise/contour fit diagnostics, and reconciliation of conflicting fits. Use when tumor analysis needs absolute copy number rather than relative log2, when estimating purity and ploidy, calling LOH or copy-neutral LOH, resolving whole-genome doubling, running tumor-only allele-specific calling, or choosing among ASCAT, Sequenza, FACETS, and PureCN.
 tool_type: mixed
 primary_tool: ascat

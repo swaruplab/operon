@@ -1,5 +1,5 @@
 ---
-name: bio-comparative-genomics-gene-tree-species-tree-reconciliation
+name: comparative-genomics-gene-tree-species-tree-reconciliation
 description: Reconcile gene trees against a species tree under probabilistic models of duplication, transfer, and loss (DTL) using ALE (Szöllősi 2013 amalgamated likelihood), GeneRax (Morel 2020 ML reconciliation), AleRax (Morel 2024 co-estimation), Whale.jl (Bayesian DTL+WGD), RANGER-DTL 2 parsimony, NOTUNG, ecceTERA, and Treerecs. Use when inferring ancestral gene-family content, distinguishing duplication from horizontal transfer from differential loss, rooting deep species trees from gene-content signals (STRIDE / Williams 2017 ALE-rooting), counting DTL events per branch, refining noisy gene trees against a species tree, modeling WGD events jointly with DTL, or producing publication-grade gene-family histories for phylogenomic / comparative analyses.
 tool_type: cli
 primary_tool: ALE

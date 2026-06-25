@@ -131,6 +131,13 @@ pub async fn spawn_terminal(
     };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Share Operon's ssh-agent with the terminal so a passphrase-protected key
+    // already unlocked at connect time authenticates without re-prompting.
+    if let Ok(sock) = std::env::var("SSH_AUTH_SOCK") {
+        if !sock.is_empty() {
+            cmd.env("SSH_AUTH_SOCK", sock);
+        }
+    }
     // Tell macOS zsh to source /etc/zshrc_Apple_Terminal which emits OSC 7
     // (current working directory) after every command — enables terminal→explorer sync.
     #[cfg(target_os = "macos")]

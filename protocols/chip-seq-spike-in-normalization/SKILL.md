@@ -1,5 +1,5 @@
 ---
-name: bio-chipseq-spike-in-normalization
+name: chipseq-spike-in-normalization
 description: Normalizes ChIP-seq data using exogenous spike-in (ChIP-Rx with Drosophila chromatin per Orlando 2014 / Egan 2016; E. coli carryover for CUT&RUN/CUT&Tag). Distinguishes RRPM from Rx-Input scaling, integrates with DiffBind / DESeq2 / edgeR / csaw via sizeFactors and DiffBind library-size vectors, and applies the Patel et al 2024 *Nat Biotechnol* review's failure-mode framework to validate that normalization is correctly applied at the read level (not peak counts). Use when global signal shifts are expected (HDACi, BETi, EZH2i, dosage, target knockdown), when ChIPseqSpikeInFree detects post-hoc shifts, or when validating internal-control regions before publication.
 tool_type: mixed
 primary_tool: DiffBind

@@ -1,5 +1,5 @@
 ---
-name: bio-ecological-genomics-biodiversity-metrics
+name: ecological-genomics-biodiversity-metrics
 description: Quantifies biodiversity from species abundance/incidence tables using Hill numbers (iNEXT) with coverage-based rarefaction-extrapolation (Chao & Jost 2012), asymptotic richness via Chao1/ACE/jackknife as a lower bound, Baselga turnover/nestedness partition with the Podani alternative as sensitivity check, mandatory Hellinger transformation before ordination (Legendre & Gallagher 2001), Faith PD and SES_MPD/SES_MNTD with explicit null-model choice, and Maire 2015 functional-diversity dimensionality optimization. Use when comparing diversity across sites with unequal sampling effort, picking the right richness estimator for singleton-heavy amplicon data, partitioning beta diversity into turnover vs nestedness, reporting Hill-number effective species counts rather than raw entropies, computing SES_MPD with explicit null-model justification, or deciding whether to apply standard metrics to compositional amplicon data. Not for clinical 16S microbiome diversity (see microbiome/diversity-analysis).
 tool_type: r
 primary_tool: iNEXT

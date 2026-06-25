@@ -1,5 +1,5 @@
 ---
-name: bio-gene-regulatory-networks-multiomics-grn
+name: gene-regulatory-networks-multiomics-grn
 description: Build enhancer-driven gene regulatory networks (eGRNs) by integrating single-cell RNA-seq and ATAC-seq using SCENIC+, CellOracle base GRNs, Pando, FigR, DIRECT-NET, TRIPOD, and scMEGA. Covers the accessibility-defines-enhancers principle, peak-to-gene linking and its cell-composition confound, the paired-vs-unpaired decision, and TF-region-gene eRegulon triplets. Use when analyzing 10x multiome or paired/unpaired scRNA+scATAC to infer cis-regulatory GRNs. For RNA-only regulons see scenic-regulons; for in silico TF perturbation see perturbation-simulation.
 tool_type: python
 primary_tool: SCENIC+

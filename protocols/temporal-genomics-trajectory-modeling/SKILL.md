@@ -1,5 +1,5 @@
 ---
-name: bio-temporal-genomics-trajectory-modeling
+name: temporal-genomics-trajectory-modeling
 description: Models continuous temporal trajectories from bulk or time-resolved omics data using generalized additive models (mgcv), spline regression, and changepoint detection (segmented, ruptures). Fits smooth gene expression curves and tests trajectory differences between conditions. Use when fitting non-linear temporal models to bulk time-series data or comparing developmental trajectories across conditions. Not for single-cell pseudotime (see single-cell/trajectory-inference).
 tool_type: mixed
 primary_tool: mgcv

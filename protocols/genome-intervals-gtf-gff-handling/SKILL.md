@@ -1,5 +1,5 @@
 ---
-name: bio-genome-intervals-gtf-gff-handling
+name: genome-intervals-gtf-gff-handling
 description: Parses, queries, converts, and extracts from GTF and GFF3 gene-model annotation files - walking the gene/transcript/exon/CDS hierarchy with gffutils (queryable SQLite DB), converting formats and extracting transcript/CDS/protein FASTA with gffread, slurping to dataframes with gtfparse/pyranges, and sanitizing malformed files with AGAT. Covers the 1-based-inclusive vs 0-based BED coordinate conversion (start-1 only), deriving implicit features (introns/UTRs/TSS), phase-not-frame, the stop-codon-in-or-out-of-CDS convention, and the chr1-vs-1 seqid and gene-ID-version mismatches that silently produce all-zero count matrices and dropped joins. Use when extracting features or sequences from an annotation, converting GTF<->GFF3 or GTF->BED, traversing the gene tree, or diagnosing a coordinate/provenance mismatch upstream of counting or DE.
 tool_type: mixed
 primary_tool: gffutils

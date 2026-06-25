@@ -1,5 +1,5 @@
 ---
-name: bio-genome-engineering-grna-design
+name: genome-engineering-grna-design
 description: Designs and ranks guide RNAs (sgRNAs) for CRISPR-Cas9/Cas12a gene knockout by scanning a target for PAM sites (NGG SpCas9, NNGRRT SaCas9, TTTV Cas12a, NG SpCas9-NG, near-PAMless SpRY), enumerating candidate spacers, applying hard filters (Pol-III TTTT terminator, 5' G, GC), ranking on-target activity with the context-appropriate model (Rule Set 2/Azimuth for U6/lentiviral, CRISPRscan for T7/embryo, DeepHF for high-fidelity variants, DeepCpf1 for Cas12a), and predicting the indel/frameshift outcome (Bae out-of-frame score, inDelphi, FORECasT, Lindel). Use when selecting sgRNAs to knock out a gene, choosing a nuclease/PAM for a constrained locus, picking which exon to target, or shortlisting guides before an off-target check. Off-target specificity, base/prime editing, and HDR donors are separate skills.
 tool_type: python
 primary_tool: CRISPOR

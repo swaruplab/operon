@@ -1,5 +1,5 @@
 ---
-name: bio-epidemiological-genomics-amr-surveillance
+name: epidemiological-genomics-amr-surveillance
 description: Detects acquired antimicrobial-resistance determinants and chromosomal point-mutation resistance in bacterial assemblies using AMRFinderPlus, ResFinder 4.0 (acquired + PointFinder), CARD-RGI, abritAMR, staramr, and species-specific callers (TB-Profiler, Mykrobe). Harmonises cross-tool output via hAMRonization, contextualises determinants with mobile-genetic-element annotation (MOB-suite, PlasmidFinder, MobileElementFinder, ICEberg), predicts phenotype against EUCAST or CLSI breakpoints, and translates calls into WHO GLASS reporting categories. Use when screening clinical or surveillance isolates for AMR, distinguishing acquired vs intrinsic vs point-mutation resistance, calling rpoB / katG / pncA / gyrA / mgrB mutations, reconciling AMRFinderPlus vs RGI vs ResFinder disagreement, contextualising carbapenemases or mcr alleles on plasmids, predicting susceptibility from genotype against the WHO Mtb 2nd-edition catalogue, or building a hAMRonized multi-lab AMR surveillance pipeline.
 tool_type: mixed
 primary_tool: AMRFinderPlus
