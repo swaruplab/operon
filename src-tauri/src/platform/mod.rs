@@ -169,17 +169,181 @@ pub fn operon_python_dir() -> std::path::PathBuf {
 /// macOS/Linux: `which {name}` then `{name} --version`
 /// Windows:     `where.exe {name}` then `{name} --version`
 pub fn check_tool(name: &str) -> Option<(String, String)> {
-    #[cfg(target_os = "macos")]
+    // Platform-specific discovery first: login-shell `which` (Unix) / `where.exe`
+    // (Windows). Honors the user's PATH precedence when it is available.
+    let platform_result = {
+        #[cfg(target_os = "macos")]
+        {
+            macos::check_tool(name)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            windows::check_tool(name)
+        }
+        #[cfg(target_os = "linux")]
+        {
+            linux::check_tool(name)
+        }
+    };
+    if platform_result.is_some() {
+        return platform_result;
+    }
+
+    // Fallback (Unix): when Operon is launched from Finder/Dock it inherits
+    // launchd's minimal PATH, and the login shell sources .zprofile/.zlogin but
+    // NOT .zshrc — so `which` misses tools installed under the user's home (most
+    // notably `claude` in ~/.local/bin). Probe the known install dirs directly so
+    // detection still succeeds. Strictly additive: only ever finds MORE tools.
+    #[cfg(not(target_os = "windows"))]
     {
-        macos::check_tool(name)
+        for dir in extra_tool_paths() {
+            let p = dir.join(name);
+            if p.is_file() {
+                let version = std::process::Command::new(&p)
+                    .arg("--version")
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_default();
+                return Some((p.to_string_lossy().into_owned(), version));
+            }
+        }
+        None
     }
     #[cfg(target_os = "windows")]
     {
-        windows::check_tool(name)
+        platform_result
     }
-    #[cfg(target_os = "linux")]
+}
+
+/// Resolve an absolute path to the local `claude` binary, foolproof against
+/// Finder/Dock launches (launchd-minimal PATH) and PATH lines that live only in
+/// interactive rc files (.zshrc/.bashrc).
+///
+/// Order: (1) a direct probe of every known install dir — including the native
+/// installer's `~/.local/bin` — which is deterministic, needs no shell, and can
+/// never hang; (2) the user's interactive+login shell `command -v claude` with an
+/// augmented PATH, to catch exotic locations like nvm / volta versioned dirs.
+/// Returns None only when nothing resolves; callers then fall back to the bare
+/// name `claude` so behavior never degrades below the previous default.
+pub fn resolve_claude_path() -> Option<String> {
+    // (1) Known install dirs (native ~/.local/bin, ~/.claude/local, npm-global,
+    // homebrew, /usr/local, Operon-managed node), plus a few binary-direct paths.
+    let mut candidates: Vec<std::path::PathBuf> = extra_tool_paths()
+        .into_iter()
+        .map(|d| d.join(exe_name("claude")))
+        .collect();
+    if let Some(home) = home_dir() {
+        candidates.push(home.join(".claude/local/claude"));
+        candidates.push(home.join(".volta/bin").join(exe_name("claude")));
+        candidates.push(home.join(".bun/bin").join(exe_name("claude")));
+    }
+    candidates.push(std::path::PathBuf::from("/usr/bin/claude"));
+    for c in &candidates {
+        if c.is_file() {
+            return Some(c.to_string_lossy().into_owned());
+        }
+    }
+
+    // (2) Ask the user's shell — sources BOTH interactive (.zshrc/.bashrc) and
+    // login (.zprofile) rc files — with an augmented PATH so even a minimal
+    // inherited env can resolve `claude`.
+    #[cfg(not(target_os = "windows"))]
     {
-        linux::check_tool(name)
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            #[cfg(target_os = "macos")]
+            {
+                "/bin/zsh".to_string()
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                if std::path::Path::new("/bin/bash").exists() {
+                    "/bin/bash".to_string()
+                } else {
+                    "/bin/sh".to_string()
+                }
+            }
+        });
+        if let Ok(o) = std::process::Command::new(&shell)
+            .arg("-i")
+            .arg("-l")
+            .arg("-c")
+            .arg("command -v claude 2>/dev/null")
+            .env("PATH", augmented_path())
+            .output()
+        {
+            // An interactive rc may echo banner lines to stdout before our
+            // output, so scan from the end for the last line that is a real file.
+            for line in String::from_utf8_lossy(&o.stdout).lines().rev() {
+                let p = line.trim();
+                if !p.is_empty() && std::path::Path::new(p).is_file() {
+                    return Some(p.to_string());
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        if let Ok(o) = std::process::Command::new("where")
+            .arg("claude")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW — no console flash
+            .output()
+        {
+            for line in String::from_utf8_lossy(&o.stdout).lines() {
+                let p = line.trim();
+                if !p.is_empty() && std::path::Path::new(p).is_file() {
+                    return Some(p.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Append the platform executable extension to a bare tool name (`.exe` on
+/// Windows, unchanged elsewhere) for direct filesystem probing.
+fn exe_name(name: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        format!("{}.exe", name)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        name.to_string()
+    }
+}
+
+/// Quote a resolved local `claude` path for safe embedding in a shell command
+/// string. On Windows the string runs through Git Bash, where `\` escapes — so
+/// normalize to forward slashes first (Git Bash/MSYS resolves `C:/…`); then
+/// single-quote so spaces or specials in the path can't break the command.
+pub fn claude_path_for_shell(path: &str) -> String {
+    let normalized = common::normalize_display_path(path);
+    format!("'{}'", normalized.replace('\'', "'\\''"))
+}
+
+/// A shell-ready `claude` invocation token: the quoted ABSOLUTE path when it can
+/// be resolved, else the bare word `claude` (so behavior never degrades below the
+/// PATH-based default). Use anywhere a local command STRING runs `claude` through
+/// a shell.
+///
+/// Unix only resolves to an absolute path. On Windows we deliberately keep the
+/// bare name: the local command runs through Git Bash whose `/etc/profile` PATH
+/// already finds `claude` (often a `.cmd` shim that bash can't exec by absolute
+/// path), so substituting an absolute path there would REGRESS the working flow.
+pub fn claude_invocation() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        "claude".to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        match resolve_claude_path() {
+            Some(p) => claude_path_for_shell(&p),
+            None => "claude".to_string(),
+        }
     }
 }
 

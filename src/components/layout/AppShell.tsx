@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { TopBar } from './TopBar';
 import { ActivityBar } from './ActivityBar';
 import { StatusBar } from './StatusBar';
-import { Sidebar } from '../sidebar/Sidebar';
+import { Sidebar, type SSHConnection } from '../sidebar/Sidebar';
 import { EditorArea } from '../editor/EditorArea';
 import { TerminalArea } from '../terminal/TerminalArea';
 import { ChatPanel } from '../chat/ChatPanel';
@@ -24,6 +24,12 @@ export function AppShell() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [activeView, setActiveView] = useState<string>('files');
   const [wakeToastVisible, setWakeToastVisible] = useState(false);
+  // Remote-session state lives here (AppShell never unmounts) so it survives the
+  // Files panel being toggled closed/open — fixes issue #16, where reopening the
+  // panel dropped the SSH connection and forced the user to reconnect.
+  const [sshConnection, setSSHConnection] = useState<SSHConnection | null>(null);
+  const [currentRemotePath, setCurrentRemotePath] = useState<string>('');
+  const [localTerminalId, setLocalTerminalId] = useState<string | null>(null);
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
   const toggleChat = useCallback(() => setChatVisible((v) => !v), []);
@@ -108,6 +114,50 @@ export function AppShell() {
     return () => window.removeEventListener('open-settings', handler);
   }, []);
 
+  // --- Remote-session listeners (issue #16) ---
+  // These were in Sidebar, which unmounts when the Files panel is hidden — so the
+  // connection was lost on reopen. AppShell stays mounted for the app's lifetime.
+  useEffect(() => {
+    const unlisten = listen<{ profileId: string; remotePath: string }>(
+      'remote-path-changed',
+      (e) => setCurrentRemotePath(e.payload.remotePath)
+    );
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ terminalId: string }>(
+      'local-terminal-active',
+      (e) => setLocalTerminalId(e.payload.terminalId)
+    );
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ terminalId: string; profileId?: string; profileName?: string }>(
+      'open-ssh-terminal',
+      (e) => {
+        const { profileId, profileName, terminalId } = e.payload;
+        if (profileId && profileName) {
+          setSSHConnection({ profileId, profileName, terminalId });
+          // Surface the remote explorer: open the sidebar on the files view.
+          setActiveView('files');
+          setSidebarVisible(true);
+        }
+      }
+    );
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ profileId: string }>('disconnect-remote', (e) => {
+      const { profileId } = e.payload;
+      setSSHConnection((prev) => (prev?.profileId === profileId ? null : prev));
+      setCurrentRemotePath((prev) => (prev ? '' : prev));
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
   useKeyboardShortcuts([
     { key: 'b', meta: true, handler: toggleSidebar },
     { key: 'j', meta: true, handler: toggleTerminal },
@@ -151,7 +201,13 @@ export function AppShell() {
           {sidebarVisible && (
             <>
               <Panel id="sidebar" defaultSize={20} minSize={15} maxSize={35} order={1}>
-                <Sidebar activeView={activeView} onViewChange={setActiveView} />
+                <Sidebar
+                  activeView={activeView}
+                  onViewChange={setActiveView}
+                  sshConnection={sshConnection}
+                  currentRemotePath={currentRemotePath}
+                  localTerminalId={localTerminalId}
+                />
               </Panel>
               <PanelResizeHandle className="w-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:w-[3px]" />
             </>

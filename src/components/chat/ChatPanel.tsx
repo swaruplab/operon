@@ -3024,18 +3024,34 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
     const isReportTriggerPhrase =
       /\b(generate|create|make|write|produce|build|start)\b.*\breport\b/i.test(rawText) ||
       /\breport\b.*\b(now|please|go|ready)\b/i.test(rawText);
+    // Remove common filler words and keep scientific terms. Declared here (not
+    // inside the search block) so the relevance gate below can reuse it.
+    const stopWords = new Set(['what', 'does', 'the', 'how', 'is', 'are', 'can', 'do', 'why', 'when', 'which', 'where',
+      'about', 'explain', 'tell', 'me', 'please', 'help', 'understand', 'describe', 'with', 'for', 'and', 'or', 'in',
+      'of', 'to', 'a', 'an', 'this', 'that', 'it', 'its', 'be', 'been', 'being', 'have', 'has', 'had', 'i', 'my', 'we',
+      'they', 'you', 'your', 'their', 'our', 'would', 'could', 'should', 'will', 'shall', 'may', 'might', 'between',
+      'from', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'any', 'all', 'each', 'every', 'some']);
+    // Relevance gate (issue #1): a prompt made up ONLY of filesystem/workspace
+    // words (after stop-word removal) — e.g. "tell me the contents of this folder"
+    // — is operational, not scientific, so we must NOT fire a literature search
+    // (which would match papers on the word "folder"). Only search when at least
+    // one genuine content term survives.
+    const operationalWords = new Set(['folder', 'folders', 'file', 'files', 'directory', 'directories', 'dir', 'dirs',
+      'subfolder', 'subdirectory', 'path', 'paths', 'contents', 'content', 'list', 'show', 'display', 'view', 'open',
+      'read', 'get', 'print', 'current', 'rename', 'move', 'copy', 'delete', 'remove', 'ls', 'cd', 'pwd', 'cat', 'here',
+      'these', 'those', 'folder', 'workspace', 'output', 'outputs']);
+    const contentTokens = rawText
+      .toLowerCase()
+      .replace(/[?!.,;:'"()[\]{}]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 1 && !stopWords.has(w) && !operationalWords.has(w));
+    const isOperationalPrompt = contentTokens.length === 0;
     let pubmedPrefix = '';
-    if (((mode === 'ask' && pubmedEnabled) || (mode === 'report' && reportPhase === 'clarify')) && !isReportTriggerPhrase) {
+    if (((mode === 'ask' && pubmedEnabled) || (mode === 'report' && reportPhase === 'clarify')) && !isReportTriggerPhrase && !isOperationalPrompt) {
       try {
         setPubmedSearching(true);
 
         // Build a better PubMed query from the user's natural language question.
-        // Remove common filler words and keep scientific terms for better search results.
-        const stopWords = new Set(['what', 'does', 'the', 'how', 'is', 'are', 'can', 'do', 'why', 'when', 'which', 'where',
-          'about', 'explain', 'tell', 'me', 'please', 'help', 'understand', 'describe', 'with', 'for', 'and', 'or', 'in',
-          'of', 'to', 'a', 'an', 'this', 'that', 'it', 'its', 'be', 'been', 'being', 'have', 'has', 'had', 'i', 'my', 'we',
-          'they', 'you', 'your', 'their', 'our', 'would', 'could', 'should', 'will', 'shall', 'may', 'might', 'between',
-          'from', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'any', 'all', 'each', 'every', 'some']);
         const searchTerms = rawText
           .replace(/[?!.,;:'"()[\]{}]/g, ' ')
           .split(/\s+/)
@@ -4717,10 +4733,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               {mode === 'ask' && (
                 <button
                   onClick={() => setPubmedEnabled(v => !v)}
-                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors text-[11px] ${
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border transition-colors text-[11px] ${
                     pubmedEnabled
-                      ? 'bg-emerald-900/40 border border-emerald-700/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-900/60'
-                      : 'text-muted hover:text-secondary hover:bg-hover'
+                      ? 'bg-emerald-900/40 border-emerald-700/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-900/60'
+                      : 'border-transparent text-muted hover:text-secondary hover:bg-hover'
                   }`}
                   title={pubmedEnabled ? 'PubMed literature search enabled — click to disable' : 'Enable PubMed literature search for grounded answers'}
                 >

@@ -66,6 +66,13 @@ const BINARY_EXTENSIONS: Record<string, { binaryType: 'image' | 'pdf' | 'html' |
 interface SidebarProps {
   activeView: string;
   onViewChange?: (view: string) => void;
+  // Remote-session state is owned by AppShell (which never unmounts) so it
+  // survives the Files panel being toggled closed/open. Without this the Sidebar
+  // unmounted on toggle, dropped the SSH connection, and the user had to
+  // reconnect to get the remote explorer back (issue #16).
+  sshConnection: SSHConnection | null;
+  currentRemotePath: string;
+  localTerminalId: string | null;
 }
 
 // --- File Tree Node ---
@@ -971,7 +978,7 @@ function LocalFileExplorer({ localTerminalId }: LocalFileExplorerProps) {
 
 // --- File Explorer View with Local/Remote toggle ---
 
-interface SSHConnection {
+export interface SSHConnection {
   profileId: string;
   profileName: string;
   terminalId: string;
@@ -1324,59 +1331,20 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
 
 // --- Main Sidebar ---
 
-export function Sidebar({ activeView, onViewChange }: SidebarProps) {
-  const [sshConnection, setSSHConnection] = useState<SSHConnection | null>(null);
-  const [localTerminalId, setLocalTerminalId] = useState<string | null>(null);
+export function Sidebar({
+  activeView,
+  onViewChange,
+  sshConnection,
+  currentRemotePath,
+  localTerminalId,
+}: SidebarProps) {
   const [activeProtocolIds, setActiveProtocolIds] = useState<string[]>([]);
-  const [currentRemotePath, setCurrentRemotePath] = useState<string>('');
 
-  // Listen for remote path changes at Sidebar level (always mounted)
-  useEffect(() => {
-    const unlisten = listen<{ profileId: string; remotePath: string }>('remote-path-changed', (event) => {
-      setCurrentRemotePath(event.payload.remotePath);
-    });
-    return () => { unlisten.then((u) => u()); };
-  }, []);
-
-  // Listen for local terminal active events
-  useEffect(() => {
-    const unlisten = listen<{ terminalId: string }>('local-terminal-active', (event) => {
-      setLocalTerminalId(event.payload.terminalId);
-    });
-    return () => { unlisten.then((u) => u()); };
-  }, []);
-
-  // Listen for SSH connections at the Sidebar level (always mounted)
-  // so we capture the event regardless of which view is active
-  useEffect(() => {
-    const unlisten = listen<{
-      terminalId: string;
-      title: string;
-      sshCommand?: string;
-      profileId?: string;
-      profileName?: string;
-    }>('open-ssh-terminal', (event) => {
-      const { profileId, profileName, terminalId } = event.payload;
-      if (profileId && profileName) {
-        setSSHConnection({ profileId, profileName, terminalId });
-        // Auto-switch to the files view to show the remote explorer
-        onViewChange?.('files');
-      }
-    });
-
-    return () => { unlisten.then((u) => u()); };
-  }, [onViewChange]);
-
-  // Listen for disconnect-remote: clear sshConnection so the explorer/search/protocols
-  // panels return to local mode, ready for a fresh connection to a different server.
-  useEffect(() => {
-    const unlisten = listen<{ profileId: string }>('disconnect-remote', (event) => {
-      const { profileId } = event.payload;
-      setSSHConnection((prev) => (prev?.profileId === profileId ? null : prev));
-      setCurrentRemotePath((prev) => (prev ? '' : prev));
-    });
-    return () => { unlisten.then((u) => u()); };
-  }, []);
+  // NOTE: Remote-session state (sshConnection, currentRemotePath, localTerminalId)
+  // and its 'open-ssh-terminal' / 'disconnect-remote' / 'remote-path-changed' /
+  // 'local-terminal-active' listeners now live in AppShell, which never unmounts.
+  // The Sidebar unmounts when the Files panel is toggled closed; owning the
+  // connection here meant it was lost on reopen (issue #16).
 
   // Listen for tool panel events from ExtensionsView
   useEffect(() => {

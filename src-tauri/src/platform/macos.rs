@@ -41,6 +41,10 @@ pub fn extra_tool_paths() -> Vec<std::path::PathBuf> {
         super::operon_node_dir().join("bin"),
         std::path::PathBuf::from("/opt/homebrew/bin"),
         std::path::PathBuf::from("/usr/local/bin"),
+        // The current Claude Code native installer (curl … claude.ai/install.sh)
+        // — which Operon's own setup wizard runs — lands `claude` here. Must be
+        // listed or Finder/Dock launches (launchd-minimal PATH) can't find it.
+        home.join(".local/bin"),
         home.join(".claude/local/bin"),
         home.join(".npm-global/bin"),
     ]
@@ -360,27 +364,18 @@ pub fn install_node_platform() -> Result<(), String> {
 }
 
 pub fn install_claude_platform() -> Result<(), String> {
-    let has_claude = shell_exec("claude --version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if has_claude {
+    // Resolve via the foolproof path resolver (probes ~/.local/bin etc.), NOT a
+    // bare `claude --version` — the latter fails on a Finder/Dock launch even
+    // when claude is installed, causing needless reinstall loops.
+    if super::resolve_claude_path().is_some() {
         return Ok(());
     }
 
-    // Method 1: Official installer
+    // Method 1: Official installer (lands in ~/.local/bin on current versions).
     let output = shell_exec("curl -fsSL https://claude.ai/install.sh | bash").output();
     if let Ok(ref o) = output {
-        if o.status.success() {
-            let check = shell_exec("claude --version").output();
-            if check.map(|c| c.status.success()).unwrap_or(false) {
-                return Ok(());
-            }
-            if let Some(home) = dirs::home_dir() {
-                if home.join(".claude/local/bin/claude").exists() {
-                    return Ok(());
-                }
-            }
+        if o.status.success() && super::resolve_claude_path().is_some() {
+            return Ok(());
         }
     }
 

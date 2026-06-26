@@ -6,6 +6,33 @@ license: Unknown
 
 # Single-Cell Multi-Omics Analysis
 
+## Choosing the Right scvi-tools Model (read FIRST)
+
+Pick the model from the **measured modalities and the analysis goal** — do not
+guess. The most common mistake is confusing TotalVI with MultiVI.
+
+| Model | Use when… | Modalities | Notes |
+|-------|-----------|------------|-------|
+| **scVI** | Batch-correct / integrate / denoise scRNA-seq; get a latent space | RNA | Default for unimodal RNA integration |
+| **scANVI** | scVI **and** you have (partial) cell-type labels to transfer/harmonize | RNA + labels | Semi-supervised label transfer |
+| **TotalVI** | **CITE-seq**: paired RNA **and** surface protein (ADT) | RNA + protein | This is the RNA+protein model |
+| **MultiVI** | **Multiome**: paired (or partially missing) ATAC **and** RNA | RNA + ATAC | Joint RNA+ATAC; imputes a missing modality |
+| **PeakVI** | ATAC-only analysis (peak counts) | ATAC | Chromatin-accessibility latent space |
+| **mrVI** | Compare many **samples/donors/conditions**; quantify sample-level effects | RNA (multi-sample) | Sample-stratified comparative analysis |
+
+Decision tree:
+
+1. Surface **protein (ADT)** measured alongside RNA (CITE-seq)? → **TotalVI**
+2. **ATAC** measured alongside RNA (10x Multiome)? → **MultiVI** (use **PeakVI** for ATAC alone)
+3. Comparing many samples/donors/conditions for sample-level effects? → **mrVI**
+4. Have cell-type labels to transfer across batches? → **scANVI**
+5. Otherwise — plain RNA batch integration / denoising? → **scVI**
+
+> ⚠️ **Do not confuse these:** RNA + **protein** (CITE-seq) → **TotalVI**.
+> RNA + **ATAC** (multiome / missing-modality imputation) → **MultiVI**.
+> MultiVI is **not** for protein data. For multi-sample comparative analysis,
+> reach for **mrVI**, not MultiVI/TotalVI.
+
 ## Core Libraries & Environment
 
 ```python

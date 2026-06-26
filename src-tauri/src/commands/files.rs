@@ -1624,97 +1624,18 @@ Output ONLY the protocol markdown — no preamble, no explanation, no code fence
     Ok(result)
 }
 
-/// Find an absolute path to the local `claude` binary. Tries (1) the user's
-/// shell (interactive login on Unix, default on Windows) so any PATH setup in
-/// .zshrc/.bashrc is honored; (2) a list of well-known install locations.
-/// Returns None if nothing resolves. Cheap enough to call per-invocation —
-/// `command -v` is sub-100ms on Unix.
+// Local `claude` resolution now lives in the platform layer
+// (`crate::platform::resolve_claude_path` / `claude_path_for_shell`) so every
+// local `claude` invocation in Operon shares ONE foolproof resolver — the
+// divergent duplicate that used to live here is the reason Finder/Dock launches
+// still hit "command not found: claude" after the bug was "fixed". These thin
+// wrappers keep the call sites in this module terse.
 fn resolve_claude_path() -> Option<String> {
-    // (1) Ask the user's shell. On macOS/Linux use `-i -l -c` so both interactive
-    // (.zshrc/.bashrc) and login (.zprofile) rc files get sourced. We pipe the
-    // command to be safe across shells that interpret `command -v` differently.
-    #[cfg(unix)]
-    {
-        // Prefer $SHELL. Fall back to the platform default: zsh on macOS, but on
-        // Linux zsh is rarely installed, so use /bin/bash if present else /bin/sh.
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
-            #[cfg(target_os = "macos")]
-            {
-                "/bin/zsh".to_string()
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                if std::path::Path::new("/bin/bash").exists() {
-                    "/bin/bash".to_string()
-                } else {
-                    "/bin/sh".to_string()
-                }
-            }
-        });
-        let out = std::process::Command::new(&shell)
-            .arg("-i")
-            .arg("-l")
-            .arg("-c")
-            .arg("command -v claude 2>/dev/null")
-            .output()
-            .ok();
-        if let Some(o) = out {
-            let path = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if !path.is_empty() && std::path::Path::new(&path).exists() {
-                return Some(path);
-            }
-        }
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let out = std::process::Command::new("where")
-            .arg("claude")
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW — no console flash
-            .output()
-            .ok();
-        if let Some(o) = out {
-            let first = String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .next()
-                .map(|s| s.trim().to_string());
-            if let Some(p) = first {
-                if !p.is_empty() && std::path::Path::new(&p).exists() {
-                    return Some(p);
-                }
-            }
-        }
-    }
-
-    // (2) Fall back to common install locations.
-    let home = dirs::home_dir()?;
-    let candidates: Vec<std::path::PathBuf> = vec![
-        home.join(".claude/local/claude"),
-        home.join(".local/bin/claude"),
-        home.join(".npm-global/bin/claude"),
-        home.join(".volta/bin/claude"),
-        std::path::PathBuf::from("/opt/homebrew/bin/claude"),
-        std::path::PathBuf::from("/usr/local/bin/claude"),
-        std::path::PathBuf::from("/usr/bin/claude"),
-    ];
-    for c in candidates {
-        if c.exists() {
-            return Some(c.to_string_lossy().into_owned());
-        }
-    }
-    None
+    crate::platform::resolve_claude_path()
 }
 
-/// Quote a resolved local `claude` path for safe embedding in a `shell_exec`
-/// command string. On Windows that string runs through Git Bash, where `\` is
-/// an escape character — so convert backslashes to forward slashes (Git Bash /
-/// MSYS resolves `C:/…` paths, including `.cmd` shims) before quoting. On both
-/// platforms single-quote so spaces or special chars in the path can't break
-/// the command (e.g. a home dir with a space, or `where claude` returning a
-/// path under `C:\Program Files\`).
 fn claude_path_for_shell(path: &str) -> String {
-    let normalized = crate::platform::common::normalize_display_path(path);
-    format!("'{}'", normalized.replace('\'', "'\\''"))
+    crate::platform::claude_path_for_shell(path)
 }
 
 /// Generate a protocol from selected pipeline files.

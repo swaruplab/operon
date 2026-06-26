@@ -271,20 +271,102 @@ fn claude_shell() -> Result<String, String> {
 /// the baseline, so this doesn't shadow custom toolchains.
 #[cfg(not(target_os = "windows"))]
 fn enforce_baseline_path(cmd: &mut tokio::process::Command) {
-    const BASELINE: &str = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin";
+    // System dirs FIRST so coreutils a login profile calls (id/uname/stat)
+    // resolve even under launchd's minimal env (the original purpose here).
+    const SYSTEM: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+    // Then every known tool-install dir (homebrew, /usr/local/bin, ~/.local/bin,
+    // ~/.claude/local/bin, ~/.npm-global/bin, Operon-managed node). This makes a
+    // bare `claude` (or `node`, for an npm-shim install) resolve even when Operon
+    // was launched from Finder/Dock with launchd's minimal PATH and the user's
+    // PATH lines live only in .zshrc — the exact "command not found: claude"
+    // case. Belt-and-suspenders with the absolute-path substitution below.
+    let mut parts = vec![SYSTEM.to_string()];
+    parts.extend(
+        crate::platform::extra_tool_paths()
+            .iter()
+            .map(|p| p.to_string_lossy().to_string()),
+    );
     let inherited = std::env::var("PATH").unwrap_or_default();
-    let merged = if inherited.is_empty() {
-        BASELINE.to_string()
-    } else {
-        format!("{}:{}", BASELINE, inherited)
-    };
-    cmd.env("PATH", merged);
+    if !inherited.is_empty() {
+        parts.push(inherited);
+    }
+    cmd.env("PATH", parts.join(":"));
 }
 
 #[cfg(target_os = "windows")]
 fn enforce_baseline_path(_cmd: &mut tokio::process::Command) {
     // Windows: PATH baseline is handled separately by claude_shell()'s
     // Git Bash resolver and CLAUDE_CODE_GIT_BASH_PATH.
+}
+
+/// Replace the `claude` command word in a built command string with an absolute,
+/// quoted path (when resolvable) so the spawned login shell never depends on its
+/// PATH to find `claude`. Anchored to shell-token boundaries — the start of the
+/// string, or a `| ` pipe — so a single-quoted file path that merely CONTAINS
+/// "claude " (e.g. a project under `~/claude tools/`) is never rewritten. No-op
+/// when the path can't be resolved (keeps bare `claude`) and on Windows (where
+/// `claude_invocation()` intentionally returns the bare name).
+fn substitute_claude_invocation(cmd: &str) -> String {
+    replace_claude_token(cmd, &crate::platform::claude_invocation())
+}
+
+/// Pure anchoring logic for [`substitute_claude_invocation`] (separated so it can
+/// be unit-tested without touching the filesystem). Rewrites the `claude` command
+/// word only at a shell-token boundary — the very start of the string, or right
+/// after a `| ` pipe — never an arbitrary substring.
+fn replace_claude_token(cmd: &str, invoke: &str) -> String {
+    if invoke == "claude" {
+        return cmd.to_string();
+    }
+    if let Some(rest) = cmd.strip_prefix("claude ") {
+        format!("{} {}", invoke, rest)
+    } else if let Some(idx) = cmd.find("| claude ") {
+        format!(
+            "{}| {} {}",
+            &cmd[..idx],
+            invoke,
+            &cmd[idx + "| claude ".len()..]
+        )
+    } else {
+        cmd.to_string()
+    }
+}
+
+#[cfg(test)]
+mod claude_token_tests {
+    use super::replace_claude_token;
+
+    #[test]
+    fn rewrites_leading_command() {
+        assert_eq!(
+            replace_claude_token("claude -p 'hi' --verbose", "'/Users/x/.local/bin/claude'"),
+            "'/Users/x/.local/bin/claude' -p 'hi' --verbose"
+        );
+    }
+
+    #[test]
+    fn rewrites_after_pipe_in_report_mode() {
+        assert_eq!(
+            replace_claude_token("cat '/tmp/p.txt' | claude -p --verbose", "'/abs/claude'"),
+            "cat '/tmp/p.txt' | '/abs/claude' -p --verbose"
+        );
+    }
+
+    #[test]
+    fn never_touches_claude_inside_a_quoted_path() {
+        // A project dir that merely contains "claude " must NOT be rewritten.
+        let cmd = "cat '/Users/x/claude tools/p.txt' | claude -p";
+        assert_eq!(
+            replace_claude_token(cmd, "'/abs/claude'"),
+            "cat '/Users/x/claude tools/p.txt' | '/abs/claude' -p"
+        );
+    }
+
+    #[test]
+    fn noop_when_unresolved() {
+        let cmd = "claude -p 'hi'";
+        assert_eq!(replace_claude_token(cmd, "claude"), cmd);
+    }
 }
 
 /// True if a line of stderr looks like a benign coreutil-not-found from the
@@ -487,13 +569,13 @@ pub async fn check_claude_installed() -> Result<ClaudeStatus, String> {
         });
     }
 
-    let (path, _) = tool_info.unwrap();
-
-    let version_output = login_shell_cmd("claude --version").output().ok();
-
-    let version = version_output
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    // `check_tool` already returns a version — resolved via the same path it
+    // found (login shell OR the Finder-safe dir-probe), so don't re-run a bare
+    // `claude --version` here (that fails on Finder/Dock launches).
+    let (path, version_str) = tool_info.unwrap();
+    let version = Some(version_str)
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
 
     Ok(ClaudeStatus {
         installed: true,
@@ -3409,6 +3491,9 @@ pub async fn start_claude_session(
         } else {
             format!("unset {}; ", provider_unset.join(" "))
         };
+        // Pin `claude` to its absolute path (Unix) so a Finder/Dock launch — whose
+        // login shell can't see ~/.local/bin — still finds it. No-op on Windows.
+        let claude_cmd = substitute_claude_invocation(&claude_cmd);
         let wrapped_cmd = format!("{}{}", unset_prefix, claude_cmd);
         let mut c = AsyncCommand::new(&shell);
         // On Windows the shell is Git Bash (MSYS2). It re-parses the Windows

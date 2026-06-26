@@ -165,6 +165,22 @@ pub fn get_research_catalog() -> Vec<MCPCatalogEntry> {
 
 // ─── Sync MCP servers into Claude Code's native config ──────────────────────
 
+/// Build a `shell_exec` command that runs Claude Code's CLI with the resolved
+/// absolute path (Unix) and an augmented PATH. Without this, MCP sync runs a
+/// bare `claude mcp …` whose login shell can't see `~/.local/bin` on a
+/// Finder/Dock launch — the same "command not found: claude" failure as the
+/// chat path. `claude_invocation()` is the bare name on Windows by design (Git
+/// Bash resolves it), and the augmented PATH also surfaces an npm-shim `node`.
+fn claude_cli(args: &str) -> std::process::Command {
+    let mut cmd = crate::platform::shell_exec(&format!(
+        "{} {}",
+        crate::platform::claude_invocation(),
+        args
+    ));
+    cmd.env("PATH", crate::platform::augmented_path());
+    cmd
+}
+
 /// Register a single MCP server with Claude Code using `claude mcp add-json`.
 /// This makes the server visible to the Claude agent natively (no --mcp-config needed).
 /// If the server already exists, it is removed first so env/config updates take effect.
@@ -174,8 +190,8 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
     // changes. Routed through the platform shell so Windows finds `claude`
     // even when it is an npm shim (`claude.cmd`) that `Command::new` can
     // neither resolve via PATHEXT nor execute directly.
-    let _ = crate::platform::shell_exec(&format!(
-        "claude mcp remove {} -s user",
+    let _ = claude_cli(&format!(
+        "mcp remove {} -s user",
         shell_escape(&server.name)
     ))
     .output(); // ignore errors — server may not exist yet
@@ -189,8 +205,8 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
     let json_str = serde_json::to_string(&serde_json::Value::Object(config_obj))
         .map_err(|e| format!("Failed to serialize MCP config: {}", e))?;
 
-    let output = crate::platform::shell_exec(&format!(
-        "claude mcp add-json {} {} -s user",
+    let output = claude_cli(&format!(
+        "mcp add-json {} {} -s user",
         shell_escape(&server.name),
         shell_escape(&json_str)
     ))
@@ -209,9 +225,9 @@ fn claude_mcp_add(server: &MCPServerConfig) -> Result<(), String> {
 
 /// Remove an MCP server from Claude Code using `claude mcp remove`.
 fn claude_mcp_remove(name: &str) -> Result<(), String> {
-    // Via the platform shell — see `claude_mcp_add` for why.
-    let output = crate::platform::shell_exec(&format!(
-        "claude mcp remove {} -s user",
+    // Via the platform shell + resolved absolute claude — see `claude_cli`.
+    let output = claude_cli(&format!(
+        "mcp remove {} -s user",
         crate::platform::common::shell_escape(name)
     ))
     .output()

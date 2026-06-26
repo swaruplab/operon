@@ -115,7 +115,10 @@ fn git_companion(tool: &str) -> Option<String> {
     // Operon already uses: <git>\usr\bin\, derived from <git>\bin\bash.exe.
     let bash = crate::platform::find_git_bash_path()?;
     let git_root = std::path::Path::new(&bash).parent()?.parent()?;
-    let p = git_root.join("usr").join("bin").join(format!("{}.exe", tool));
+    let p = git_root
+        .join("usr")
+        .join("bin")
+        .join(format!("{}.exe", tool));
     if p.exists() {
         Some(p.to_string_lossy().to_string())
     } else {
@@ -219,8 +222,11 @@ static ASKPASS_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn write_askpass_script() -> Result<std::path::PathBuf, String> {
     let nonce = ASKPASS_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = crate::platform::temp_dir()
-        .join(format!("operon-askpass-{}-{}.sh", std::process::id(), nonce));
+    let path = crate::platform::temp_dir().join(format!(
+        "operon-askpass-{}-{}.sh",
+        std::process::id(),
+        nonce
+    ));
     let body = b"#!/bin/sh\nprintf '%s\\n' \"$OPERON_KEY_PASSPHRASE\"\n";
     #[cfg(unix)]
     {

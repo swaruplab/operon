@@ -259,8 +259,8 @@ use commands::settings::SettingsManager;
 use commands::ssh::SSHManager;
 use commands::ssh::{get_ssh_socket_path, prepare_ssh_auth};
 use commands::sshauth::{
-    add_ssh_key_passphrase, delete_ssh_key_passphrase, has_ssh_key_passphrase, key_needs_passphrase,
-    set_ssh_key_passphrase,
+    add_ssh_key_passphrase, delete_ssh_key_passphrase, has_ssh_key_passphrase,
+    key_needs_passphrase, set_ssh_key_passphrase,
 };
 use commands::terminal::TerminalManager;
 use commands::watchdog::WatchdogManager;
