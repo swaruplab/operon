@@ -117,6 +117,18 @@ fn bundled_models() -> Vec<ModelInfo> {
             created_at: "2026-05-01T00:00:00Z".to_string(),
             max_input_tokens: 1_000_000,
             max_tokens: 128_000,
+            capabilities: ModelCapabilities {
+                effort: all_effort.clone(),
+            },
+        },
+        ModelInfo {
+            id: "claude-sonnet-5".to_string(),
+            display_name: "Claude Sonnet 5".to_string(),
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            // Sonnet 5 is the first Sonnet-tier model to support the full effort
+            // range, including `xhigh` and `max` — same capabilities as Opus 4.8.
             capabilities: ModelCapabilities { effort: all_effort },
         },
         ModelInfo {
@@ -138,6 +150,46 @@ fn bundled_models() -> Vec<ModelInfo> {
             capabilities: ModelCapabilities { effort: no_effort },
         },
     ]
+}
+
+/// Anthropic's `GET /v1/models` returns id / display_name / created_at but NOT
+/// the per-model effort ("thinking") capabilities or token limits Operon needs
+/// to drive the effort selector. Without this overlay every fetched model comes
+/// back with `effort.supported == false`, so the moment a user sets an API key
+/// (which triggers a fetch and overwrites the cache) the effort dropdown
+/// silently disappears — even for models that clearly support it (Opus, Sonnet
+/// 5). This re-applies the curated capabilities from `bundled_models()` by exact
+/// id, backfills token limits / display names the fetch left empty, and unions
+/// in any bundled model the fetch didn't return (e.g. a brand-new model not yet
+/// listed in `/v1/models`) so a freshly shipped model like Sonnet 5 is always
+/// selectable with its full effort range regardless of the fetch path.
+fn enrich_fetched_models(mut fetched: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    let bundled = bundled_models();
+    for m in fetched.iter_mut() {
+        let Some(b) = bundled.iter().find(|b| b.id == m.id) else {
+            continue;
+        };
+        // Only overlay when the fetch gave us nothing — never clobber real caps
+        // a future API version might start returning.
+        if !m.capabilities.effort.supported {
+            m.capabilities = b.capabilities.clone();
+        }
+        if m.max_tokens == 0 {
+            m.max_tokens = b.max_tokens;
+        }
+        if m.max_input_tokens == 0 {
+            m.max_input_tokens = b.max_input_tokens;
+        }
+        if m.display_name.is_empty() {
+            m.display_name = b.display_name.clone();
+        }
+    }
+    for b in bundled {
+        if !fetched.iter().any(|m| m.id == b.id) {
+            fetched.push(b);
+        }
+    }
+    fetched
 }
 
 fn read_cache() -> Option<ModelsCache> {
@@ -206,7 +258,7 @@ pub async fn fetch_anthropic_models(api_key: String) -> Result<Vec<ModelInfo>, S
     if trimmed.is_empty() {
         return Err("API key is empty".to_string());
     }
-    let models = fetch_from_anthropic(trimmed).await?;
+    let models = enrich_fetched_models(fetch_from_anthropic(trimmed).await?);
     let cache = ModelsCache {
         fetched_at: now_unix(),
         models: models.clone(),
@@ -273,11 +325,105 @@ pub async fn refresh_models_if_stale(api_key: Option<String>) -> Result<bool, St
         Ok(models) => {
             let cache = ModelsCache {
                 fetched_at: now_unix(),
-                models,
+                models: enrich_fetched_models(models),
             };
             let _ = write_cache(&cache);
             Ok(true)
         }
         Err(_) => Ok(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sonnet_5_is_bundled_with_full_effort() {
+        let models = bundled_models();
+        let s5 = models
+            .iter()
+            .find(|m| m.id == "claude-sonnet-5")
+            .expect("sonnet 5 must be bundled");
+        assert!(s5.capabilities.effort.supported);
+        assert!(s5.capabilities.effort.high.supported);
+        assert!(s5.capabilities.effort.max.supported);
+        assert!(s5.capabilities.effort.xhigh.supported);
+        assert_eq!(s5.max_input_tokens, 1_000_000);
+        assert_eq!(s5.max_tokens, 128_000);
+        // The claude command assembler gates `--effort` on this.
+        assert!(model_supports_effort_level("claude-sonnet-5", "max"));
+        assert!(model_supports_effort_level("claude-sonnet-5", "xhigh"));
+    }
+
+    #[test]
+    fn sonnet_4_6_still_caps_at_high() {
+        // Guard against accidentally giving 4.6 max/xhigh, which the CLI would reject.
+        assert!(model_supports_effort_level("claude-sonnet-4-6", "high"));
+        assert!(!model_supports_effort_level("claude-sonnet-4-6", "max"));
+        assert!(!model_supports_effort_level("claude-sonnet-4-6", "xhigh"));
+    }
+
+    #[test]
+    fn enrich_overlays_effort_onto_fetched_model_with_empty_caps() {
+        // Simulate what /v1/models actually returns: id + name, no capabilities.
+        let fetched = vec![ModelInfo {
+            id: "claude-sonnet-5".to_string(),
+            display_name: "Claude Sonnet 5".to_string(),
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            max_input_tokens: 0,
+            max_tokens: 0,
+            capabilities: ModelCapabilities::default(),
+        }];
+        let enriched = enrich_fetched_models(fetched);
+        let s5 = enriched.iter().find(|m| m.id == "claude-sonnet-5").unwrap();
+        assert!(
+            s5.capabilities.effort.supported,
+            "effort re-applied from bundled after a caps-less fetch"
+        );
+        assert!(s5.capabilities.effort.max.supported);
+        assert_eq!(s5.max_tokens, 128_000, "token limit backfilled");
+        assert_eq!(s5.max_input_tokens, 1_000_000);
+    }
+
+    #[test]
+    fn enrich_unions_in_bundled_models_missing_from_fetch() {
+        // A fetch that only returns opus must still yield a selectable Sonnet 5.
+        let fetched = vec![ModelInfo {
+            id: "claude-opus-4-8".to_string(),
+            display_name: "Claude Opus 4.8".to_string(),
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        let enriched = enrich_fetched_models(fetched);
+        assert!(
+            enriched.iter().any(|m| m.id == "claude-sonnet-5"),
+            "sonnet 5 unioned in from bundled"
+        );
+        let s5 = enriched.iter().find(|m| m.id == "claude-sonnet-5").unwrap();
+        assert!(s5.capabilities.effort.max.supported);
+    }
+
+    #[test]
+    fn enrich_preserves_real_caps_a_future_fetch_might_return() {
+        let mut caps = ModelCapabilities::default();
+        caps.effort.supported = true;
+        caps.effort.low.supported = true;
+        let fetched = vec![ModelInfo {
+            id: "claude-opus-4-8".to_string(),
+            display_name: "Claude Opus 4.8".to_string(),
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: caps,
+        }];
+        let enriched = enrich_fetched_models(fetched);
+        let opus = enriched.iter().find(|m| m.id == "claude-opus-4-8").unwrap();
+        // Fetched caps (only low) preserved; bundled all-effort NOT overlaid.
+        assert!(opus.capabilities.effort.supported);
+        assert!(opus.capabilities.effort.low.supported);
+        assert!(!opus.capabilities.effort.max.supported);
     }
 }

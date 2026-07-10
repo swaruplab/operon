@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import {
   Activity,
   RefreshCw,
@@ -136,6 +136,26 @@ export function JobsView() {
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
   }, [profileId, refresh]);
+
+  // A terminal-scraped sbatch id that failed to register (transient MFA/mux
+  // failure) used to vanish silently; now TerminalInstance emits this so we can
+  // tell the user why a job they just submitted isn't showing up.
+  useEffect(() => {
+    const un = listen<{ profileId: string; jobId: string; error: string }>(
+      'watchdog-register-failed',
+      (e) => {
+        if (!profileId || e.payload.profileId !== profileId) return;
+        setError(
+          `Couldn't register job ${e.payload.jobId} with the watchdog — ` +
+            `open an SSH terminal to this host and complete login (e.g. Duo). ` +
+            `The watcher reuses that authenticated connection.`,
+        );
+      },
+    );
+    return () => {
+      un.then((u) => u());
+    };
+  }, [profileId]);
 
   const install = async () => {
     if (!profileId) return;
@@ -366,10 +386,24 @@ export function JobsView() {
         {jobs.length === 0 ? (
           <div className="px-3 py-8 text-center text-xs text-subtle">
             <Clock className="w-5 h-5 mx-auto mb-2 opacity-50" />
-            No jobs being watched.
-            <div className="mt-1 text-[10px]">
-              Submit an sbatch in any terminal — Operon auto-registers it.
-            </div>
+            {error ? (
+              <>
+                Couldn&rsquo;t reach the watchdog.
+                <div className="mt-1 text-[10px]">
+                  Open an SSH terminal to this host and complete login (e.g. Duo) —
+                  the job watcher reuses that authenticated connection.
+                </div>
+              </>
+            ) : (
+              <>
+                No jobs being watched.
+                <div className="mt-1 text-[10px]">
+                  Submit an sbatch in any terminal — Operon auto-registers it. Once
+                  the watchdog is running it also picks up your live SLURM jobs
+                  automatically.
+                </div>
+              </>
+            )}
           </div>
         ) : (
           jobs.map((job) => {

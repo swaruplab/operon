@@ -16,8 +16,10 @@ export function UpdateChecker() {
   const [progress, setProgress] = useState(0);
   const [dismissed, setDismissed] = useState(false);
 
-  // Skip update checks in dev mode
-  const isDev = __APP_VERSION__ === 'dev';
+  // Skip update checks for dev-server ('dev') and local/uncommitted builds
+  // ('<version>-dev') — the updater must never offer to replace a hand-built
+  // test app with a published release.
+  const isDev = __APP_VERSION__ === 'dev' || __APP_VERSION__.endsWith('-dev');
 
   const checkForUpdate = useCallback(async () => {
     if (isDev) return;

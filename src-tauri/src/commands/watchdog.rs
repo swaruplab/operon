@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
-use super::ssh::{ssh_exec, SSHManager};
+use super::ssh::{ssh_exec, SSHManager, SSHProfile};
 
 // ─── Scheduler abstraction ───────────────────────────────────────────────
 
@@ -203,19 +203,28 @@ pub async fn install_watchdog(
         .cloned()
         .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
 
+    super::ssh::ensure_live_connection(&profile)?;
+    do_install_watchdog(&profile)
+}
+
+/// Core install logic — the caller has already resolved the profile and
+/// preflighted the connection. Idempotent: re-uploading the embedded script is
+/// harmless and policy.json is only seeded if absent. Shared by
+/// `install_watchdog` and `bootstrap_watchdog`.
+fn do_install_watchdog(profile: &SSHProfile) -> Result<(), String> {
     // Embedded script — avoids depending on the distribution layout.
     let script = include_str!("../../../scripts/operon-watchdog.sh");
     let b64 = base64::engine::general_purpose::STANDARD.encode(script.as_bytes());
 
     // mkdir, decode, chmod +x
     let mkdir_cmd = format!("mkdir -p {}/jobs && chmod 700 {}", REMOTE_DIR, REMOTE_DIR);
-    ssh_exec(&profile, &mkdir_cmd).map_err(|e| format!("mkdir failed: {}", e))?;
+    ssh_exec(profile, &mkdir_cmd).map_err(|e| format!("mkdir failed: {}", e))?;
 
     let write_cmd = format!(
         "printf %s {} | base64 -d > {} && chmod +x {}",
         b64, REMOTE_SCRIPT, REMOTE_SCRIPT
     );
-    ssh_exec(&profile, &write_cmd).map_err(|e| format!("upload failed: {}", e))?;
+    ssh_exec(profile, &write_cmd).map_err(|e| format!("upload failed: {}", e))?;
 
     // Seed a default policy if none exists.
     let default_policy = serde_json::to_string(&JobPolicy::default())
@@ -225,7 +234,7 @@ pub async fn install_watchdog(
         dir = REMOTE_DIR,
         json = shell_quote(&default_policy),
     );
-    ssh_exec(&profile, &policy_cmd).map_err(|e| format!("policy seed failed: {}", e))?;
+    ssh_exec(profile, &policy_cmd).map_err(|e| format!("policy seed failed: {}", e))?;
 
     Ok(())
 }
@@ -246,6 +255,14 @@ pub async fn start_watchdog(
         .cloned()
         .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
 
+    super::ssh::ensure_live_connection(&profile)?;
+    do_start_watchdog(&profile)
+}
+
+/// Core start logic — profile resolved and connection preflighted by the caller.
+/// Idempotent via `tmux has-session || tmux new-session`. Shared by
+/// `start_watchdog` and `bootstrap_watchdog`.
+fn do_start_watchdog(profile: &SSHProfile) -> Result<(), String> {
     // `-A` attaches if the session exists, creates if not. Combined with `-d`
     // we get idempotent "detached, running" semantics. Inside the session we
     // run the script in a loop so if it crashes tmux shows the error.
@@ -263,8 +280,42 @@ pub async fn start_watchdog(
         session = TMUX_SESSION,
         script = REMOTE_SCRIPT,
     );
-    ssh_exec(&profile, &cmd).map_err(|e| format!("start failed: {}", e))?;
+    ssh_exec(profile, &cmd).map_err(|e| format!("start failed: {}", e))?;
     Ok(())
+}
+
+/// Idempotently detect + install + start the watchdog in one round of calls.
+/// Invoked from the SSH connect flow so the daemon runs for users who never open
+/// the Jobs panel. Rides the interactive session's already-authenticated
+/// ControlMaster (see `ensure_live_connection`). Quietly no-ops on non-SLURM
+/// hosts so a laptop/VM never gets a stray `~/.operon` or daemon. Returns the
+/// detected scheduler ("slurm" when it bootstrapped, otherwise e.g. "none").
+#[tauri::command]
+pub async fn bootstrap_watchdog(
+    ssh_state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = ssh_state
+        .profiles
+        .lock()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .find(|p| p.id == profile_id)
+        .cloned()
+        .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
+
+    super::ssh::ensure_live_connection(&profile)?;
+
+    // Only SLURM is wired end-to-end; skip quietly on anything else.
+    let sched = ssh_exec(&profile, Scheduler::detect_script())?
+        .trim()
+        .to_string();
+    if sched != "slurm" {
+        return Ok(sched);
+    }
+    do_install_watchdog(&profile)?;
+    do_start_watchdog(&profile)?;
+    Ok(sched)
 }
 
 /// Kill the tmux session (and thus the watchdog) on the remote host.
@@ -306,6 +357,8 @@ pub async fn watchdog_status(
         .find(|p| p.id == profile_id)
         .cloned()
         .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
+
+    super::ssh::ensure_live_connection(&profile)?;
 
     // single round-trip — prints 5 lines we parse.
     let script = r#"
@@ -365,6 +418,8 @@ pub async fn register_watched_job(
         .find(|p| p.id == profile_id)
         .cloned()
         .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
+
+    super::ssh::ensure_live_connection(&profile)?;
 
     let sched = scheduler.unwrap_or_else(|| "slurm".to_string());
     let sbatch = sbatch_path.unwrap_or_default();
@@ -437,7 +492,11 @@ pub async fn list_watched_jobs(
         .find(|p| p.id == profile_id)
         .cloned()
         .ok_or_else(|| format!("SSH profile {} not found", profile_id))?;
-    let out = ssh_exec(&profile, "cat $HOME/.operon/watchlist 2>/dev/null").unwrap_or_default();
+    super::ssh::ensure_live_connection(&profile)?;
+    // `|| true` forces exit 0 even when the watchlist file doesn't exist yet, so
+    // `?` only surfaces a genuine SSH transport failure — a missing file is a
+    // legitimately-empty list, not an error (`cat missing 2>/dev/null` exits 1).
+    let out = ssh_exec(&profile, "cat $HOME/.operon/watchlist 2>/dev/null || true")?;
     let mut jobs = Vec::new();
     for line in out.lines() {
         let fields: Vec<&str> = line.split('\t').collect();

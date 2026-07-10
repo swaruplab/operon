@@ -207,6 +207,41 @@ fn ensure_control_master(profile: &SSHProfile) -> Result<bool, String> {
     }
 }
 
+/// Preflight for non-interactive (BatchMode) callers like the HPC job watchdog:
+/// confirm we can reach `profile` WITHOUT an interactive prompt, or return an
+/// actionable error.
+///
+/// Every watchdog SSH call ultimately runs under `BatchMode=yes`, which disables
+/// keyboard-interactive auth. On a Duo/MFA cluster that can only succeed by
+/// riding a ControlMaster the user already authenticated from an interactive
+/// terminal. Without this preflight the failure surfaces as an opaque
+/// "transient SSH error"; with it, the watchdog can tell the user exactly what
+/// to do. Returns `Ok` when a live master exists (or we can cold-start one with
+/// a key), and a human-readable `Err` otherwise. No-op (Ok) on Windows, whose
+/// persistent `WinSshExecChannel` manages its own connection lifecycle.
+pub(crate) fn ensure_live_connection(profile: &SSHProfile) -> Result<(), String> {
+    if !crate::platform::supports_ssh_mux() {
+        return Ok(());
+    }
+    // Load a stored-passphrase key into the agent first (no-op for keys without
+    // a passphrase / already loaded) so a key-only cold start can authenticate.
+    crate::commands::sshauth::ensure_key_loaded(profile);
+    if live_control_socket(profile).is_some() {
+        return Ok(());
+    }
+    if profile.use_control_master {
+        if let Ok(true) = ensure_control_master(profile) {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "No live SSH connection to {}. Open an SSH terminal to this host and \
+         complete login (e.g. Duo) — the HPC job watchdog reuses your terminal's \
+         already-authenticated connection.",
+        profile.host
+    ))
+}
+
 // ── Cache ──
 
 /// A single cached value with an expiration time.

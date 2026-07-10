@@ -8,6 +8,8 @@ use commands::{
     batch_delete_remote_files,
     batch_read_file_previews,
     batch_read_remote_file_previews,
+    // Watchdog (Operon 0.6.1 — HPC job monitoring)
+    bootstrap_watchdog,
     browse_extensions_by_category,
     check_auth_status,
     // Claude Code
@@ -39,7 +41,6 @@ use commands::{
     delete_session,
     delete_ssh_profile,
     detect_custom_models,
-    // Watchdog (Operon 0.6.1 — HPC job monitoring)
     detect_scheduler,
     detect_server_config,
     disable_extension,
@@ -535,6 +536,7 @@ pub fn run() {
             open_url,
             get_platform_info,
             // Watchdog (Operon 0.6.1)
+            bootstrap_watchdog,
             detect_scheduler,
             install_watchdog,
             start_watchdog,

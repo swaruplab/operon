@@ -32,6 +32,12 @@ import {
   addKeyPassphrase,
 } from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
+import { bootstrapWatchdog } from '../../lib/watchdog';
+
+// Profiles whose HPC watchdog we've already auto-bootstrapped this session.
+// Module-level (not component state) so it survives the sidebar unmounting when
+// the panel is toggled, and so we don't re-upload/re-start on every reconnect.
+const watchdogBootstrapped = new Set<string>();
 
 interface SSHViewProps {
   onConnectSSH?: (profileId: string, terminalId: string) => void;
@@ -487,6 +493,21 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
       tmuxSession: usedTmux ? tmuxSession : null,
     });
     onConnectSSH?.(profile.id, terminalId);
+
+    // Auto-bootstrap the HPC job watchdog once per session. Idempotent on the
+    // remote; delayed so it rides the just-authenticated ControlMaster instead
+    // of racing a fresh (MFA-incapable) connection. Quietly no-ops on non-SLURM
+    // hosts, so a plain server never gets a stray ~/.operon or daemon.
+    if (!watchdogBootstrapped.has(profile.id)) {
+      watchdogBootstrapped.add(profile.id);
+      setTimeout(() => {
+        bootstrapWatchdog(profile.id).catch(() => {
+          // No live master yet / not SLURM — clear the guard so the next
+          // connect retries. The Jobs panel's Install/Start remain available.
+          watchdogBootstrapped.delete(profile.id);
+        });
+      }, 6000);
+    }
 
     // Auto-detect server config on first connect if not yet configured
     const hasConfig = profile.server_config && Object.values(profile.server_config).some(v => v?.trim());

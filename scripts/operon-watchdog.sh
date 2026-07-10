@@ -199,6 +199,33 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 while :; do
+  # ── discovery: adopt every live job this user owns ────────────────────────
+  # The Operon client only auto-registers sbatch jobs typed into its OWN ssh
+  # terminal. Jobs Claude submits in HPC mode (stdout redirected to a file) and
+  # anything launched from another shell would otherwise never be watched. Poll
+  # squeue for the user's live jobs and adopt any we aren't already tracking.
+  # Set OPERON_WATCHDOG_DISCOVER=0 to disable. Discovered jobs carry no sbatch
+  # path, so auto-resubmit is skipped for them (monitoring only) — correct,
+  # since Operon didn't author them.
+  if [ "${OPERON_WATCHDOG_DISCOVER:-1}" = "1" ] && command -v squeue >/dev/null 2>&1; then
+    _me="${USER:-$(id -un 2>/dev/null)}"
+    if [ -n "$_me" ]; then
+      squeue -h -r -u "$_me" -o '%i' -t PENDING,RUNNING,CONFIGURING,RESIZING 2>/dev/null \
+      | while IFS= read -r _jid; do
+          _jid="${_jid//[[:space:]]/}"
+          # Only bare numeric or array-element ids (12345 / 12345_0). Skip pending
+          # array ranges like 12345_[2-9], which sacct can't resolve per-task.
+          case "$_jid" in
+            ''|*[!0-9_]*) continue ;;
+          esac
+          if [ ! -s "$WATCHLIST" ] || ! grep -q "^$_jid"$'\t' "$WATCHLIST" 2>/dev/null; then
+            printf '%s\t%s\t%s\t%s\t%s\n' "$_jid" slurm "$(now_ms)" "" 0 >> "$WATCHLIST"
+            emit_event "$_jid" "$(printf '{"ts":%s,"type":"discovered","source":"squeue"}' "$(now_ms)")"
+          fi
+        done
+    fi
+  fi
+
   # Swap the watchlist: we rebuild a fresh copy that excludes terminal jobs.
   if [ -s "$WATCHLIST" ]; then
     tmp="$WATCHLIST.tmp.$$"

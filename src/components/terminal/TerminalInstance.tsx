@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getSettings } from '../../lib/settings';
 import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
 import { useTheme } from '../../context/ThemeContext';
@@ -348,6 +348,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
     // prints exactly this one line, so we only need the tail of the stream.
     let sbatchBuffer = '';
     const registered = new Set<string>();
+    const registerInFlight = new Set<string>();
 
     // Listen for PTY output from Rust backend
     listen<{ output: string }>(`pty-output-${terminalId}`, (event) => {
@@ -359,9 +360,28 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
         sbatchBuffer = (sbatchBuffer + data.replace(ANSI_REGEX, '')).slice(-4096);
         const ids = parseSbatchIds(sbatchBuffer);
         for (const id of ids) {
-          if (registered.has(id)) continue;
-          registered.add(id);
-          registerWatchedJob(sshProfileId, id, 'slurm', null).catch(() => {});
+          if (registered.has(id) || registerInFlight.has(id)) continue;
+          // Only commit to `registered` on SUCCESS. A dropped registration —
+          // e.g. a transient MFA/mux blip where the watchdog's non-interactive
+          // ssh can't authenticate — must be retried on the next output chunk,
+          // not silently lost the way `registered.add()` before the call did.
+          registerInFlight.add(id);
+          registerWatchedJob(sshProfileId, id, 'slurm', null)
+            .then(() => {
+              registered.add(id);
+            })
+            .catch((e) => {
+              // Surface the drop so the Jobs panel can flag it; leaving `id` out
+              // of `registered` lets the next chunk retry once auth recovers.
+              emit('watchdog-register-failed', {
+                profileId: sshProfileId,
+                jobId: id,
+                error: String(e),
+              });
+            })
+            .finally(() => {
+              registerInFlight.delete(id);
+            });
         }
       }
 

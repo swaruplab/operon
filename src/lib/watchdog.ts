@@ -51,6 +51,13 @@ export async function startWatchdog(profileId: string): Promise<void> {
   return invoke('start_watchdog', { profileId });
 }
 
+/** Detect + install + start in one idempotent call — used by the
+ * auto-bootstrap-on-connect flow. Returns the detected scheduler
+ * ("slurm" when it bootstrapped, otherwise e.g. "none"). */
+export async function bootstrapWatchdog(profileId: string): Promise<string> {
+  return invoke('bootstrap_watchdog', { profileId });
+}
+
 export async function stopWatchdog(profileId: string): Promise<void> {
   return invoke('stop_watchdog', { profileId });
 }
