@@ -40,6 +40,26 @@ fn default_ssh_tmux_session() -> String {
     "operon-main".to_string()
 }
 
+fn default_hpc_restrict_login_node() -> bool {
+    true
+}
+
+fn default_reviewer_enabled() -> bool {
+    true
+}
+
+fn default_reviewer_model() -> String {
+    "claude-sonnet-5".to_string()
+}
+
+fn default_reviewer_effort() -> String {
+    "low".to_string()
+}
+
+fn default_reviewer_auto_sbatch() -> bool {
+    true
+}
+
 fn default_effort() -> String {
     // Matches Anthropic's documented default for Opus 4.8 (the latest at ship
     // time). For models that don't support `effort` at all (e.g. Haiku 4.5)
@@ -153,6 +173,42 @@ pub struct AppSettings {
     /// surfaces warn-only banners at 75% and 100% of this budget. 0 disables.
     #[serde(default = "default_session_time_budget_minutes")]
     pub session_time_budget_minutes: u32,
+    // ── Light code reviewer ──
+    /// Master switch for the checklist-driven code reviewer. It runs as a
+    /// one-shot call on a *different* model with a *fresh* context (a model
+    /// grading its own conversation is the weakest possible check).
+    #[serde(default = "default_reviewer_enabled")]
+    pub reviewer_enabled: bool,
+    /// Model used for reviews. Deliberately cheaper/faster than the actor model
+    /// — and deliberately a *different* model, so its blind spots differ.
+    #[serde(default = "default_reviewer_model")]
+    pub reviewer_model: String,
+    /// Effort for the reviewer. `low` is right for routine passes; bump it for
+    /// the pre-submit review if you want a harder look.
+    #[serde(default = "default_reviewer_effort")]
+    pub reviewer_effort: String,
+    /// Auto-review the sbatch script before submitting to the cluster. This is
+    /// the highest-value trigger: a few seconds of review against hours of
+    /// queued compute. Advisory — you can always submit anyway.
+    #[serde(default = "default_reviewer_auto_sbatch")]
+    pub reviewer_auto_sbatch: bool,
+    // ── HPC login-node policy ──
+    /// When true (default), Operon does NOT run Claude auth/dependency checks on
+    /// the remote LOGIN node — some HPC sites (e.g. UCI RCIC) auto-kill any
+    /// `.claude` process on a login node. Setup (install / `claude login`) may
+    /// still use the login node via the manual buttons; everyday work runs on
+    /// the compute node, where the agent surfaces any missing-Claude / expired-
+    /// login problem.
+    #[serde(default = "default_hpc_restrict_login_node")]
+    pub hpc_restrict_login_node: bool,
+    /// Profile ids whose remote Claude install has been verified at least once.
+    /// Drives "auto-detect first run": when `hpc_restrict_login_node` is on,
+    /// Operon still runs the one-time login-node deps/auth check the FIRST time
+    /// it sees a profile (initial setup is allowed on the login node); once
+    /// Claude is confirmed installed the id is recorded here and Operon never
+    /// probes the login node for it again.
+    #[serde(default)]
+    pub remote_claude_ready: Vec<String>,
 }
 
 impl Default for AppSettings {
@@ -189,6 +245,12 @@ impl Default for AppSettings {
             ssh_auto_tmux: true,
             ssh_tmux_session: default_ssh_tmux_session(),
             session_time_budget_minutes: default_session_time_budget_minutes(),
+            reviewer_enabled: default_reviewer_enabled(),
+            reviewer_model: default_reviewer_model(),
+            reviewer_effort: default_reviewer_effort(),
+            reviewer_auto_sbatch: default_reviewer_auto_sbatch(),
+            hpc_restrict_login_node: default_hpc_restrict_login_node(),
+            remote_claude_ready: Vec::new(),
         }
     }
 }

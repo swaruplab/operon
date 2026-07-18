@@ -8,6 +8,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  ShieldCheck,
 } from 'lucide-react';
 import { listSSHProfiles, type SSHProfile } from '../../lib/ssh';
 import {
@@ -18,6 +19,9 @@ import {
   type SlurmJob,
   type SlurmJobSpec,
 } from '../../lib/slurm';
+import { reviewCode, type ReviewResult } from '../../lib/review';
+import { getSettings } from '../../lib/settings';
+import { ReviewFindings } from '../review/ReviewFindings';
 
 interface JobSubmissionPanelProps {
   initialProfileId?: string | null;
@@ -162,8 +166,66 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
   const preview = useMemo(() => buildSbatchPreview(spec), [spec]);
   const canSubmit = !!profileId && form.command.trim().length > 0 && !submitting;
 
+  // ── Pre-submit review ───────────────────────────────────────────────────
+  // The highest-leverage moment in the app: a few seconds of Sonnet against
+  // hours of queued cluster time. Strictly advisory — findings pause the submit
+  // once, then the button becomes "Submit anyway". A reviewer that is broken,
+  // slow, or missing must never stand between the user and their cluster.
+  const [reviewing, setReviewing] = useState(false);
+  const [review, setReview] = useState<ReviewResult | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  /** The exact script text the current review applies to (staleness guard). */
+  const [reviewedText, setReviewedText] = useState<string | null>(null);
+  const [autoReview, setAutoReview] = useState(true);
+
+  useEffect(() => {
+    getSettings()
+      .then((s) => setAutoReview(s.reviewer_enabled !== false && s.reviewer_auto_sbatch !== false))
+      .catch(() => {});
+  }, []);
+
+  // Editing the form changes the script — any existing review is now stale.
+  useEffect(() => {
+    if (reviewedText !== null && reviewedText !== preview) {
+      setReview(null);
+      setReviewError(null);
+      setReviewedText(null);
+    }
+  }, [preview, reviewedText]);
+
+  const runReview = useCallback(async (): Promise<ReviewResult | null> => {
+    setReviewing(true);
+    setReview(null);
+    setReviewError(null);
+    try {
+      const r = await reviewCode(preview, 'sbatch', form.jobName?.trim() || 'job.sbatch');
+      setReview(r);
+      setReviewedText(preview);
+      return r;
+    } catch (e) {
+      setReviewError(String(e));
+      // Mark as "reviewed" even on failure so a broken reviewer can't trap the
+      // user in a loop where Submit keeps retrying a review that never works.
+      setReviewedText(preview);
+      return null;
+    } finally {
+      setReviewing(false);
+    }
+  }, [preview, form.jobName]);
+
+  const hasFindings = !!review && review.findings.length > 0;
+  const reviewIsCurrent = reviewedText === preview;
+
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || reviewing) return;
+
+    // Gate once: if auto-review is on and this exact script hasn't been reviewed,
+    // review first and hold the submit if anything came back.
+    if (autoReview && !reviewIsCurrent) {
+      const r = await runReview();
+      if (r && r.findings.length > 0) return; // hold — user can now "Submit anyway"
+    }
+
     setSubmitting(true);
     setSubmitMsg(null);
     try {
@@ -386,14 +448,45 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
             </div>
           )}
 
-          <button
-            onClick={submit}
-            disabled={!canSubmit}
-            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-surface disabled:text-subtle text-white text-xs rounded transition-colors"
-          >
-            <Send className="w-3.5 h-3.5" />
-            {submitting ? 'Submitting…' : 'Submit job'}
-          </button>
+          {/* Advisory second opinion, before this costs hours of queue time. */}
+          {(reviewing || review || reviewError) && (
+            <ReviewFindings
+              result={review}
+              loading={reviewing}
+              error={reviewError}
+              target={form.jobName?.trim() || 'job.sbatch'}
+            />
+          )}
+
+          <div className="flex gap-1.5">
+            <button
+              onClick={runReview}
+              disabled={!profileId || !form.command.trim() || reviewing || submitting}
+              title="Review this sbatch script before submitting"
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-surface hover:bg-hover disabled:opacity-50 text-secondary text-xs rounded border border-border-default transition-colors shrink-0"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 pointer-events-none" />
+              {reviewing ? 'Reviewing…' : 'Review'}
+            </button>
+            <button
+              onClick={submit}
+              disabled={!canSubmit || reviewing}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 disabled:bg-surface disabled:text-subtle text-white text-xs rounded transition-colors ${
+                hasFindings && reviewIsCurrent
+                  ? 'bg-amber-600 hover:bg-amber-500'
+                  : 'bg-blue-600 hover:bg-blue-500'
+              }`}
+            >
+              <Send className="w-3.5 h-3.5 pointer-events-none" />
+              {submitting
+                ? 'Submitting…'
+                : reviewing
+                  ? 'Reviewing…'
+                  : hasFindings && reviewIsCurrent
+                    ? 'Submit anyway'
+                    : 'Submit job'}
+            </button>
+          </div>
         </div>
 
         {/* sbatch preview */}

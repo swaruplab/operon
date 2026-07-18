@@ -70,6 +70,7 @@ use commands::{
     get_extension_settings,
     get_home_dir,
     get_job_policy,
+    get_latest_claude_code_version,
     // MCP
     get_mcp_catalog,
     get_namespace_extensions,
@@ -161,6 +162,7 @@ use commands::{
     read_protocol,
     read_remote_file,
     read_remote_file_base64,
+    read_review_events,
     read_session_output,
     reconnect_session,
     reconnect_tail,
@@ -178,6 +180,8 @@ use commands::{
     request_user_attention,
     reset_ssh_diagnostics,
     resize_terminal,
+    // Light code reviewer (Sonnet 5, checklist-driven)
+    review_code,
     save_attachment_file,
     save_clipboard_image,
     save_protocol,
@@ -202,6 +206,7 @@ use commands::{
     search_pubmed,
     send_lsp_message,
     set_job_policy,
+    set_review_marker,
     setup_ssh_key,
     sftp_dir_download_with_progress,
     sftp_download_with_progress,
@@ -240,6 +245,7 @@ use commands::{
     unregister_watched_job,
     update_extension_settings,
     update_mcp_server_env,
+    update_remote_claude,
     update_session_claude_id,
     update_session_status,
     update_settings,
@@ -379,6 +385,8 @@ pub fn run() {
             install_phase_claude,
             check_remote_claude,
             check_remote_claude_auth,
+            get_latest_claude_code_version,
+            update_remote_claude,
             install_remote_claude,
             remote_claude_login,
             // SSH
@@ -535,6 +543,10 @@ pub fn run() {
             // Utilities
             open_url,
             get_platform_info,
+            // Light code reviewer
+            review_code,
+            read_review_events,
+            set_review_marker,
             // Watchdog (Operon 0.6.1)
             bootstrap_watchdog,
             detect_scheduler,
@@ -570,7 +582,7 @@ pub fn run() {
                 let state = window.state::<TerminalManager>();
                 let terminals = state.terminals.lock();
                 if let Ok(terminals) = terminals {
-                    for (_, handle) in terminals.iter() {
+                    for handle in terminals.values() {
                         if let Ok(mut child) = handle.child.lock() {
                             let _ = child.kill();
                         }

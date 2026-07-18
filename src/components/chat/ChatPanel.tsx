@@ -57,7 +57,25 @@ import { ReportPhasePanel } from '../report/ReportPhasePanel';
 import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
-import { getSettings, type AppSettings } from '../../lib/settings';
+import { getSettings, updateSettings, type AppSettings } from '../../lib/settings';
+import { readReviewEvents, setReviewMarker, type ReviewEvent } from '../../lib/review';
+import { ReviewActivity } from '../review/ReviewActivity';
+
+/** Pull the semver out of `claude --version` output ("2.1.209 (Claude Code)"). */
+function parseClaudeVersion(raw?: string | null): string | null {
+  if (!raw) return null;
+  const m = raw.match(/(\d+\.\d+\.\d+)/);
+  return m ? m[1] : null;
+}
+/** True if version `a` is strictly older than `b` (both "x.y.z"). */
+function isVersionOlder(a: string, b: string): boolean {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) < (pb[i] || 0);
+  }
+  return false;
+}
 import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
@@ -1125,6 +1143,9 @@ export function ChatPanel() {
   const reconnectAttempts = useRef<number>(0);
   const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+  // Visible proof the Sonnet-5 pre-submit reviewer ran on the agent's sbatch:
+  // the review hook writes per-session records off-stream, and we poll them.
+  const [reviewEvents, setReviewEvents] = useState<ReviewEvent[]>([]);
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [model, setModel] = useState('claude-opus-4-8');
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom' | 'portkey'>('anthropic');
@@ -1157,6 +1178,34 @@ export function ChatPanel() {
   const [authState, setAuthState] = useState<{ authenticated: boolean; method: string } | null>(null);
   const [mode, setMode] = useState<ClaudeMode>('agent');
   const [remoteInfo, setRemoteInfo] = useState<RemoteInfo | null>(null);
+  // HPC: when true (default), skip Claude deps/auth checks on the remote LOGIN
+  // node — some sites auto-kill any `.claude` process there. See settings.
+  const [restrictLoginNode, setRestrictLoginNode] = useState(true);
+  // Chat-box "Review sbatch" checkbox: whether the Sonnet-5 reviewer double-checks
+  // the agent's batch scripts before submit. Persisted default = reviewer_auto_sbatch;
+  // gated on the reviewer feature being enabled at all.
+  const [sbatchReviewOn, setSbatchReviewOn] = useState(true);
+  const [reviewerEnabled, setReviewerEnabled] = useState(true);
+  // Profile ids whose remote Claude install was verified once (auto-detect
+  // first run). A ref, not state: the connect effect reads it without wanting a
+  // re-run when it changes, and it's persisted to settings.
+  const remoteClaudeReadyRef = useRef<Set<string>>(new Set());
+
+  // Record a profile as Claude-ready (first-run detection) and persist it, so
+  // future connects skip the login-node probe entirely.
+  const markRemoteClaudeReady = useCallback(async (profileId: string) => {
+    if (remoteClaudeReadyRef.current.has(profileId)) return;
+    remoteClaudeReadyRef.current.add(profileId);
+    try {
+      const s = await getSettings();
+      const list = s.remote_claude_ready || [];
+      if (!list.includes(profileId)) {
+        await updateSettings({ ...s, remote_claude_ready: [...list, profileId] });
+      }
+    } catch {
+      /* best-effort; ref still short-circuits re-checks this session */
+    }
+  }, []);
   const [existingPlan, setExistingPlan] = useState<string | null>(null);
   // Report mode state
   const [reportPhase, setReportPhase] = useState<ReportPhase>('idle');
@@ -1193,10 +1242,16 @@ export function ChatPanel() {
     status: 'ok' | 'unreachable' | 'check-error' | 'install-needed';
     hasNode: boolean;
     hasClaude: boolean;
+    claudeVersion?: string | null; // raw `claude --version` output, when known
     hasAuth: boolean | null; // null = not checked yet
     installing: boolean;
     error: string | null;
   } | null>(null);
+
+  // Remote Claude Code version indicator (latest from npm, compared to installed)
+  const [latestClaudeVersion, setLatestClaudeVersion] = useState<string | null>(null);
+  const [updatingRemote, setUpdatingRemote] = useState(false);
+  const [remoteUpdateMsg, setRemoteUpdateMsg] = useState<string | null>(null);
 
   // Remote OAuth login flow
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
@@ -1213,12 +1268,27 @@ export function ChatPanel() {
   // the effect re-runs and polling resumes.
   useEffect(() => {
     if (
+      restrictLoginNode || // restricted cluster: never read ~/.claude on the login node
       !['ready', 'ready_no_url', 'fetching', 'code_sent'].includes(loginStatus) ||
       !remoteInfo?.profileId ||
       isStreaming
     )
       return;
+    // Bounded, slower poll. The old 5s UNBOUNDED interval kept firing a
+    // credential-check process at the LOGIN node indefinitely whenever a login
+    // stalled or was abandoned. On clusters that police login-node activity —
+    // e.g. UCI RCIC auto-kills any `.claude` process on a login node — that
+    // machine-guns their scanner (a stuck login overnight = kills at the next
+    // scan). Cap the attempts and back off so an unfinished login can't hammer
+    // the login node forever. (Full compliance still requires moving the check
+    // off the login node entirely — tracked separately.)
+    let attempts = 0;
+    const MAX_ATTEMPTS = 40; // ~10 min at 15s — generous for completing OAuth
     const interval = setInterval(async () => {
+      if (attempts++ >= MAX_ATTEMPTS) {
+        clearInterval(interval);
+        return;
+      }
       try {
         const authResult = await invoke<string>('check_remote_claude_auth', { profileId: remoteInfo.profileId });
         if (authResult === 'authenticated') {
@@ -1230,9 +1300,30 @@ export function ChatPanel() {
       } catch {
         // Ignore polling errors silently
       }
-    }, 5000);
+    }, 15000);
     return () => clearInterval(interval);
-  }, [loginStatus, remoteInfo?.profileId, isStreaming]);
+  }, [loginStatus, remoteInfo?.profileId, isStreaming, restrictLoginNode]);
+
+  // Poll the sbatch-review events for this session so a review chip appears
+  // (clean OR blocked). The review runs in a PreToolUse hook whose result never
+  // hits the stream, so this is the only way to surface it. Reviews happen while
+  // the agent streams — poll during, plus once more just after streaming stops.
+  useEffect(() => {
+    if (!sessionId) return;
+    let alive = true;
+    const load = () =>
+      readReviewEvents(sessionId, remoteInfo?.profileId).then((evs) => {
+        if (alive && evs.length) setReviewEvents(evs);
+      });
+    load();
+    const iv = isStreaming ? setInterval(load, 5000) : undefined;
+    const trailing = !isStreaming ? setTimeout(load, 2500) : undefined;
+    return () => {
+      alive = false;
+      if (iv) clearInterval(iv);
+      if (trailing) clearTimeout(trailing);
+    };
+  }, [sessionId, isStreaming, remoteInfo?.profileId]);
 
   // Voice dictation via native macOS speech recognition
   const [isDictating, setIsDictating] = useState(false);
@@ -1347,6 +1438,23 @@ export function ChatPanel() {
     return () => window.removeEventListener('chat-add-context', handler as EventListener);
   }, []);
 
+  // Toggle the sbatch reviewer from the chat box. The marker gives immediate
+  // effect for the current session; the setting persists the default (and keeps
+  // the Settings panel in sync).
+  const toggleSbatchReview = useCallback(
+    async (on: boolean) => {
+      setSbatchReviewOn(on);
+      setReviewMarker(!on, remoteInfo?.profileId);
+      try {
+        const s = await getSettings();
+        await updateSettings({ ...s, reviewer_auto_sbatch: on });
+      } catch {
+        /* best-effort — the marker already applied the change for this session */
+      }
+    },
+    [remoteInfo?.profileId],
+  );
+
   // Start a fresh chat session
   const resetChat = useCallback(() => {
     if (isStreaming) {
@@ -1356,6 +1464,7 @@ export function ChatPanel() {
     setInput('');
     setIsStreaming(false);
     setSessionId(crypto.randomUUID());
+    setReviewEvents([]);
     setClaudeSessionId(null);
     sessionStartTime.current = 0;
     setElapsedMinutes(0);
@@ -1518,6 +1627,10 @@ export function ChatPanel() {
         setEffort(s.effort as EffortLevel);
       }
       setUltrathink(!!s.ultrathink);
+      setRestrictLoginNode(s.hpc_restrict_login_node !== false);
+      setReviewerEnabled(s.reviewer_enabled !== false);
+      setSbatchReviewOn(s.reviewer_auto_sbatch !== false);
+      remoteClaudeReadyRef.current = new Set(s.remote_claude_ready || []);
       // Switch the active session model to match the selected provider.
       // - portkey: use the Portkey-side slug (e.g. @workspace/model-id)
       // - custom: use the custom OpenAI-compat endpoint's model
@@ -1688,6 +1801,7 @@ export function ChatPanel() {
         status: (installNeeded ? 'install-needed' : 'ok') as 'ok' | 'install-needed',
         hasNode: status.node,
         hasClaude: status.claude_code,
+        claudeVersion: status.claude_version,
         hasAuth,
         installing: false,
         error: null,
@@ -1711,10 +1825,76 @@ export function ChatPanel() {
     }
   }, [isTransientSshError]);
 
+  // Fetch the latest published Claude Code version once we know the remote has
+  // Claude, so the indicator can show "up to date" / "update available".
+  useEffect(() => {
+    if (
+      remoteDeps?.status === 'ok' &&
+      remoteDeps.hasClaude &&
+      parseClaudeVersion(remoteDeps.claudeVersion) &&
+      latestClaudeVersion === null
+    ) {
+      invoke<string>('get_latest_claude_code_version')
+        .then((v) => setLatestClaudeVersion(v))
+        .catch(() => {}); // best-effort — no hint shown if the fetch fails
+    }
+  }, [remoteDeps?.status, remoteDeps?.hasClaude, remoteDeps?.claudeVersion, latestClaudeVersion]);
+
+  // One-click `claude update` on the connected remote, then re-check the version.
+  const handleUpdateRemote = useCallback(async () => {
+    if (!remoteInfo?.profileId) return;
+    setUpdatingRemote(true);
+    setRemoteUpdateMsg(null);
+    try {
+      await invoke<string>('update_remote_claude', { profileId: remoteInfo.profileId });
+      const deps = await runRemoteCheck(remoteInfo.profileId);
+      setRemoteDeps(deps);
+    } catch (e) {
+      setRemoteUpdateMsg(`Update failed: ${String(e).replace(/^.*?:\s*/, '').slice(0, 140)}`);
+    } finally {
+      setUpdatingRemote(false);
+    }
+  }, [remoteInfo?.profileId, runRemoteCheck]);
+
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
     if (!remoteInfo?.profileId) {
       setRemoteDeps(null);
+      return;
+    }
+
+    // HPC login-node policy (default on): don't probe the LOGIN node for Claude
+    // on every connect — `check_remote_claude` runs `claude --version` and
+    // `check_remote_claude_auth` reads `~/.claude`, both of which some clusters
+    // (e.g. UCI RCIC) auto-kill on a login node.
+    //
+    // Auto-detect first run: the FIRST time we see a profile we still run the
+    // one-time check (initial setup on the login node is allowed), so a
+    // not-yet-installed remote still shows the install/login flow. Once Claude
+    // is confirmed installed the profile is recorded (persisted) and every
+    // future connect skips the probe — everyday work stays off the login node,
+    // and the compute-node agent surfaces any later missing-Claude / expired
+    // login. Manual Install / Retry / Login still use the login node.
+    // Restricted cluster (default): NEVER probe the login node on connect.
+    // `check_remote_claude` runs `claude --version` and `check_remote_claude_auth`
+    // reads ~/.claude — both are .claude/claude processes that some clusters
+    // (e.g. UCI RCIC) auto-kill on a login node. Set permissive deps; the
+    // compute-node agent surfaces any missing Claude / expired login from its own
+    // stderr. (This used to allow a one-time "first run" probe, but the ready
+    // marker only persisted on a successful check — which the kill prevents — so
+    // it re-probed on EVERY connect, the recurring-kill bug. Removed.) Manual
+    // Install / Retry still hit the login node on explicit click; toggle this
+    // setting off for one-time remote setup.
+    if (restrictLoginNode) {
+      setRemoteDeps({
+        checked: true,
+        status: 'ok',
+        hasNode: true,
+        hasClaude: true,
+        hasAuth: true,
+        installing: false,
+        error: null,
+      });
       return;
     }
 
@@ -1726,7 +1906,7 @@ export function ChatPanel() {
 
     run();
     return () => { cancelled = true; };
-  }, [remoteInfo?.profileId, runRemoteCheck]);
+  }, [remoteInfo?.profileId, runRemoteCheck, restrictLoginNode]);
 
   // Build project file index when project path changes
   useEffect(() => {
@@ -3633,6 +3813,52 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
       {/* Remote not reachable — SSH transport / auth failed BEFORE we could
           decide whether claude is installed. Show "Reconnect" guidance
           instead of misleading the user into reinstalling Claude Code. */}
+      {/* Remote Claude Code version indicator — shows version + up-to-date/update state */}
+      {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'ok' &&
+        remoteDeps.hasClaude && parseClaudeVersion(remoteDeps.claudeVersion) && (() => {
+          const installed = parseClaudeVersion(remoteDeps.claudeVersion)!;
+          const updateAvailable = !!latestClaudeVersion && isVersionOlder(installed, latestClaudeVersion);
+          return (
+            <div
+              className={`px-3 py-1 border-b shrink-0 flex items-center gap-1.5 text-[10px] ${
+                updateAvailable ? 'border-amber-800/30 bg-amber-950/20' : 'border-border-default'
+              }`}
+            >
+              {updateAvailable ? (
+                <AlertTriangle className="w-3 h-3 text-amber-500 dark:text-amber-400 shrink-0 pointer-events-none" />
+              ) : (
+                <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400 shrink-0 pointer-events-none" />
+              )}
+              <span className="text-muted">Claude Code</span>
+              <span className="font-mono text-secondary">{installed}</span>
+              {updateAvailable ? (
+                <>
+                  <span className="text-amber-600 dark:text-amber-400">→ {latestClaudeVersion} available</span>
+                  <button
+                    onClick={handleUpdateRemote}
+                    disabled={updatingRemote}
+                    className="ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface hover:bg-elevated disabled:opacity-50 text-[10px] text-secondary transition-colors"
+                    title={`Run \`claude update\` on ${remoteInfo.profileName}`}
+                  >
+                    {updatingRemote ? (
+                      <><Loader2 className="w-2.5 h-2.5 animate-spin" /> Updating…</>
+                    ) : (
+                      <><RefreshCw className="w-2.5 h-2.5" /> Update</>
+                    )}
+                  </button>
+                </>
+              ) : latestClaudeVersion ? (
+                <span className="text-green-600 dark:text-green-400">· up to date</span>
+              ) : (
+                <span className="text-subtle">· installed</span>
+              )}
+              {remoteUpdateMsg && (
+                <span className="text-red-500 dark:text-red-400 ml-1 truncate">{remoteUpdateMsg}</span>
+              )}
+            </div>
+          );
+        })()}
+
       {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'unreachable' && (
         <div className="px-3 py-2 border-b border-red-800/30 shrink-0 bg-red-950/30">
           <div className="flex items-start gap-2">
@@ -3971,7 +4197,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                               setLoginStatus('code_sent');
                               setLoginUrl(null);
                               // Re-check auth after a short delay
-                              setTimeout(() => recheckRemoteDeps(), 5000);
+                              // Restricted cluster: don't auto-fire a login-node deps check after login.
+                              if (!restrictLoginNode) setTimeout(() => recheckRemoteDeps(), 5000);
                             }
                           }}
                           placeholder="Paste authentication code..."
@@ -3987,7 +4214,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                               setAuthCode('');
                               setLoginStatus('code_sent');
                               setLoginUrl(null);
-                              setTimeout(() => recheckRemoteDeps(), 5000);
+                              // Restricted cluster: don't auto-fire a login-node deps check after login.
+                              if (!restrictLoginNode) setTimeout(() => recheckRemoteDeps(), 5000);
                             }
                           }}
                           disabled={!authCode.trim()}
@@ -4547,6 +4775,9 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Pre-submit review activity — visible proof the reviewer ran on each sbatch */}
+      <ReviewActivity events={reviewEvents} />
+
       {/* Input area — prominent, resizable */}
       <div className="shrink-0">
         {/* Drag handle to resize input area */}
@@ -4752,6 +4983,32 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   {pubmedSearching && <Loader2 className="w-2.5 h-2.5 animate-spin ml-0.5" />}
                   <span className="text-[9px] text-purple-500">auto</span>
                 </span>
+              )}
+              {/* Sonnet-5 sbatch review toggle — turn off so small tasks aren't
+                  double-checked. Effect is immediate (marker) + persisted (setting). */}
+              {reviewerEnabled && (
+                <button
+                  onClick={() => toggleSbatchReview(!sbatchReviewOn)}
+                  className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded border transition-colors text-[11px] ${
+                    sbatchReviewOn
+                      ? 'bg-blue-900/40 border-blue-700/40 text-blue-600 dark:text-blue-400 hover:bg-blue-900/60'
+                      : 'border-transparent text-muted hover:text-secondary hover:bg-hover'
+                  }`}
+                  title={
+                    sbatchReviewOn
+                      ? 'Sonnet 5 reviews the agent’s sbatch scripts before submit. Click to skip review for small tasks.'
+                      : 'sbatch review off. Click to have Sonnet 5 double-check batch scripts before submit.'
+                  }
+                >
+                  <span
+                    className={`w-3 h-3 rounded-[3px] border flex items-center justify-center shrink-0 ${
+                      sbatchReviewOn ? 'bg-blue-600 border-blue-600' : 'border-current'
+                    }`}
+                  >
+                    {sbatchReviewOn && <Check className="w-2.5 h-2.5 text-white pointer-events-none" />}
+                  </span>
+                  <span>Sonnet&nbsp;review</span>
+                </button>
               )}
             </div>
             <div className="flex items-center gap-2 text-[10px] text-subtle">

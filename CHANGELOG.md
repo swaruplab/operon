@@ -4,6 +4,24 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-07-18
+
+First stable release. Operon is a cross-platform (macOS, Windows, Linux) desktop IDE that runs Claude Code agents on HPC clusters over SSH.
+
+### Added
+- **Sonnet-5 pre-submit reviewer** — a skeptical HPC methods reviewer checks every agent `sbatch` before it runs (node-local `/tmp`/`$TMPDIR` output, GPU code with no `--gres`, missing `conda activate`/`module load`, no `set -euo pipefail`, implausible `--mem`/`--time`, array jobs that overwrite one output) and blocks submissions with real issues. A visible chip shows each reviewed script — clean, blocked (with expandable findings), or unavailable — plus a per-session on/off toggle in the chat box.
+- **Interactive-node reuse** — before submitting a new interactive allocation, Operon detects an existing running one via `squeue` (interactive `BatchFlag=0` only — never a batch job) and attaches to it instead of requesting another node.
+- **Remote Claude Code version indicator** — shows the server's installed version, whether an update is available, and a one-click update.
+- Auto-interactive-node routing with a configurable acquire command and preferred account.
+
+### Changed
+- Login-node safety: everyday agents run on compute nodes, and login-node `.claude` probing is off by default on restricted clusters.
+
+### Fixed
+- Local Windows no longer tells the agent that deletions are hard-blocked when the guard isn't installed (closed a data-loss footgun).
+- Skipped reviews now surface as a visible "unavailable" chip instead of silently passing.
+- Non-blocking async SSH for review-event polling; `crypto.randomUUID()` fallback for older Linux webviews.
+
 ## [0.8.0] — 2026-06-14
 
 A protocol-catalog cleanup release: removed injected proprietary cruft, fixed

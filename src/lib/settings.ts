@@ -52,6 +52,28 @@ export interface AppSettings {
   /** Soft wall-clock cap on a single agent session, in minutes. Frontend
    *  shows warn-only banners at 75% and 100%. 0 disables the budget. */
   session_time_budget_minutes: number;
+  /** Master switch for the light code reviewer. Runs as a one-shot call on a
+   *  *different* model with a *fresh* context — a model grading its own
+   *  conversation is the weakest possible check. */
+  reviewer_enabled: boolean;
+  /** Model used for reviews. Cheaper/faster than the actor, and deliberately a
+   *  different model so its blind spots differ. */
+  reviewer_model: string;
+  /** Reviewer effort. 'low' suits routine passes. */
+  reviewer_effort: string;
+  /** Auto-review the sbatch script before submitting. Highest-value trigger:
+   *  seconds of review against hours of queued compute. Advisory — you can
+   *  always submit anyway. */
+  reviewer_auto_sbatch: boolean;
+  /** When true (default), Operon skips Claude auth/dependency checks on the
+   *  remote LOGIN node (some HPC sites auto-kill `.claude` processes there).
+   *  Setup still uses the login node via the manual buttons; everyday agent
+   *  work runs on the compute node. */
+  hpc_restrict_login_node: boolean;
+  /** Profile ids whose remote Claude install has been verified once. Drives
+   *  auto-detect-first-run: the login-node deps/auth check runs only the first
+   *  time a profile is seen, then never again. */
+  remote_claude_ready: string[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -85,6 +107,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ssh_auto_tmux: true,
   ssh_tmux_session: 'operon-main',
   session_time_budget_minutes: 90,
+  reviewer_enabled: true,
+  reviewer_model: 'claude-sonnet-5',
+  reviewer_effort: 'low',
+  reviewer_auto_sbatch: true,
+  hpc_restrict_login_node: true,
+  remote_claude_ready: [],
 };
 
 export async function detectCustomModels(baseUrl: string, apiKey?: string): Promise<string[]> {

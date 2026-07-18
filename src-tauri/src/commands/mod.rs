@@ -11,6 +11,7 @@ pub mod portkey;
 pub mod protocols;
 pub mod proxy;
 pub mod report;
+pub mod review;
 pub mod session;
 pub mod settings;
 pub mod slurm;
@@ -23,13 +24,14 @@ pub use claude::{
     archive_current_plan, check_auth_status, check_claude_installed, check_existing_plan,
     check_local_dependencies, check_oauth_status, check_remote_claude, check_remote_claude_auth,
     check_session_files, check_ssh_available, delete_api_key, delete_session, get_api_key,
-    install_all_dependencies, install_claude, install_node, install_phase_claude,
-    install_phase_tools, install_phase_xcode, install_remote_claude, install_xcode_cli,
-    launch_claude_login, list_plan_history, list_sessions, read_plan_history_entry,
-    read_session_output, reconnect_session, reconnect_tail, refresh_environment,
-    remote_claude_login, rename_session, save_session_metadata, scan_remote_footprint,
-    start_claude_session, stop_claude_session, store_api_key, teardown_remote_footprint,
-    update_session_claude_id, update_session_status,
+    get_latest_claude_code_version, install_all_dependencies, install_claude, install_node,
+    install_phase_claude, install_phase_tools, install_phase_xcode, install_remote_claude,
+    install_xcode_cli, launch_claude_login, list_plan_history, list_sessions,
+    read_plan_history_entry, read_session_output, reconnect_session, reconnect_tail,
+    refresh_environment, remote_claude_login, rename_session, save_session_metadata,
+    scan_remote_footprint, start_claude_session, stop_claude_session, store_api_key,
+    teardown_remote_footprint, update_remote_claude, update_session_claude_id,
+    update_session_status,
 };
 pub use extensions::{
     browse_extensions_by_category, check_extension_compatibility, check_extension_updates,
@@ -78,6 +80,7 @@ pub use report::{
     batch_read_file_previews, batch_read_remote_file_previews, extract_methods_info,
     generate_report_pdf, read_csv_for_report, scan_project_files, scan_remote_project_files,
 };
+pub use review::{read_review_events, review_code, set_review_marker};
 pub use session::{clear_session_state, load_session_state, save_session_state};
 pub use settings::{
     detect_custom_models, get_settings, start_dictation, stop_dictation, test_custom_endpoint,

@@ -11,8 +11,11 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { CommandPalette } from './CommandPalette';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { HelpPanel } from '../help/HelpPanel';
+import { ReviewModal } from '../review/ReviewModal';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { loadAllExtensionContributions } from '../../lib/extensionLoader';
+import { useProject } from '../../context/ProjectContext';
+import { reviewCode, type ReviewResult } from '../../lib/review';
 
 export function AppShell() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -37,12 +40,61 @@ export function AppShell() {
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
+  // ── Light code reviewer ────────────────────────────────────────────────
+  // Reviews the file in the active editor tab on a different (cheaper) model
+  // with a fresh context. Advisory: it never edits your code, and a failed
+  // review is surfaced as "unavailable" rather than as a problem with the file.
+  const { tabs, activeTabId } = useProject();
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewTarget, setReviewTarget] = useState('');
+
+  const reviewCurrentFile = useCallback(async () => {
+    const tab = tabs.find((t) => t.id === activeTabId);
+    setReviewOpen(true);
+    setReviewResult(null);
+    setReviewError(null);
+
+    if (!tab) {
+      setReviewError('No file is open. Open a script in the editor first.');
+      return;
+    }
+    if (tab.binaryType) {
+      setReviewError(`${tab.fileName} is a binary file — nothing to review.`);
+      return;
+    }
+    if (!tab.content.trim()) {
+      setReviewError(`${tab.fileName} is empty.`);
+      return;
+    }
+
+    setReviewTarget(tab.fileName);
+    setReviewLoading(true);
+    try {
+      // sbatch/slurm scripts get the HPC checklist; everything else the
+      // single-cell / genomics methods checklist.
+      const mode = /\.(sbatch|slurm)$/i.test(tab.fileName) ? 'sbatch' : 'script';
+      setReviewResult(await reviewCode(tab.content, mode, tab.fileName));
+    } catch (e) {
+      setReviewError(String(e));
+    } finally {
+      setReviewLoading(false);
+    }
+  }, [tabs, activeTabId]);
+
   const commands = [
     { id: 'toggle-sidebar', label: 'Toggle Sidebar', shortcut: '\u2318B', action: toggleSidebar },
     { id: 'toggle-terminal', label: 'Toggle Terminal', shortcut: '\u2318J', action: toggleTerminal },
     { id: 'toggle-chat', label: 'Toggle Chat Panel', shortcut: '\u2318L', action: toggleChat },
     { id: 'command-palette', label: 'Command Palette', shortcut: '\u2318\u21E7P', action: openPalette },
     { id: 'open-settings', label: 'Open Settings', shortcut: '\u2318,', action: () => setSettingsOpen(true) },
+    {
+      id: 'review-file',
+      label: 'Review: Check current file for analysis pitfalls',
+      action: reviewCurrentFile,
+    },
     {
       id: 'view-files',
       label: 'Explorer: Focus on File View',
@@ -277,6 +329,17 @@ export function AppShell() {
             setSidebarVisible(true);
           }
         }}
+      />
+
+      {/* Light code reviewer */}
+      <ReviewModal
+        isOpen={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        result={reviewResult}
+        loading={reviewLoading}
+        error={reviewError}
+        target={reviewTarget}
+        onRerun={reviewCurrentFile}
       />
 
       {/* Wake-from-sleep reconnect toast */}

@@ -1410,6 +1410,69 @@ echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev
     })
 }
 
+/// Latest published Claude Code version from the npm registry (`dist-tags.latest`
+/// via the `/latest` document's `version`). The remote-deps panel compares this
+/// to the server's installed version to show "up to date" / "update available".
+/// Best-effort — any network error is returned as Err and the UI just omits the
+/// hint. Runs from the app host (not the remote), so it works behind a login
+/// node with no outbound access.
+#[tauri::command]
+pub async fn get_latest_claude_code_version() -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("operon")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get("https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("npm registry returned {}", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    json.get("version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "no version field in npm response".to_string())
+}
+
+/// Run `claude update` (the native installer's self-update) on a remote server,
+/// trying the same install locations `check_remote_claude` probes. Returns the
+/// combined output for display; the caller re-checks the version afterwards. The
+/// update is a brief, user-initiated binary refresh (not a long-running agent),
+/// so it's safe even on login-node-restricted clusters.
+#[tauri::command]
+pub async fn update_remote_claude(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    let script = r#"
+export PATH="$HOME/.local/bin:$HOME/.claude/local/bin:$HOME/.npm-global/bin:$PATH"
+if command -v claude >/dev/null 2>&1; then
+  claude update 2>&1
+elif [ -x "$HOME/.local/bin/claude" ]; then
+  "$HOME/.local/bin/claude" update 2>&1
+elif [ -x "$HOME/.claude/local/bin/claude" ]; then
+  "$HOME/.claude/local/bin/claude" update 2>&1
+else
+  echo "claude not found on PATH — update manually (see docs)"; exit 1
+fi
+"#;
+    super::ssh::ssh_exec_async(profile, script.to_string())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Check if Claude Code on a remote server is authenticated.
 /// Reads the stored OAuth credential (`expiresAt` + `refreshToken`) directly —
 /// it does NOT run `claude`, because a live `claude -p` would force a token
@@ -2178,6 +2241,96 @@ printf '%s' "$cmd" | grep -Eq 'mv[[:space:]].+[[:space:]]/dev/null([[:space:]]|$
 # Deletion via language-interpreter one-liners (python / node / ruby / perl / php).
 printf '%s' "$cmd" | grep -Eq 'os\.(remove|unlink|rmdir|removedirs)|shutil\.rmtree|rmtree[[:space:]]*\(|remove_tree|unlinkSync|rmSync|rmdirSync|\.unlink[[:space:]]*\(|\.rmdir[[:space:]]*\(' && deny
 printf '%s' "$cmd" | grep -Eq 'File\.(delete|unlink)|FileUtils\.(rm|remove)|Dir\.(delete|rmdir|unlink)|fs\.(rm|unlink|rmdir)|(^|[^a-zA-Z0-9_])unlink[[:space:]]*[("$@]' && deny
+
+# --- Operon pre-submit sbatch review (fail-open: a reviewer error NEVER blocks
+# a real job — every branch below degrades to `exit 0`). Reviews the script the
+# agent is about to `sbatch` on a DIFFERENT, cheaper model; blocks once with the
+# finding so the agent fixes it, then honours a resubmit of the identical script. ---
+[ -f "$HOME/.operon/guard/operon-review.env" ] && . "$HOME/.operon/guard/operon-review.env" 2>/dev/null
+if [ "${OPERON_REVIEW_ENABLED:-0}" = "1" ] && \
+   printf '%s' "$cmd" | grep -Eq '(^|[;&|`"'\''(]|&&|\|\||[[:space:]])sbatch([[:space:]]|$)'; then
+  # Runtime toggle: the chat-box "Review sbatch" checkbox drops this marker to
+  # skip review for a run without touching the persisted setting.
+  [ -f "$HOME/.operon/guard/review-off" ] && exit 0
+  _rq="$HOME/.operon/guard/.review-seen"; mkdir -p "$_rq" 2>/dev/null
+  _sf=""; for _t in $cmd; do [ "$_t" = "sbatch" ] && continue; [ -f "$_t" ] && { _sf="$_t"; break; }; done
+  _body=""
+  if [ -n "$_sf" ]; then
+    _body=$(head -c 160000 "$_sf" 2>/dev/null)
+  elif printf '%s' "$cmd" | grep -q -- '--wrap'; then
+    _body=$(printf '%s' "$cmd" | sed -E 's/.*--wrap[[:space:]]*=?[[:space:]]*//' | sed -E "s/^['\"]//;s/['\"]$//" | head -c 160000)
+  fi
+  _rc="${OPERON_REVIEW_CLAUDE:-}"
+  [ -z "$_rc" ] && command -v claude >/dev/null 2>&1 && _rc="claude"
+  [ -z "$_rc" ] && [ -x "$HOME/.local/bin/claude" ] && _rc="$HOME/.local/bin/claude"
+  [ -z "$_rc" ] && command -v npx >/dev/null 2>&1 && _rc="npx --yes @anthropic-ai/claude-code"
+  # If we CAN'T review (no reviewer binary, no python3, or no script body), record
+  # an 'unavailable' event so the skipped review shows as a grey chip instead of
+  # being mistaken for a clean pass — then allow the submit. Shell-only emit so it
+  # works even when python3 is the thing that's missing.
+  if [ -z "$_rc" ] || [ -z "$_body" ] || ! command -v python3 >/dev/null 2>&1; then
+    _ev="${OPERON_REVIEW_EVENTS:-}"
+    if [ -n "$_ev" ]; then
+      mkdir -p "$(dirname "$_ev")" 2>/dev/null
+      _sb=$(basename "${_sf:-inline}" | tr -d '"')
+      printf '{"ts":%s,"kind":"sbatch","script":"%s","outcome":"unavailable","n":0,"findings":[]}\n' "$(date +%s 2>/dev/null || echo 0)" "$_sb" >> "$_ev" 2>/dev/null
+    fi
+    exit 0
+  fi
+  if [ -n "$_body" ] && [ -n "$_rc" ] && command -v python3 >/dev/null 2>&1; then
+    _hh=$(printf '%s' "$_body" | { shasum 2>/dev/null || md5sum 2>/dev/null; } | cut -d' ' -f1)
+    if [ -n "$_hh" ] && [ -f "$_rq/$_hh" ]; then exit 0; fi
+    _numbered=$(printf '%s' "$_body" | awk '{printf "%4d | %s\n", NR, $0}')
+    _pr="You are a skeptical HPC methods reviewer. Review this sbatch script for mistakes that will WASTE HOURS OF CLUSTER COMPUTE or silently produce WRONG RESULTS. Return ONLY a JSON object, no prose: {\"findings\":[{\"severity\":\"blocking\",\"line\":0,\"title\":\"\",\"why_wrong\":\"\",\"fix\":\"\"}]} (severity blocking or high). Report ONLY: outputs/checkpoints written to node-local /tmp or \$TMPDIR (invisible from the login node, destroyed at job end); GPU/deep-learning code with no --gres=gpu; no conda activate / module load before python/R; missing set -euo pipefail; --mem or --time obviously implausible for the work; an array job whose tasks all overwrite one output file. NEVER report style, naming, or formatting. If nothing qualifies, return {\"findings\":[]}. Strongly prefer false negatives.
+
+SCRIPT (${_sf:-inline}):
+$_numbered
+
+Return only the JSON object."
+    _to=""; command -v timeout >/dev/null 2>&1 && _to="timeout 120"; [ -z "$_to" ] && command -v gtimeout >/dev/null 2>&1 && _to="gtimeout 120"
+    _res=$(printf '%s\n' "$_pr" | $_to $_rc -p --model "${OPERON_REVIEW_MODEL:-claude-sonnet-5}" --max-turns 1 --output-format json --disallowedTools 'Read,Write,Edit,Bash,Glob,Grep,WebFetch,WebSearch,NotebookEdit' 2>/dev/null)
+    _msg=$(printf '%s' "$_res" | OP_SCRIPT="${_sf:-inline}" OP_EVENTS="${OPERON_REVIEW_EVENTS:-}" python3 -c '
+import sys,json,re,os,time
+def emit(outcome,n,findings):
+    p=os.environ.get("OP_EVENTS","")
+    if not p: return
+    try:
+        d=os.path.dirname(p)
+        if d: os.makedirs(d,exist_ok=True)
+        with open(p,"a") as f:
+            f.write(json.dumps({"ts":int(time.time()),"kind":"sbatch","script":os.path.basename(os.environ.get("OP_SCRIPT","")),"outcome":outcome,"n":n,"findings":findings})+"\n")
+    except Exception:
+        pass
+raw=sys.stdin.read()
+try:
+    txt=json.loads(raw).get("result","")
+except Exception:
+    txt=""
+m=re.search(r"\{.*\}", txt, re.S) if txt else None
+findings=None
+if m:
+    try:
+        findings=json.loads(m.group(0)).get("findings", [])
+    except Exception:
+        findings=None
+if findings is None:
+    emit("unavailable",0,[]); sys.exit(0)
+blk=[x for x in findings if str(x.get("severity","")).lower()=="blocking"][:3]
+if not blk:
+    emit("clean",0,[]); sys.exit(0)
+emit("blocked",len(blk),blk)
+print("\n".join("- line %s: %s -- %s  FIX: %s" % (x.get("line"), x.get("title",""), x.get("why_wrong",""), x.get("fix","")) for x in blk))
+' 2>/dev/null)
+    if [ -n "$_msg" ]; then
+      [ -n "$_hh" ] && : > "$_rq/$_hh" 2>/dev/null
+      {
+        echo "BLOCKED by Operon pre-submit review: this sbatch script has a blocking issue that would waste cluster compute or produce wrong results. FIX the script and resubmit. If you are certain this is a false positive, tell the user why, then resubmit the identical script and it will pass."
+        printf '%s\n' "$_msg"
+      } >&2
+      exit 2
+    fi
+  fi
+fi
 exit 0
 "##;
 
@@ -2194,12 +2347,84 @@ fn guard_settings_json(hook_path: &str) -> String {
     )
 }
 
-/// Shell snippet that writes the guard hook + settings into `$HOME/.operon/guard`
-/// on a remote host. Prepended to the remote run script so the files exist before
-/// `claude` starts. Idempotent — overwrites each session to stay current.
-fn remote_guard_setup_block() -> String {
+/// Reviewer config the guard hook reads (from `operon-review.env`) to decide
+/// whether and how to review an `sbatch` before it runs.
+struct ReviewGuardCfg {
+    enabled: bool,
+    model: String,
+    effort: String,
+    /// Absolute claude path when we can resolve it (local mode); the hook falls
+    /// back to `command -v claude` / npx otherwise (remote / alias setups).
+    claude: Option<String>,
+    /// Per-session file the hook APPENDS one JSON review record to (clean /
+    /// blocked / unavailable) so Operon can render a visible review chip. A
+    /// `$HOME`-relative path so it resolves on whatever node the hook runs on
+    /// (shared home on HPC → readable from the login node).
+    events_path: String,
+}
+
+/// `$HOME`-relative review-events path for a session (shell-safe session id).
+fn review_events_path(session_id: &str) -> String {
+    let s: String = session_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    format!("$HOME/.operon/reviews/{}.jsonl", s)
+}
+
+/// Contents of `operon-review.env` — sourced by the guard hook. String values
+/// are single-quoted + escaped; the events path is double-quoted so `$HOME`
+/// expands when the hook sources it.
+fn review_env_content(cfg: &ReviewGuardCfg) -> String {
+    let q = |s: &str| s.replace('\'', "'\\''");
+    let mut out = format!(
+        "OPERON_REVIEW_ENABLED={}\nOPERON_REVIEW_MODEL='{}'\nOPERON_REVIEW_EFFORT='{}'\nOPERON_REVIEW_EVENTS=\"{}\"\n",
+        if cfg.enabled { "1" } else { "0" },
+        q(&cfg.model),
+        q(&cfg.effort),
+        cfg.events_path,
+    );
+    if let Some(c) = cfg.claude.as_deref().filter(|c| !c.is_empty()) {
+        out.push_str(&format!("OPERON_REVIEW_CLAUDE='{}'\n", q(c)));
+    }
+    out
+}
+
+/// Build the reviewer guard config from settings. Enabled only when BOTH the
+/// reviewer and its auto-sbatch trigger are on.
+fn review_guard_cfg(
+    settings_state: &tauri::State<'_, super::settings::SettingsManager>,
+    session_id: &str,
+    claude: Option<String>,
+) -> ReviewGuardCfg {
+    let events_path = review_events_path(session_id);
+    match settings_state.settings.lock() {
+        Ok(s) => ReviewGuardCfg {
+            enabled: s.reviewer_enabled && s.reviewer_auto_sbatch,
+            model: s.reviewer_model.clone(),
+            effort: s.reviewer_effort.clone(),
+            claude,
+            events_path,
+        },
+        Err(_) => ReviewGuardCfg {
+            enabled: false,
+            model: "claude-sonnet-5".to_string(),
+            effort: "low".to_string(),
+            claude,
+            events_path,
+        },
+    }
+}
+
+/// Shell snippet that writes the guard hook + settings + review env into
+/// `$HOME/.operon/guard` on a remote host. Prepended to the remote run script so
+/// the files exist before `claude` starts. Idempotent — overwrites each session.
+fn remote_guard_setup_block(cfg: &ReviewGuardCfg) -> String {
     let mut s = String::new();
     s.push_str("__og=\"$HOME/.operon/guard\"; mkdir -p \"$__og\" 2>/dev/null\n");
+    // Clear a stale runtime toggle so this session honors the persisted setting;
+    // the chat-box checkbox re-creates it if the user turns review off mid-run.
+    s.push_str("rm -f \"$__og/review-off\" 2>/dev/null\n");
     s.push_str("cat > \"$__og/operon-guard.sh\" <<'__OPERON_GUARD_EOF__'\n");
     s.push_str(GUARD_HOOK_SCRIPT);
     if !s.ends_with('\n') {
@@ -2208,13 +2433,20 @@ fn remote_guard_setup_block() -> String {
     s.push_str("__OPERON_GUARD_EOF__\n");
     s.push_str("chmod +x \"$__og/operon-guard.sh\" 2>/dev/null\n");
     s.push_str("printf '%s' '{\"hooks\":{\"PreToolUse\":[{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"'\"$__og\"'/operon-guard.sh\"}]}]}}' > \"$__og/operon-guard-settings.json\"\n");
+    // Reviewer env, written via a heredoc so quoting survives the SSH chain.
+    s.push_str("cat > \"$__og/operon-review.env\" <<'__OPERON_REVIEW_EOF__'\n");
+    s.push_str(&review_env_content(cfg));
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str("__OPERON_REVIEW_EOF__\n");
     s
 }
 
 /// Write the guard hook + settings under `~/.operon/guard` and append
 /// `--settings <path>` to `claude_cmd`. Unix-only — the hook is a bash script;
 /// on Windows the call is a no-op (remote sessions still get the guard).
-fn install_local_guard(claude_cmd: &mut String) {
+fn install_local_guard(claude_cmd: &mut String, cfg: &ReviewGuardCfg) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -2234,15 +2466,20 @@ fn install_local_guard(claude_cmd: &mut String) {
         if std::fs::write(&settings, guard_settings_json(&hook.to_string_lossy())).is_err() {
             return;
         }
+        // Reviewer env for the sbatch-review hook (best-effort; hook fails open).
+        let _ = std::fs::write(dir.join("operon-review.env"), review_env_content(cfg));
+        // Clear a stale runtime toggle so this session honors the persisted
+        // setting; the chat-box checkbox re-creates it if turned off mid-run.
+        let _ = std::fs::remove_file(dir.join("review-off"));
         claude_cmd.push_str(&format!(
             " --settings '{}'",
             settings.to_string_lossy().replace('\'', "'\\''")
         ));
-        eprintln!("[operon] local agent file-deletion guard installed");
+        eprintln!("[operon] local agent guard installed (file-deletion + sbatch review)");
     }
     #[cfg(not(unix))]
     {
-        let _ = claude_cmd; // guard hook is a bash script — unix-only for now
+        let _ = (claude_cmd, cfg); // guard hook is a bash script — unix-only for now
     }
 }
 
@@ -2400,7 +2637,19 @@ pub async fn start_claude_session(
                 existing_plan.len() / 1024
             )
         };
-        format!("{}{}{}", GUARD_PROMPT_NOTICE, safety_prefix, plan_ctx)
+        // Only tell the agent deletions are hard-blocked when the guard is
+        // actually installed: remote sessions (remote_guard_setup_block always
+        // runs on the Linux host) or local Mac/Linux (install_local_guard is
+        // #[cfg(unix)]). On local WINDOWS install_local_guard is a no-op, so the
+        // hook doesn't exist — claiming deletions are blocked there would be a
+        // lie that invites real data loss (the agent runs `rm -rf` believing it
+        // will be caught). Drop the notice in that one case.
+        let guard_notice = if remote.is_some() || cfg!(unix) {
+            GUARD_PROMPT_NOTICE
+        } else {
+            ""
+        };
+        format!("{}{}{}", guard_notice, safety_prefix, plan_ctx)
     };
 
     // Generate a human-readable timestamp for plan sections
@@ -2939,7 +3188,8 @@ pub async fn start_claude_session(
             // real command will fail in the same way it would have without the warmup.
             // Install the agent file-deletion guard on the remote ($HOME/.operon/guard)
             // and point this run's claude at it via --settings.
-            let guard_block = remote_guard_setup_block();
+            let guard_block =
+                remote_guard_setup_block(&review_guard_cfg(&settings_state, &session_id, None));
             claude_cmd.push_str(" --settings \"$HOME/.operon/guard/operon-guard-settings.json\"");
             let script_content = format!(
                 "{}{}{}cd '{}' && (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
@@ -3397,7 +3647,8 @@ pub async fn start_claude_session(
         }
 
         // Install the agent file-deletion guard on the remote and point claude at it.
-        let guard_block = remote_guard_setup_block();
+        let guard_block =
+            remote_guard_setup_block(&review_guard_cfg(&settings_state, &session_id, None));
         claude_cmd.push_str(" --settings \"$HOME/.operon/guard/operon-guard-settings.json\"");
         let claude_cmd_abs = claude_cmd.replacen("claude ", &format!("{} ", claude_invoke), 1);
 
@@ -3478,7 +3729,14 @@ pub async fn start_claude_session(
         // --- LOCAL: run claude directly ---
         // Install the agent file-deletion guard (writes ~/.operon/guard, appends
         // --settings). No-op on Windows.
-        install_local_guard(&mut claude_cmd);
+        install_local_guard(
+            &mut claude_cmd,
+            &review_guard_cfg(
+                &settings_state,
+                &session_id,
+                crate::platform::resolve_claude_path(),
+            ),
+        );
         // Prepend `unset <provider-conflicting vars>` so any stale value re-exported
         // by the user's shell profile (~/.zshrc, ~/.bash_profile) inside `bash -l`
         // is cleared BEFORE claude runs. Without this, e.g. an

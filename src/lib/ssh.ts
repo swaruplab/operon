@@ -27,12 +27,27 @@ export const SERVER_CONFIG_FIELDS: Array<{
   key: string;
   label: string;
   placeholder: string;
-  group: 'slurm' | 'environment' | 'paths';
+  group: 'slurm' | 'interactive' | 'environment' | 'paths';
 }> = [
   { key: 'slurm_account', label: 'SLURM Account', placeholder: 'e.g. swarup_lab', group: 'slurm' },
   { key: 'slurm_partition', label: 'CPU Partition', placeholder: 'e.g. standard, free', group: 'slurm' },
   { key: 'slurm_gpu_partition', label: 'GPU Partition', placeholder: 'e.g. gpu, free-gpu', group: 'slurm' },
   { key: 'slurm_gpu_type', label: 'GPU Type', placeholder: 'e.g. A100, V100, H100', group: 'slurm' },
+  // How to grab an interactive/compute node. Free-form so any scheduler works:
+  // srun --pty bash, salloc, sinteractive, qsub -I, or a site wrapper. Operon
+  // injects the account below if the command doesn't already name one.
+  {
+    key: 'interactive_cmd',
+    label: 'Interactive Node Command',
+    placeholder: 'e.g. srun --pty -t 4:00:00 --mem=16G bash -l   (must land you ON a compute node)',
+    group: 'interactive',
+  },
+  {
+    key: 'interactive_account',
+    label: 'Interactive Account',
+    placeholder: 'allocation charged for the interactive node (defaults to SLURM Account)',
+    group: 'interactive',
+  },
   { key: 'conda_env', label: 'Default Conda Env', placeholder: 'e.g. scanpy_env', group: 'environment' },
   { key: 'modules', label: 'Default Modules', placeholder: 'e.g. python/3.10, cuda/12.0', group: 'environment' },
   { key: 'scratch_dir', label: 'Scratch Directory', placeholder: 'e.g. /dfs3b/swarup_lab/vivek', group: 'paths' },

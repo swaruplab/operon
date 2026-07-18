@@ -39,6 +39,74 @@ import { bootstrapWatchdog } from '../../lib/watchdog';
 // the panel is toggled, and so we don't re-upload/re-start on every reconnect.
 const watchdogBootstrapped = new Set<string>();
 
+// ── Interactive-node auto-acquire helpers ──────────────────────────────────
+
+/** Quote a string as one single-quoted shell argument (safe to embed in the
+ *  remote command that ssh runs). */
+function shSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Inject the preferred allocation into an srun/salloc command that doesn't
+ *  already name one. Leaves sinteractive / qsub / custom commands untouched —
+ *  the user's command wins there. Account is sanitised to a shell-safe token. */
+function injectAccount(cmd: string, account: string): string {
+  const c = cmd.trim();
+  const acct = account.replace(/[^A-Za-z0-9_.-]/g, '');
+  if (!acct) return c;
+  if (/(^|\s)(-A\b|--account\b|--account=)/.test(c)) return c;
+  if (/^(srun|salloc)\b/.test(c)) {
+    return c.replace(/^(srun|salloc)\b/, `$1 --account=${acct}`);
+  }
+  return c;
+}
+
+/** The account-injected interactive command to auto-route with, or '' to not
+ *  route. PRESENCE-triggered: a filled `interactive_cmd` auto-routes;
+ *  `interactive_auto === '0'` is the explicit opt-out. Empty command -> '' ->
+ *  the remote command the caller builds is byte-for-byte what it is today (zero
+ *  regression for profiles without an interactive command). The caller wraps
+ *  this in the self-healing startup — do NOT append a persistent fallback shell
+ *  here (that keeps a live login-node shell alive that tmux -A would re-attach). */
+export function buildAcquireCommand(serverConfig: Record<string, string> | undefined): string {
+  const sc = serverConfig || {};
+  const cmd = (sc.interactive_cmd || '').trim();
+  if (!cmd || sc.interactive_auto === '0') return '';
+  return injectAccount(cmd, sc.interactive_account || sc.slurm_account || '');
+}
+
+/** Shell snippet (SLURM only, fully runtime-guarded) that runs BEFORE the
+ *  acquire: if the user already has a RUNNING interactive allocation, attach to
+ *  it (`exec srun --jobid …`) instead of submitting a new node — reusing it no
+ *  matter how it was started.
+ *
+ *  SAFETY: only attaches to jobs `scontrol` reports as `BatchFlag=0` (salloc /
+ *  `srun --pty`), NEVER a batch job (`BatchFlag=1`) — attaching a shell step into
+ *  a real `sbatch` computation would share its node and interfere. Any miss,
+ *  missing tool, or error falls through to the caller's acquire (fail-safe: worst
+ *  case is a new node, exactly today's behaviour). `--overlap` is added only when
+ *  this SLURM supports it, so a second step doesn't block on the first's
+ *  resources. Contains NO single quotes (so `shSingleQuote` wraps it cleanly).
+ *  `_o*` var names avoid clobbering the user's shell. */
+function buildReuseInteractiveSnippet(): string {
+  return [
+    'if command -v squeue >/dev/null 2>&1; then',
+    '_oto="";',
+    'command -v timeout >/dev/null 2>&1 && _oto="timeout 12";',
+    'for _oj in $($_oto squeue -h -u "$USER" -t R -o "%i" 2>/dev/null | head -30); do',
+    // Tokenize then match the WHOLE BatchFlag token, so a batch job whose name
+    // merely contains "BatchFlag=0" can never be mistaken for interactive.
+    'if $_oto scontrol show job "$_oj" 2>/dev/null | tr " " "\\n" | grep -q "^BatchFlag=0$"; then',
+    '_oov="";',
+    'srun --help 2>&1 | grep -q -- "--overlap" && _oov="--overlap";',
+    'echo "[operon] reusing existing interactive job $_oj (skipping new allocation)";',
+    'exec srun --jobid="$_oj" $_oov --pty bash -l;',
+    'fi;',
+    'done;',
+    'fi;',
+  ].join(' ');
+}
+
 interface SSHViewProps {
   onConnectSSH?: (profileId: string, terminalId: string) => void;
   /** Profile id of the currently active remote, if any. Drives the inline Disconnect button. */
@@ -469,19 +537,50 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     // Falls through gracefully if tmux is missing — the `command -v tmux`
     // guard lets the session still open on tmux-less hosts. The remote
     // command goes in as ONE array element: raw, unquoted, never escaped.
+    // --- Interactive-node auto-route (per-profile) ---
+    // When the profile has an interactive command, run it so everyday work lands
+    // on a compute node without the user typing anything. `startup` wraps the
+    // account-injected command so the pane's process IS the acquire: when the
+    // srun allocation ends the pane (and its single-window session) dies, so the
+    // NEXT connect re-creates and re-acquires — self-healing. Deliberately NO
+    // persistent fallback shell: one would keep a live LOGIN-node shell alive
+    // that `tmux -A` re-attaches on the next connect (the "stuck on the login
+    // node" bug). A short diagnostic pause + sleep gives the user a moment to
+    // read an srun error before the pane closes.
+    const acquire = buildAcquireCommand(profile.server_config);
+    // Reuse-before-acquire: if the user already has a running interactive
+    // allocation (started any way), attach to it instead of submitting a new one.
+    const reuse = acquire ? buildReuseInteractiveSnippet() : '';
+    const startup = acquire
+      ? `if [ -n "$SLURM_JOB_ID" ]; then exec bash -l; fi; ${reuse} ${acquire}; echo; echo "[operon] interactive node released — reconnect for a new one"; sleep 4`
+      : '';
+
     let usedTmux = false;
     let tmuxSession = '';
     try {
       const settings = await getSettings();
       if (settings.ssh_auto_tmux) {
-        tmuxSession = (settings.ssh_tmux_session || 'operon-main').replace(/[^A-Za-z0-9_-]/g, '');
-        // `-t -t` forces a tty even when a remote command is given.
-        const remote = `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec "$SHELL" -l`;
+        const base = (settings.ssh_tmux_session || 'operon-main').replace(/[^A-Za-z0-9_-]/g, '');
+        // Auto-route uses a DEDICATED session name so `tmux -A` can never attach a
+        // stale plain 'operon-main' login-node session (which would ignore our
+        // startup command and leave you on the login node). 'operon-node' still
+        // starts with 'operon' so watchdog / footprint teardown still detect it.
+        // `-t -t` forces a tty; `-A` reattaches a still-live acquire session.
+        tmuxSession = startup ? 'operon-node' : base;
+        const remote = startup
+          ? `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} ${shSingleQuote(startup)} || { ${startup} ; }`
+          : `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec "$SHELL" -l`;
         sshArgs.push('-t', '-t', remote);
         usedTmux = true;
       }
     } catch {
       /* settings unavailable — fall back to bare ssh */
+    }
+
+    // Auto-route without tmux: run the acquire directly (no persistence/sharing —
+    // tmux is the recommended mode).
+    if (!usedTmux && startup) {
+      sshArgs.push('-t', '-t', startup);
     }
 
     await emit('open-ssh-terminal', {
@@ -1070,6 +1169,44 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       </div>
                     ))}
                   </div>
+                </div>
+
+                {/* Interactive node — how Operon should get you onto a compute node */}
+                <div>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">Interactive Node</span>
+                  <p className="text-[10px] text-subtle mt-0.5 leading-relaxed">
+                    Many clusters forbid running Claude on the login node. Tell Operon how you
+                    grab an interactive/compute node so everyday work runs there. Any scheduler
+                    works — <code>srun --pty</code>, <code>salloc</code>, <code>sinteractive</code>,
+                    or a site wrapper.
+                  </p>
+                  <div className="mt-1 space-y-1.5">
+                    {SERVER_CONFIG_FIELDS.filter(f => f.group === 'interactive').map(field => (
+                      <div key={field.key}>
+                        <label className="block text-[10px] text-subtle mb-0.5">{field.label}</label>
+                        <input
+                          value={serverConfig[field.key] || ''}
+                          onChange={(e) => setServerConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
+                          placeholder={field.placeholder}
+                          className="w-full px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary placeholder:text-subtle outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <label className="flex items-start gap-2 text-[11px] text-secondary mt-2">
+                    <input
+                      type="checkbox"
+                      checked={serverConfig['interactive_auto'] !== '0'}
+                      onChange={(e) => setServerConfig(prev => ({ ...prev, interactive_auto: e.target.checked ? '1' : '0' }))}
+                      className="accent-cyan-500 mt-0.5"
+                    />
+                    <span>
+                      Auto-route to a compute node on connect — runs the command above. On by default
+                      once a command is set; uncheck to keep this profile on the login node. Use{' '}
+                      <code>srun --pty … bash -l</code> — a bare <code>salloc</code> allocates but
+                      leaves your shell on the login node.
+                    </span>
+                  </label>
                 </div>
 
                 {/* Environment */}

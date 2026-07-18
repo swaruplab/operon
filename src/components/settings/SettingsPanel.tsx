@@ -1177,6 +1177,102 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   </div>
                 )}
               </div>
+
+              {/* HPC: keep Claude off the login node */}
+              <div>
+                <label className="text-xs text-secondary block mb-1.5">HPC login-node policy</label>
+                <div className="text-[11px] text-muted mb-2 leading-relaxed">
+                  Some clusters (e.g. UCI RCIC) automatically kill any Claude
+                  process on a login node. With this on, Operon does not run
+                  Claude auth/dependency checks on the login node — it assumes the
+                  remote is set up (install and <code>claude login</code> once
+                  during setup) and runs everyday agent work on the compute node,
+                  where the agent surfaces any missing-Claude or expired-login
+                  problem. Manual Install / Retry / Login still use the login node.
+                </div>
+                <label className="flex items-center gap-2 text-xs text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={settings.hpc_restrict_login_node !== false}
+                    onChange={(e) => saveSettings({ ...settings, hpc_restrict_login_node: e.target.checked })}
+                    className="accent-blue-500"
+                  />
+                  Restrict Claude to interactive / compute nodes (recommended for HPC)
+                </label>
+              </div>
+
+              {/* Light code reviewer */}
+              <div>
+                <label className="text-xs text-secondary block mb-1.5">Code reviewer</label>
+                <div className="text-[11px] text-muted mb-2 leading-relaxed">
+                  A cheap second opinion on analysis code and sbatch scripts, run on a{' '}
+                  <em>different</em> model with a fresh context (a model grading its own
+                  conversation is the weakest possible check). Catches things like scVI fit on
+                  log-normalised data, cluster-then-DE circularity, cell-level tests that ignore
+                  donors, and outputs written to node-local <code>/tmp</code>. Advisory only — it
+                  never edits your code, and you can always submit anyway.
+                </div>
+                <label className="flex items-center gap-2 text-xs text-secondary mb-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.reviewer_enabled !== false}
+                    onChange={(e) => saveSettings({ ...settings, reviewer_enabled: e.target.checked })}
+                    className="accent-blue-500"
+                  />
+                  Enable code reviewer
+                </label>
+                <label className="flex items-center gap-2 text-xs text-secondary mb-2">
+                  <input
+                    type="checkbox"
+                    checked={settings.reviewer_auto_sbatch !== false}
+                    disabled={settings.reviewer_enabled === false}
+                    onChange={(e) => saveSettings({ ...settings, reviewer_auto_sbatch: e.target.checked })}
+                    className="accent-blue-500"
+                  />
+                  Auto-review sbatch scripts before submitting
+                </label>
+                {(() => {
+                  const rid = settings.reviewer_model || 'claude-sonnet-5';
+                  const rm = anthropicModels.find((m) => m.id === rid);
+                  const levels = supportedEffortLevels(rm);
+                  const opts = levels.length ? levels : ['low'];
+                  return (
+                    <div className="flex gap-2">
+                      <div className="flex-1 min-w-0">
+                        <label className="text-[10px] text-muted block mb-1">Reviewer model</label>
+                        <select
+                          value={rid}
+                          disabled={settings.reviewer_enabled === false}
+                          onChange={(e) => saveSettings({ ...settings, reviewer_model: e.target.value })}
+                          className="w-full bg-surface border border-border-strong rounded px-2 py-1 text-xs text-primary disabled:opacity-50"
+                        >
+                          {anthropicModels.length === 0 && <option value={rid}>{rid}</option>}
+                          {anthropicModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.display_name || m.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="w-24 shrink-0">
+                        <label className="text-[10px] text-muted block mb-1">Effort</label>
+                        <select
+                          value={settings.reviewer_effort || 'low'}
+                          disabled={settings.reviewer_enabled === false}
+                          onChange={(e) => saveSettings({ ...settings, reviewer_effort: e.target.value })}
+                          className="w-full bg-surface border border-border-strong rounded px-2 py-1 text-xs text-primary disabled:opacity-50"
+                        >
+                          {opts.map((lv) => (
+                            <option key={lv} value={lv}>
+                              {lv}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
