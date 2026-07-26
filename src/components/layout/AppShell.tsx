@@ -6,7 +6,7 @@ import { ActivityBar } from './ActivityBar';
 import { StatusBar } from './StatusBar';
 import { Sidebar, type SSHConnection } from '../sidebar/Sidebar';
 import { EditorArea } from '../editor/EditorArea';
-import { TerminalArea } from '../terminal/TerminalArea';
+import { TerminalArea, type PendingLoginTab } from '../terminal/TerminalArea';
 import { ChatPanel } from '../chat/ChatPanel';
 import { CommandPalette } from './CommandPalette';
 import { SettingsPanel } from '../settings/SettingsPanel';
@@ -21,6 +21,11 @@ export function AppShell() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [chatVisible, setChatVisible] = useState(true);
   const [terminalVisible, setTerminalVisible] = useState(true);
+  // Login-terminal requests are received HERE, not in TerminalArea: that component
+  // is unmounted while the terminal panel is collapsed, so its listener wouldn't
+  // exist and the event would be dropped with no visible failure. AppShell never
+  // unmounts, so it can reveal the panel and hand the request down as a prop.
+  const [pendingLoginTab, setPendingLoginTab] = useState<PendingLoginTab | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>(undefined);
@@ -33,6 +38,18 @@ export function AppShell() {
   const [sshConnection, setSSHConnection] = useState<SSHConnection | null>(null);
   const [currentRemotePath, setCurrentRemotePath] = useState<string>('');
   const [localTerminalId, setLocalTerminalId] = useState<string | null>(null);
+
+  const handlePendingLoginConsumed = useCallback(() => setPendingLoginTab(null), []);
+
+  useEffect(() => {
+    const unlisten = listen<PendingLoginTab>('open-login-terminal', (event) => {
+      // Reveal the panel first — the request is meaningless if the user can't
+      // see the terminal it targets.
+      setTerminalVisible(true);
+      setPendingLoginTab(event.payload);
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
 
   const toggleSidebar = useCallback(() => setSidebarVisible((v) => !v), []);
   const toggleChat = useCallback(() => setChatVisible((v) => !v), []);
@@ -280,7 +297,10 @@ export function AppShell() {
                 <>
                   <PanelResizeHandle className="h-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:h-[3px]" />
                   <Panel id="terminal" defaultSize={35} minSize={10} order={2}>
-                    <TerminalArea />
+                    <TerminalArea
+                      pendingLoginTab={pendingLoginTab}
+                      onPendingLoginConsumed={handlePendingLoginConsumed}
+                    />
                   </Panel>
                 </>
               )}

@@ -13,7 +13,7 @@ import {
   isAnthropicPortkeyModel,
   type PortkeyPreset, type PortkeyModel,
 } from '../../lib/portkey';
-import { getApiKey } from '../../lib/claude';
+import { getApiKey, startClaudeLogin } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
@@ -624,6 +624,8 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
   const [mcpDepChecks, setMcpDepChecks] = useState<Record<string, DependencyStatus>>({});
   const [mcpInstalling, setMcpInstalling] = useState<string | null>(null);
   const [mcpError, setMcpError] = useState<string | null>(null);
+  /** Surfaced when `claude login` can't be started (e.g. CLI not installed). */
+  const [loginError, setLoginError] = useState<string>('');
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customServer, setCustomServer] = useState({ name: '', command: '', args: '' });
 
@@ -2053,14 +2055,20 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   <button
                     onClick={async () => {
                       try {
-                        const terminalId = crypto.randomUUID();
-                        await emit('open-login-terminal', {
-                          terminalId,
-                          title: 'Claude Login',
-                          command: 'claude login',
-                        });
+                        // Same guard as the chat panel: resolve the binary first
+                        // rather than opening a terminal that can only print
+                        // "command not found".
+                        const res = await startClaudeLogin();
+                        if (!res.ok) {
+                          setLoginError(
+                            "Claude Code isn't installed. Open the Claude panel to install it, or run: curl -fsSL https://claude.ai/install.sh | bash"
+                          );
+                          return;
+                        }
+                        setLoginError('');
                       } catch (err) {
                         console.error('Failed to launch login:', err);
+                        setLoginError(`${err}`);
                       }
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 rounded text-sm text-white transition-colors"
@@ -2085,6 +2093,11 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     {oauthChecking ? 'Checking...' : 'Verify login'}
                   </button>
                 </div>
+                {loginError && (
+                  <div className="mt-3 px-3 py-2 bg-amber-900/20 border border-amber-800/30 rounded text-[12px] text-amber-700 dark:text-amber-400">
+                    {loginError}
+                  </div>
+                )}
               </div>
 
               {/* Option 2: API Key */}

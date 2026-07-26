@@ -4,6 +4,53 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-07-26
+
+### Fixed
+- **`claude login` no longer reports "command not found" for an installed Claude
+  Code.** The terminal PTY is spawned as an interactive *non-login* shell, so on
+  macOS it never runs `/etc/zprofile` → `path_helper` and never sources
+  `~/.zprofile`. Launched from Finder/Dock, Operon inherits launchd's minimal
+  PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) and handed exactly that to the shell —
+  no `/opt/homebrew/bin`, no `/usr/local/bin`, no `~/.local/bin`, which is where
+  Operon's own installer puts `claude`. Every other local spawn already guarded
+  against this; the terminal was the one hole, and it is the terminal the login
+  flow types into. Tool directories are now appended to the PTY's PATH (appended,
+  never prepended, so the user's own toolchain keeps priority).
+- **The login flow no longer offers a login it cannot deliver.** A new
+  `get_claude_invocation` command resolves the absolute binary — the same
+  resolver the chat path uses, so the two can never disagree — and the login
+  terminal is pinned to it instead of a bare `claude`. When nothing resolves,
+  the Claude panel shows an install step (install / re-check / manual `curl`),
+  mirroring what the remote flow has always done. Applies to the Settings
+  "Sign in" button too.
+- **The panel stopped asserting things it never observed.** "`claude login` is
+  running in a terminal tab below" rendered from an event dispatch, not from any
+  output, so it kept claiming a login was in progress while the tab showed
+  `command not found` — and Verify blamed the user for not finishing it. The
+  copy is now gated on the terminal actually opening, the terminal reports a
+  command-not-found back to the panel, and Verify distinguishes "not logged in"
+  from "nothing to log into".
+- **Login requests are no longer silently dropped.** `TerminalArea` unmounts
+  while the terminal panel is collapsed, taking its event listener with it, so
+  clicking Sign in did nothing at all while still showing the success copy. The
+  listener now lives in `AppShell`, which reveals the panel and hands the
+  request down.
+- **The setup wizard no longer tells users who already have Claude Code that
+  they don't.** On macOS its detector ran `zsh -l -c`, which sources `.zprofile`
+  but not `.zshrc` — missing any install managed by nvm/fnm/asdf, whose init
+  lives in `.zshrc`. It now falls back to the full resolver, exactly as the
+  adjacent `node`/`npm` checks already did. Linux and Windows already used the
+  broad detector.
+
+### Internal
+- `terminal_path()` split out of `spawn_terminal` with regression tests pinning
+  the invariant that a tool directory is reachable under a launchd-minimal PATH,
+  that the user's PATH keeps priority, and that entries aren't duplicated.
+- The login terminal is now tagged `commandKind: 'claude-login'` rather than
+  matched with a `/^claude login/` pattern — an absolute path would no longer
+  match, silently dropping both `TERM=dumb` and the v1.0.1 credential clearing.
+
 ## [1.0.1] — 2026-07-26
 
 ### Changed

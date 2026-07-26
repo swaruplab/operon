@@ -58,6 +58,29 @@ fn strip_mux_opts(args: &[String]) -> Vec<String> {
     out
 }
 
+/// PATH for a terminal PTY: the inherited value with every known tool directory
+/// appended (never prepended — the user's own ordering must win in their shell).
+///
+/// Split out from `spawn_terminal` so the invariant is testable: a bare `claude`
+/// must be resolvable from a terminal even under launchd's minimal PATH, which
+/// is what a Finder/Dock launch supplies. This was the one local execution path
+/// that lacked such a guarantee, and it made an installed Claude Code report
+/// "command not found" in the login terminal.
+fn terminal_path(inherited: &str, extra: &[std::path::PathBuf], sep: char) -> String {
+    let mut path = inherited.to_string();
+    for dir in extra {
+        let dir = dir.to_string_lossy().to_string();
+        if dir.is_empty() || path.split(sep).any(|p| p == dir) {
+            continue;
+        }
+        if !path.is_empty() {
+            path.push(sep);
+        }
+        path.push_str(&dir);
+    }
+    path
+}
+
 #[tauri::command]
 pub async fn spawn_terminal(
     state: tauri::State<'_, TerminalManager>,
@@ -131,6 +154,30 @@ pub async fn spawn_terminal(
     };
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
+    // Give the PTY a usable PATH.
+    //
+    // `CommandBuilder::new(&shell)` passes no `-l`, so this is an interactive but
+    // NON-LOGIN shell: on macOS it never runs /etc/zprofile → `path_helper` and
+    // never sources ~/.zprofile. Launched from Finder/Dock, Operon inherits
+    // launchd's minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) and hands exactly
+    // that to the shell — so /opt/homebrew/bin, /usr/local/bin and ~/.local/bin
+    // are all absent and a bare `claude` reports "command not found" even when
+    // Claude Code is installed. Every other local spawn already defends against
+    // this (claude.rs `enforce_baseline_path`, review.rs, mcp.rs); the terminal
+    // was the one hole — and it is the terminal the `claude login` flow types
+    // into, which made a working install look like a missing one.
+    //
+    // APPEND rather than prepend: this is the user's own shell, so their PATH
+    // (and anything ~/.zshrc adds on top) keeps priority. We only make
+    // previously unreachable tools reachable, never reorder their toolchain.
+    cmd.env(
+        "PATH",
+        terminal_path(
+            &std::env::var("PATH").unwrap_or_default(),
+            &crate::platform::extra_tool_paths(),
+            crate::platform::path_separator(),
+        ),
+    );
     // Share Operon's ssh-agent with the terminal so a passphrase-protected key
     // already unlocked at connect time authenticates without re-prompting.
     if let Ok(sock) = std::env::var("SSH_AUTH_SOCK") {
@@ -334,4 +381,68 @@ pub async fn kill_terminal(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod terminal_path_tests {
+    use super::terminal_path;
+    use std::path::PathBuf;
+
+    /// What launchd hands a Finder/Dock-launched app. No /opt/homebrew/bin, no
+    /// /usr/local/bin, no ~/.local/bin — and the PTY shell is non-login, so
+    /// macOS never runs path_helper to add them back.
+    const LAUNCHD_MINIMAL: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+    #[test]
+    fn tool_dirs_are_reachable_under_a_launchd_minimal_path() {
+        let extra = vec![
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/Users/x/.local/bin"),
+        ];
+        let path = terminal_path(LAUNCHD_MINIMAL, &extra, ':');
+        let dirs: Vec<&str> = path.split(':').collect();
+        // The whole point: a bare `claude` installed by the setup wizard into
+        // ~/.local/bin must be findable from the terminal we type `claude login`
+        // into. Without this the login tab prints "command not found" for a
+        // perfectly good install.
+        assert!(dirs.contains(&"/Users/x/.local/bin"));
+        assert!(dirs.contains(&"/opt/homebrew/bin"));
+    }
+
+    #[test]
+    fn the_users_own_path_keeps_priority() {
+        // This is a user-facing shell: our fallbacks must never shadow the
+        // toolchain they chose. Appended, never prepended.
+        let extra = vec![PathBuf::from("/opt/homebrew/bin")];
+        let path = terminal_path("/my/toolchain:/usr/bin", &extra, ':');
+        assert!(path.starts_with("/my/toolchain:/usr/bin"));
+        assert_eq!(path, "/my/toolchain:/usr/bin:/opt/homebrew/bin");
+    }
+
+    #[test]
+    fn already_present_dirs_are_not_duplicated() {
+        let extra = vec![
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+        ];
+        let path = terminal_path("/opt/homebrew/bin:/usr/bin", &extra, ':');
+        assert_eq!(path, "/opt/homebrew/bin:/usr/bin:/usr/local/bin");
+        assert_eq!(path.matches("/opt/homebrew/bin").count(), 1);
+    }
+
+    #[test]
+    fn empty_inherited_path_does_not_produce_a_leading_separator() {
+        // A leading ':' means "current directory" to the shell — a real hazard.
+        let extra = vec![PathBuf::from("/opt/homebrew/bin")];
+        let path = terminal_path("", &extra, ':');
+        assert_eq!(path, "/opt/homebrew/bin");
+        assert!(!path.starts_with(':'));
+    }
+
+    #[test]
+    fn windows_uses_its_own_separator() {
+        let extra = vec![PathBuf::from(r"C:\Users\x\AppData\Roaming\npm")];
+        let path = terminal_path(r"C:\Windows\system32", &extra, ';');
+        assert_eq!(path, r"C:\Windows\system32;C:\Users\x\AppData\Roaming\npm");
+    }
 }

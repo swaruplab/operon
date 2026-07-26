@@ -60,6 +60,7 @@ use commands::{
     generate_report_pdf,
     get_api_key,
     get_cached_models,
+    get_claude_invocation,
     get_extension_config_schema,
     get_extension_details,
     get_extension_manifest,
@@ -347,6 +348,7 @@ pub fn run() {
             get_protocol_template_params,
             // Claude Code
             check_claude_installed,
+            get_claude_invocation,
             check_ssh_available,
             install_claude,
             store_api_key,

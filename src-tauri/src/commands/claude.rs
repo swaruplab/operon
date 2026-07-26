@@ -2066,6 +2066,38 @@ pub async fn delete_api_key(state: tauri::State<'_, ClaudeManager>) -> Result<()
     Ok(())
 }
 
+/// How the frontend should invoke `claude`, and whether it exists at all.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ClaudeInvocation {
+    /// False means Claude Code could not be found anywhere — the caller must
+    /// offer an install step, not a login terminal.
+    pub resolved: bool,
+    /// Shell-ready command word: an absolute, quoted path where we can resolve
+    /// one, else the bare name.
+    pub command: String,
+}
+
+/// Resolve the `claude` command word for the frontend.
+///
+/// The terminal the login flow types into is an interactive NON-login shell, so
+/// a bare `claude` can fail there even when Claude Code is installed (see
+/// `commands/terminal.rs`). Pinning the absolute path removes that whole class
+/// of failure, and `resolved: false` is the signal to show an install step
+/// instead of a login prompt the user can never satisfy.
+#[tauri::command]
+pub async fn get_claude_invocation() -> Result<ClaudeInvocation, String> {
+    // `check_tool` is the broadest detector — login-shell `which` first, then a
+    // direct probe of the known install dirs — so it decides "is it installed?".
+    // The command word comes from `claude_invocation()`, the same resolver the
+    // chat spawn uses, so login and chat can never disagree about which binary
+    // they mean. On Windows that is deliberately the bare name: Git Bash cannot
+    // exec a `.cmd` shim by absolute path.
+    Ok(ClaudeInvocation {
+        resolved: crate::platform::check_tool("claude").is_some(),
+        command: crate::platform::claude_invocation(),
+    })
+}
+
 /// Check if the user has an active OAuth session via Claude CLI.
 /// First does a fast filesystem scan of ~/.claude/ for any auth/credential
 /// files. If nothing found, falls back to running `claude` through a login

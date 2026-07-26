@@ -198,10 +198,30 @@ pub fn check_dependencies() -> DependencyStatus {
 
     // Check Claude Code
     let claude_out = check_cmd("claude --version");
-    let claude_code = claude_out.as_ref().is_some_and(|o| o.status.success());
-    let claude_version = claude_out
+    let mut claude_code = claude_out.as_ref().is_some_and(|o| o.status.success());
+    let mut claude_version = claude_out
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+    // Fall back to the full resolver, exactly as the node/npm branches above do.
+    // `check_cmd` runs `zsh -l -c`, which sources .zprofile but NOT .zshrc — so
+    // a Claude Code installed through a Node version manager (nvm/fnm/asdf, whose
+    // init lives in .zshrc) is invisible to it, as is any install whose directory
+    // a profile `export PATH=...` overwrote. `resolve_claude_path` probes the
+    // known install dirs and then asks an INTERACTIVE login shell, which is what
+    // `check_tool` — and therefore the chat panel's install gate — already uses.
+    // Without this the wizard tells a user who already has Claude Code that it is
+    // missing, and pushes them into a pointless reinstall.
+    if !claude_code {
+        if let Some(path) = super::resolve_claude_path() {
+            if let Ok(out) = std::process::Command::new(&path).arg("--version").output() {
+                if out.status.success() {
+                    claude_code = true;
+                    claude_version = Some(String::from_utf8_lossy(&out.stdout).trim().to_string());
+                }
+            }
+        }
+    }
 
     DependencyStatus {
         xcode_cli: xcode,

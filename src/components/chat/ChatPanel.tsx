@@ -80,7 +80,7 @@ import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, t
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import { copyText } from '../../lib/clipboard';
-import { CLEAR_AUTH_ENV_PREFIX } from '../../lib/claude';
+import { CLEAR_AUTH_ENV_PREFIX, startClaudeLogin, getClaudeInvocation } from '../../lib/claude';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -752,12 +752,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 // --- Auth Setup (API Key or OAuth) ---
 
 function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
-  const [mode, setMode] = useState<'choose' | 'api_key' | 'oauth'>('choose');
+  const [mode, setMode] = useState<'choose' | 'api_key' | 'oauth' | 'not_installed'>('choose');
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [oauthError, setOauthError] = useState('');
   const [terminalOpened, setTerminalOpened] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installNote, setInstallNote] = useState('');
 
   const saveApiKey = async () => {
     if (!key.trim()) return;
@@ -771,19 +773,77 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
     setSaving(false);
   };
 
+  // Never open a login terminal we know will fail. startClaudeLogin resolves the
+  // binary first and reports 'not-installed' rather than typing a command into a
+  // shell that can't run it — which produced a tab full of "command not found"
+  // under a panel claiming the login was in progress.
   const openTerminalLogin = async () => {
     setOauthError('');
     try {
-      // Open a terminal tab inside the app and run `claude login`
-      const terminalId = crypto.randomUUID();
-      await emit('open-login-terminal', {
-        terminalId,
-        title: 'Claude Login',
-        command: 'claude login',
-      });
+      const res = await startClaudeLogin();
+      if (!res.ok) {
+        setMode('not_installed');
+        setTerminalOpened(false);
+        return;
+      }
       setTerminalOpened(true);
     } catch (err) {
       setOauthError(`${err}`);
+    }
+  };
+
+  // If the terminal reports the command never ran, stop claiming it is running.
+  useEffect(() => {
+    const unlisten = listen('claude-login-unavailable', () => {
+      setMode('not_installed');
+      setTerminalOpened(false);
+    });
+    return () => { unlisten.then((u) => u()); };
+  }, []);
+
+  // Lead with the install step when there's no CLI. Neither auth method works
+  // without it — Operon shells out to `claude` for API-key sessions too — so
+  // offering a choice here would just be two dead ends.
+  useEffect(() => {
+    let cancelled = false;
+    getClaudeInvocation()
+      .then((inv) => {
+        if (!cancelled && !inv.resolved) setMode('not_installed');
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const installClaudeLocally = async () => {
+    setInstalling(true);
+    setInstallNote('');
+    try {
+      await invoke('install_claude', { method: 'auto' });
+    } catch (err) {
+      setInstallNote(`${err}`);
+    }
+    // Never trust the installer's own success report — re-probe for the binary.
+    const inv = await getClaudeInvocation().catch(() => ({ resolved: false, command: 'claude' }));
+    setInstalling(false);
+    if (inv.resolved) {
+      setMode('choose');
+      setInstallNote('');
+    } else if (!installNote) {
+      setInstallNote(
+        "Install finished but Claude Code still isn't detectable. Run the command below in a terminal, then click Re-check."
+      );
+    }
+  };
+
+  const recheckInstall = async () => {
+    setInstalling(true);
+    const inv = await getClaudeInvocation().catch(() => ({ resolved: false, command: 'claude' }));
+    setInstalling(false);
+    if (inv.resolved) {
+      setMode('choose');
+      setInstallNote('');
+    } else {
+      setInstallNote('Still not detectable. Make sure the install finished, then try again.');
     }
   };
 
@@ -791,6 +851,15 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
     setVerifying(true);
     setOauthError('');
     try {
+      // Distinguish "not logged in" from "nothing to log into". check_auth_status
+      // collapses both to authenticated:false, which is why this used to tell the
+      // user to finish a login that was never possible.
+      const inv = await getClaudeInvocation().catch(() => ({ resolved: true, command: 'claude' }));
+      if (!inv.resolved) {
+        setVerifying(false);
+        setMode('not_installed');
+        return;
+      }
       const status = await invoke<{ authenticated: boolean; method: string }>('check_auth_status');
       if (status.authenticated) {
         onDone(status.method);
@@ -842,6 +911,64 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
     );
   }
 
+  // --- Claude Code isn't installed (or isn't reachable) ---
+  // The local equivalent of the remote "Step 1: Not installed" banner. Without
+  // it, signing in offers a login for a binary that doesn't exist.
+  if (mode === 'not_installed') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full px-6 text-center">
+        <Download className="w-10 h-10 text-orange-600 dark:text-orange-400 mb-3" />
+        <h3 className="text-sm font-medium text-secondary mb-1">Claude Code isn't installed</h3>
+        <p className="text-xs text-muted mb-5">
+          Operon runs the official Claude Code CLI. Install it once, then sign in
+          with your Max, Pro or Team subscription.
+        </p>
+
+        {installNote && (
+          <div className="w-full mb-3 px-3 py-2 bg-amber-900/20 border border-amber-800/30 rounded text-xs text-amber-700 dark:text-amber-400 text-left">
+            {installNote}
+          </div>
+        )}
+
+        <button
+          onClick={installClaudeLocally}
+          disabled={installing}
+          className="w-full px-3 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-800 rounded-lg text-sm text-white font-medium transition-colors mb-2"
+        >
+          {installing ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Installing...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <Download className="w-4 h-4" /> Install Claude Code
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={recheckInstall}
+          disabled={installing}
+          className="w-full px-3 py-2 bg-surface hover:bg-elevated rounded-lg text-xs text-secondary transition-colors mb-3"
+        >
+          Re-check
+        </button>
+
+        <p className="text-[11px] text-subtle mb-1">Or install it yourself:</p>
+        <code className="w-full block px-2 py-1.5 bg-surface rounded text-[11px] text-secondary break-all mb-3">
+          curl -fsSL https://claude.ai/install.sh | bash
+        </code>
+
+        <button
+          onClick={() => { setMode('choose'); setInstallNote(''); }}
+          className="text-xs text-subtle hover:text-secondary transition-colors"
+        >
+          Back to options
+        </button>
+      </div>
+    );
+  }
+
   // --- OAuth flow ---
   if (mode === 'oauth') {
     return (
@@ -850,9 +977,14 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
         <h3 className="text-sm font-medium text-secondary mb-1">
           {terminalOpened ? 'Complete login in the terminal below' : 'Opening terminal...'}
         </h3>
-        <p className="text-xs text-muted mb-2">
-          <code className="bg-surface px-1 py-0.5 rounded text-orange-700 dark:text-orange-300 text-[11px]">claude login</code> is running in a terminal tab below.
-        </p>
+        {/* Only claim the command is running once the terminal actually opened —
+            this sentence used to render unconditionally, so it kept asserting a
+            login was in progress while the tab showed "command not found". */}
+        {terminalOpened && (
+          <p className="text-xs text-muted mb-2">
+            <code className="bg-surface px-1 py-0.5 rounded text-orange-700 dark:text-orange-300 text-[11px]">claude login</code> is running in a terminal tab below.
+          </p>
+        )}
         <p className="text-xs text-muted mb-5">
           Follow the prompts in the terminal, then click Verify below.
         </p>

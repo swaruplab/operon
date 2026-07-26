@@ -12,6 +12,11 @@ interface TerminalTab {
   type: 'local' | 'ssh';
   /** Command to run once the shell is ready (non-SSH only, e.g. `claude login`). */
   initialCommand?: string;
+  /** What kind of command `initialCommand` is. Set explicitly by the emitter
+   *  rather than sniffed from the string: the login command carries an absolute
+   *  binary path, so a `/^claude login/` pattern would no longer match it and
+   *  would silently drop TERM=dumb and the auth-env clearing prefix. */
+  commandKind?: 'claude-login';
   /** Structured SSH argument vector — passed to spawn_terminal verbatim. */
   sshArgs?: string[];
   /** SSH profile id — present for SSH tabs, enables HPC watchdog auto-register. */
@@ -33,7 +38,23 @@ function describeSshExit(exitCode: number | null): string {
   return `SSH connection failed (exit code ${exitCode})`;
 }
 
-export function TerminalArea() {
+export interface PendingLoginTab {
+  terminalId: string;
+  title: string;
+  command: string;
+  kind?: 'claude-login';
+}
+
+interface TerminalAreaProps {
+  /** A login terminal AppShell was asked to open. Delivered as a prop rather
+   *  than listened for here because this component is unmounted whenever the
+   *  terminal panel is collapsed — the event would simply be dropped, and the
+   *  Claude panel would still claim a login was running. */
+  pendingLoginTab?: PendingLoginTab | null;
+  onPendingLoginConsumed?: () => void;
+}
+
+export function TerminalArea({ pendingLoginTab, onPendingLoginConsumed }: TerminalAreaProps = {}) {
   const [tabs, setTabs] = useState<TerminalTab[]>(() => {
     const id = crypto.randomUUID();
     return [{ id, title: 'Terminal', type: 'local', exited: false, spawnedAt: Date.now() }];
@@ -83,24 +104,31 @@ export function TerminalArea() {
     return () => { unlisten.then((u) => u()); };
   }, []);
 
-  // Listen for login terminal open events (claude login)
+  // Open the login terminal AppShell handed us. Runs on prop change rather than
+  // on a Tauri event so it still fires when this component mounts *after* the
+  // request (terminal panel collapsed at the time the user clicked Sign in).
   useEffect(() => {
-    const unlisten = listen<{ terminalId: string; title: string; command: string }>('open-login-terminal', (event) => {
-      const { terminalId, title, command } = event.payload;
-      const newTab: TerminalTab = {
-        id: terminalId,
-        title,
-        type: 'local',
-        initialCommand: command,
-        spawnedAt: Date.now(),
-        exited: false,
-      };
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTab(terminalId);
-    });
-
-    return () => { unlisten.then((u) => u()); };
-  }, []);
+    if (!pendingLoginTab) return;
+    const { terminalId, title, command, kind } = pendingLoginTab;
+    setTabs((prev) =>
+      prev.some((t) => t.id === terminalId)
+        ? prev
+        : [
+            ...prev,
+            {
+              id: terminalId,
+              title,
+              type: 'local',
+              initialCommand: command,
+              commandKind: kind,
+              spawnedAt: Date.now(),
+              exited: false,
+            },
+          ]
+    );
+    setActiveTab(terminalId);
+    onPendingLoginConsumed?.();
+  }, [pendingLoginTab, onPendingLoginConsumed]);
 
   // Emit the active local terminal ID so the file explorer can use it for cd
   useEffect(() => {
@@ -348,6 +376,7 @@ export function TerminalArea() {
               terminalId={tab.id}
               isVisible={activeTab === tab.id}
               initialCommand={tab.initialCommand}
+              commandKind={tab.commandKind}
               sshArgs={tab.sshArgs}
               sshProfileId={tab.sshProfileId}
               onTitleChange={(title) => handleTitleChange(tab.id, title)}

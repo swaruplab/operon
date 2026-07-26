@@ -9,7 +9,7 @@ import { getSettings } from '../../lib/settings';
 import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
 import { useTheme } from '../../context/ThemeContext';
 import { copyText } from '../../lib/clipboard';
-import { CLEAR_AUTH_ENV_PREFIX } from '../../lib/claude';
+import { CLEAR_AUTH_ENV_PREFIX, looksLikeClaudeMissing } from '../../lib/claude';
 import '@xterm/xterm/css/xterm.css';
 
 // Xterm theme palettes — kept in sync with the app's CSS variables in
@@ -134,6 +134,9 @@ interface TerminalInstanceProps {
   isVisible: boolean;
   /** Command to send to the shell once it's ready (non-SSH only, e.g. `claude login`). */
   initialCommand?: string;
+  /** Set by the emitter, never sniffed from the command string — see the
+   *  `commandKind` note on TerminalTab. */
+  commandKind?: 'claude-login';
   /** Structured SSH argument vector. When present this is an SSH terminal and the
    *  args are passed to spawn_terminal verbatim — never parsed from a string. */
   sshArgs?: string[];
@@ -149,7 +152,7 @@ interface TerminalInstanceProps {
   onCwdChange?: (cwd: string) => void;
 }
 
-export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArgs, sshProfileId, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
+export function TerminalInstance({ terminalId, isVisible, initialCommand, commandKind, sshArgs, sshProfileId, onTitleChange, onExit, onCwdChange }: TerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -342,6 +345,8 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
 
     // Track whether we've already opened an OAuth URL for this terminal session
     let oauthOpened = false;
+    // Fire the "claude isn't runnable" signal at most once per tab.
+    let loginFailureReported = false;
     // Per-instance buffer for partial URL accumulation (not shared across terminals)
     let oauthBuffer = '';
 
@@ -392,6 +397,15 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
       if (osc7Match) {
         const cwd = decodeURIComponent(osc7Match[1]);
         onCwdChangeRef.current?.(cwd);
+      }
+
+      // --- Login command never ran (binary missing / unreachable) ---
+      // The panel used to assert "`claude login` is running" purely because the
+      // open-terminal event dispatched, so a shell that answered "command not
+      // found" left the user clicking Verify forever. Report it instead.
+      if (commandKind === 'claude-login' && !loginFailureReported && looksLikeClaudeMissing(data)) {
+        loginFailureReported = true;
+        emit('claude-login-unavailable', { terminalId }).catch(() => {});
       }
 
       // --- OAuth URL auto-open for `claude login` (local or remote) ---
@@ -544,13 +558,18 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
         if (initialCommand && !initialCommand.startsWith('ssh ')) {
           setTimeout(() => {
             let cmd = initialCommand;
-            // If the command is `claude login` (not already prefixed), add TERM=dumb
-            // and clear any credential the interactive shell just picked up from
-            // ~/.zshrc. An ANTHROPIC_API_KEY in the environment outranks the
-            // claude.ai session, so the CLI prints "connectors are disabled
-            // because ANTHROPIC_API_KEY ... takes precedence over your claude.ai
-            // login" and the login the user just completed is never used.
-            if (/^claude\s+login/.test(cmd) && !cmd.includes('TERM=')) {
+            // For the login command, add TERM=dumb (the TUI renders badly in
+            // xterm.js otherwise, and plain text makes OAuth-URL detection
+            // reliable) and clear any credential the interactive shell just
+            // picked up from ~/.zshrc — an ANTHROPIC_API_KEY in the environment
+            // outranks the claude.ai session, so the CLI prints "connectors are
+            // disabled because ANTHROPIC_API_KEY ... takes precedence over your
+            // claude.ai login" and the login is never used.
+            //
+            // Keyed on commandKind, NOT on a pattern like /^claude login/: the
+            // command now carries an absolute binary path, which such a pattern
+            // would fail to match — silently dropping both of the above.
+            if (commandKind === 'claude-login' && !cmd.includes('TERM=')) {
               cmd = `${CLEAR_AUTH_ENV_PREFIX}TERM=dumb ${cmd}`;
             }
             const cmdWithNewline = cmd + '\n';
