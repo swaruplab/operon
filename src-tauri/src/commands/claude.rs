@@ -382,6 +382,75 @@ fn replace_claude_token(cmd: &str, invoke: &str) -> String {
 }
 
 #[cfg(test)]
+mod oauth_detection_tests {
+    use super::{json_has_oauth_material, oauth_credential_files};
+
+    fn v(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).expect("valid test JSON")
+    }
+
+    #[test]
+    fn the_mcp_cache_that_faked_a_login_is_rejected() {
+        // Verbatim shape of ~/.claude/mcp-needs-auth-cache.json. Its NAME contains
+        // "auth" and its body is non-empty, which is all the old check required —
+        // so Operon reported an authenticated Claude subscription on the strength
+        // of a list of MCP servers. It carries no token and must not qualify.
+        let cache = v(r#"{
+            "claude.ai BioRender": {"timestamp": 1785083247017, "id": "mcpsrv_01Mk"},
+            "claude.ai Synapse.org": {"timestamp": 1785083247047, "id": "mcpsrv_01NU"}
+        }"#);
+        assert!(!json_has_oauth_material(&cache));
+    }
+
+    #[test]
+    fn a_real_credential_file_is_accepted_nested_or_flat() {
+        // Current CLI shape: nested under claudeAiOauth.
+        let nested = v(
+            r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-abc","refreshToken":"sk-ant-ort01-def","expiresAt":123}}"#,
+        );
+        assert!(json_has_oauth_material(&nested));
+
+        // Older flat shape, and the snake_case spelling.
+        assert!(json_has_oauth_material(&v(
+            r#"{"access_token":"sk-ant-oat01-abc"}"#
+        )));
+        assert!(json_has_oauth_material(&v(
+            r#"{"refreshToken":"sk-ant-ort01-def"}"#
+        )));
+    }
+
+    #[test]
+    fn empty_or_placeholder_tokens_do_not_count() {
+        assert!(!json_has_oauth_material(&v(r#"{}"#)));
+        assert!(!json_has_oauth_material(&v(r#"null"#)));
+        assert!(!json_has_oauth_material(&v(
+            r#"{"claudeAiOauth":{"accessToken":""}}"#
+        )));
+        assert!(!json_has_oauth_material(&v(
+            r#"{"claudeAiOauth":{"accessToken":"   "}}"#
+        )));
+        // A key that merely mentions auth, with no token in it.
+        assert!(!json_has_oauth_material(&v(
+            r#"{"needsAuth":true,"authCache":{"server":"x"}}"#
+        )));
+    }
+
+    #[test]
+    fn only_real_credential_paths_are_consulted() {
+        // Exact paths, never a filename substring — that is what let the MCP
+        // cache through.
+        for p in oauth_credential_files() {
+            let name = p.file_name().unwrap().to_string_lossy().to_string();
+            assert!(
+                name == ".credentials.json" || name == "credentials.json",
+                "unexpected credential path considered: {}",
+                p.display()
+            );
+        }
+    }
+}
+
+#[cfg(test)]
 mod auth_env_tests {
     use super::{ai_provider_env_exports, ai_provider_env_unset, local_env_prefix};
 
@@ -2098,37 +2167,87 @@ pub async fn get_claude_invocation() -> Result<ClaudeInvocation, String> {
     })
 }
 
+/// Credential files the Claude Code CLI has used across versions.
+///
+/// Matched by exact path rather than a filename substring. The previous check
+/// accepted any file in `~/.claude/` whose NAME contained "auth", "token",
+/// "credential" or "oauth" and whose body was merely non-empty — so
+/// `mcp-needs-auth-cache.json`, a cache of which MCP servers need authorization,
+/// was enough to report the user as signed in to their Claude subscription.
+fn oauth_credential_files() -> Vec<std::path::PathBuf> {
+    let Some(home) = crate::platform::home_dir() else {
+        return Vec::new();
+    };
+    vec![
+        home.join(".claude/.credentials.json"),
+        home.join(".claude/credentials.json"),
+        home.join(".config/claude/credentials.json"),
+        home.join(".config/claude-code/credentials.json"),
+    ]
+}
+
+/// True if `v` carries a non-empty OAuth access/refresh token anywhere inside it.
+///
+/// Matched on content, not on shape: the CLI has moved this field between
+/// versions (top level, later nested under `claudeAiOauth`), and a structural
+/// match would silently start returning false after an upgrade.
+fn json_has_oauth_material(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Object(map) => map.iter().any(|(k, val)| {
+            let key = k.to_ascii_lowercase().replace(['_', '-'], "");
+            let is_token_key = key.contains("accesstoken") || key.contains("refreshtoken");
+            let has_value = val.as_str().is_some_and(|s| !s.trim().is_empty());
+            (is_token_key && has_value) || json_has_oauth_material(val)
+        }),
+        serde_json::Value::Array(items) => items.iter().any(json_has_oauth_material),
+        _ => false,
+    }
+}
+
+/// macOS stores the CLI's OAuth credential in the login Keychain, not on disk —
+/// so a file-only check reports a perfectly good subscription login as absent.
+///
+/// Existence only: `security find-generic-password` WITHOUT `-w` returns
+/// attributes and never reads the secret, so it cannot raise a keychain-access
+/// prompt. Exit 0 = present, 44 = not found.
+#[cfg(target_os = "macos")]
+fn keychain_oauth_credential_present() -> bool {
+    std::process::Command::new("security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn keychain_oauth_credential_present() -> bool {
+    false
+}
+
+/// Fast, side-effect-free check for a stored OAuth credential, across both
+/// stores the CLI actually uses.
+fn stored_oauth_credential_present() -> bool {
+    if keychain_oauth_credential_present() {
+        return true;
+    }
+    oauth_credential_files().iter().any(|p| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .is_some_and(|v| json_has_oauth_material(&v))
+    })
+}
+
 /// Check if the user has an active OAuth session via Claude CLI.
-/// First does a fast filesystem scan of ~/.claude/ for any auth/credential
-/// files. If nothing found, falls back to running `claude` through a login
-/// shell to test if auth works.
+/// Fast path: look for a stored credential in the Keychain (macOS) or in one of
+/// the CLI's known credential files. If neither is present, fall back to running
+/// `claude` through a login shell to test whether auth actually works.
 #[tauri::command]
 pub async fn check_oauth_status() -> Result<bool, String> {
-    // Fast path: scan ~/.claude/ for any file that looks like credentials/auth
-    {
-        let claude_dir = crate::platform::home_dir()
-            .unwrap_or_default()
-            .join(".claude");
-        if claude_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&claude_dir) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_lowercase();
-                    // Look for any file with auth/credential/token/oauth in the name
-                    if name.contains("credential")
-                        || name.contains("auth")
-                        || name.contains("token")
-                        || name.contains("oauth")
-                    {
-                        if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                            let trimmed = content.trim();
-                            if !trimmed.is_empty() && trimmed != "{}" && trimmed != "null" {
-                                return Ok(true);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if stored_oauth_credential_present() {
+        return Ok(true);
     }
 
     // Slow path: actually run claude through a login shell to test auth.

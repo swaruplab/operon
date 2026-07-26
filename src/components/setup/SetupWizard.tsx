@@ -192,6 +192,9 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   const [phaseRunning, setPhaseRunning] = useState(false);
   const [phaseDone, setPhaseDone] = useState(false);
   const [phaseError, setPhaseError] = useState<string | null>(null);
+  /** True once the user has been told Claude Code wasn't detected. The second
+   *  skip click then goes through — a warning, never a trap. */
+  const [claudeSkipWarned, setClaudeSkipWarned] = useState(false);
 
   // Track which steps completed with errors (for StepIndicator coloring)
   const [failedSteps, setFailedSteps] = useState<Set<Step>>(new Set());
@@ -361,6 +364,44 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
   const startXcodeInstall = () => runPhaseForStep('install_phase_xcode', 'install-xcode' as Step);
   const startToolsInstall = () => runPhaseForStep('install_phase_tools', 'install-tools' as Step);
   const startClaudeInstall = () => runPhaseForStep('install_phase_claude', 'install-claude' as Step);
+
+  /**
+   * Leave the Claude Code step — but verify first.
+   *
+   * Both escapes here ("Skip" on an install error, and "Already installed?
+   * Skip") used to be a bare `setStep('auth')` with no check, unlike the
+   * Node/Git step which re-checks and blocks. So a failed install, or a user
+   * clicking past it, walked straight to auth and setup completed with no CLI
+   * present — that is how a machine reaches the chat panel un-provisioned.
+   *
+   * Deliberately NOT a hard block: an offline or locked-down machine must still
+   * be able to finish setup. First click re-checks and explains; a second click
+   * lets the user through knowingly.
+   */
+  const skipClaudeStep = async () => {
+    await invoke('refresh_environment').catch(() => {});
+    const status = await invoke<DependencyStatus>('check_local_dependencies').catch(() => null);
+    if (status) setDeps(status);
+    const proceed = () => {
+      setPhaseDone(false);
+      setPhaseError(null);
+      setClaudeSkipWarned(false);
+      setStep('auth');
+    };
+    if (status?.claude_code) {
+      proceed();
+      return;
+    }
+    if (!claudeSkipWarned) {
+      setClaudeSkipWarned(true);
+      setPhaseDone(true);
+      setPhaseError(
+        "Claude Code wasn't detected. Chat and agent features won't work without it — install it above, or click Skip again to continue anyway."
+      );
+      return;
+    }
+    proceed();
+  };
 
   // Cleanup listener on unmount
   useEffect(() => {
@@ -1207,10 +1248,10 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                     Retry
                   </button>
                   <button
-                    onClick={() => setStep('auth')}
+                    onClick={skipClaudeStep}
                     className="px-4 py-2.5 bg-surface hover:bg-elevated text-secondary rounded-lg transition-colors text-sm"
                   >
-                    Skip
+                    {claudeSkipWarned ? 'Skip anyway' : 'Skip'}
                   </button>
                 </>
               )}
@@ -1225,7 +1266,7 @@ export function SetupWizard({ onComplete, mode = 'fullscreen' }: SetupWizardProp
                   ← Back
                 </button>
                 <button
-                  onClick={() => setStep('auth')}
+                  onClick={skipClaudeStep}
                   className="text-xs text-subtle hover:text-secondary transition-colors"
                 >
                   Already installed? Skip →

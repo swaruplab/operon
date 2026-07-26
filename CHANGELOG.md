@@ -4,6 +4,37 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] — 2026-07-26
+
+### Fixed
+- **The auth badge now measures the thing it claims to measure.** Two bugs, in
+  opposite directions, in `check_oauth_status`'s fast path:
+  - It accepted any file in `~/.claude/` whose *name* contained "auth", "token",
+    "credential" or "oauth" and whose body was merely non-empty. In practice
+    `mcp-needs-auth-cache.json` — a cache of which MCP servers need
+    authorization — was enough to report a signed-in Claude subscription. Now
+    only the CLI's actual credential paths are read, and the JSON must carry a
+    non-empty access/refresh token (matched on content, since the CLI has moved
+    that field between versions).
+  - On macOS it never looked in the Keychain, which is where the CLI actually
+    stores the OAuth credential — so a genuinely logged-in subscriber could read
+    as logged out. It now checks `Claude Code-credentials` via
+    `security find-generic-password` *without* `-w`, which returns attributes
+    only and never touches the secret, so it cannot raise a keychain-access
+    prompt.
+
+  Sessions have used the right credential since v1.0.1; this fixes the
+  *reporting*, which is what kept making the underlying bug look already-fixed.
+- **The setup wizard's Claude step can no longer be skipped unverified.** Both
+  escapes ("Skip" after an install error, and "Already installed? Skip →") were
+  a bare step change, unlike the Node/Git step which re-checks and blocks — so a
+  failed or never-run install walked straight to auth and setup completed with
+  no CLI present. That is how a machine reached the chat panel un-provisioned.
+  Both now re-check dependencies first. Deliberately not a hard block: an
+  offline or locked-down machine must still be able to finish setup, so the
+  first click explains what's missing and a second ("Skip anyway") lets the user
+  through knowingly.
+
 ## [1.0.2] — 2026-07-26
 
 ### Fixed
