@@ -34,7 +34,8 @@ Linux), or click the gear icon in the top bar.
 | Setting | Default | Notes |
 |---|---|---|
 | Provider | Anthropic | See [Providers](../ai/providers.md) |
-| Model | Claude Opus 4.7 | Auto-loads when provider catalog changes |
+| Model | Claude Opus 5 | Auto-loads when provider catalog changes |
+| Effort | High | Reasoning level; skipped for models without it (e.g. Haiku 4.5) |
 | Max turns (Agent mode) | 30 | How many tool-call rounds before stopping |
 | Max turns (Plan mode) | 3 | Plan mode is intentionally brief |
 | Max turns (Report mode) | 6 | Default report depth |

@@ -9,6 +9,7 @@ import { getSettings } from '../../lib/settings';
 import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
 import { useTheme } from '../../context/ThemeContext';
 import { copyText } from '../../lib/clipboard';
+import { CLEAR_AUTH_ENV_PREFIX } from '../../lib/claude';
 import '@xterm/xterm/css/xterm.css';
 
 // Xterm theme palettes — kept in sync with the app's CSS variables in
@@ -544,8 +545,13 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, sshArg
           setTimeout(() => {
             let cmd = initialCommand;
             // If the command is `claude login` (not already prefixed), add TERM=dumb
+            // and clear any credential the interactive shell just picked up from
+            // ~/.zshrc. An ANTHROPIC_API_KEY in the environment outranks the
+            // claude.ai session, so the CLI prints "connectors are disabled
+            // because ANTHROPIC_API_KEY ... takes precedence over your claude.ai
+            // login" and the login the user just completed is never used.
             if (/^claude\s+login/.test(cmd) && !cmd.includes('TERM=')) {
-              cmd = `TERM=dumb ${cmd}`;
+              cmd = `${CLEAR_AUTH_ENV_PREFIX}TERM=dumb ${cmd}`;
             }
             const cmdWithNewline = cmd + '\n';
             invoke('write_terminal', {

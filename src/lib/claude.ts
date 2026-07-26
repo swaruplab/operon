@@ -2,6 +2,24 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { ClaudeStatus, AuthStatus } from '../types/chat';
 
+/** Credential/routing vars Operon takes ownership of, mirroring
+ *  `MANAGED_AUTH_VARS` in src-tauri/src/commands/claude.rs. Claude Code picks
+ *  its auth source from the environment, and any of these set by the user's
+ *  shell profile outranks their claude.ai login — so an interactive shell we
+ *  drive (`claude login` in a terminal tab, local or over SSH) has to clear
+ *  them, or the CLI reports "connectors are disabled because ANTHROPIC_API_KEY
+ *  ... takes precedence over your claude.ai login" and the subscription the
+ *  user just signed in with is never the credential actually used.
+ *  Keep the two lists in sync. */
+export const MANAGED_AUTH_VARS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+] as const;
+
+/** Shell prefix that clears {@link MANAGED_AUTH_VARS} before a command runs. */
+export const CLEAR_AUTH_ENV_PREFIX = `unset ${MANAGED_AUTH_VARS.join(' ')}; `;
+
 export async function checkClaudeInstalled(): Promise<ClaudeStatus> {
   return invoke('check_claude_installed');
 }

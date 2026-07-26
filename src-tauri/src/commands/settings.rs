@@ -60,10 +60,33 @@ fn default_reviewer_auto_sbatch() -> bool {
     true
 }
 
+/// Operon's default model. Kept in one place because the settings default, the
+/// stale-value migration in [`SettingsManager::load_from_disk`] and the
+/// frontend's `DEFAULT_SETTINGS` (src/lib/settings.ts) all have to agree.
+pub(crate) const DEFAULT_MODEL: &str = "claude-opus-5";
+
+/// The model this release replaces as the default. Users still sitting on it
+/// never made a choice — they took whatever Operon shipped — so they get moved
+/// forward. Unlike the retired dated ids, 4.8 is still a shipping, selectable
+/// model, so this nudge is gated on [`SETTINGS_MIGRATION_VERSION`] and runs
+/// exactly once: someone who picks 4.8 back afterwards keeps it.
+const PREVIOUS_DEFAULT_MODEL: &str = "claude-opus-4-8";
+
+/// Bumped whenever a migration must run **once per install** rather than on
+/// every load. Persisted in settings.json; a file written before this field
+/// existed deserializes to 0 and gets every migration applied.
+///
+/// Version history:
+///   1 — move the default model from Claude Opus 4.8 to Claude Opus 5.
+const SETTINGS_MIGRATION_VERSION: u32 = 1;
+
+fn default_model() -> String {
+    DEFAULT_MODEL.to_string()
+}
+
 fn default_effort() -> String {
-    // Matches Anthropic's documented default for Opus 4.8 (the latest at ship
-    // time). For models that don't support `effort` at all (e.g. Haiku 4.5)
-    // the flag is simply skipped — no fallback noise.
+    // Opus 5's default. For models that don't support `effort` at all (e.g.
+    // Haiku 4.5) the flag is simply skipped — no fallback noise.
     "high".to_string()
 }
 
@@ -104,6 +127,11 @@ pub struct AppSettings {
     pub terminal_font_size: u32,
     #[serde(default)]
     pub setup_completed: bool,
+    /// Highest [`SETTINGS_MIGRATION_VERSION`] already applied to this file.
+    /// Missing (older file) deserializes to 0, so every one-shot migration
+    /// runs; a fresh install starts at the current version with nothing to do.
+    #[serde(default)]
+    pub settings_migration_version: u32,
     #[serde(default)]
     pub mcp_servers: Vec<MCPServerConfig>,
     #[serde(default)]
@@ -220,7 +248,7 @@ impl Default for AppSettings {
             tab_size: 2,
             word_wrap: false,
             minimap_enabled: true,
-            model: "claude-opus-4-8".to_string(),
+            model: default_model(),
             effort: default_effort(),
             ultrathink: false,
             max_turns: 25,
@@ -229,6 +257,7 @@ impl Default for AppSettings {
             show_hidden_files: false,
             terminal_font_size: 13,
             setup_completed: false,
+            settings_migration_version: SETTINGS_MIGRATION_VERSION,
             mcp_servers: Vec::new(),
             extension_settings: HashMap::new(),
             last_project_path: None,
@@ -255,6 +284,56 @@ impl Default for AppSettings {
     }
 }
 
+/// Bring a settings file written by an older Operon up to date. Pure so it can
+/// be tested without touching disk; returns true when anything changed (the
+/// caller then rewrites the file).
+///
+/// Deliberately conservative: it only rewrites values the user cannot have
+/// meaningfully chosen — a retired model id, the previous release's default, or
+/// a model that can't work with the selected provider. A deliberate choice that
+/// still resolves is always left alone.
+fn migrate_settings(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+
+    // Retired dated ids. Safe to re-apply on every load: no dropdown offers
+    // them, so rewriting one can never override a choice the user could make.
+    let renamed = match settings.model.as_str() {
+        "claude-opus-4-20250514" => Some(DEFAULT_MODEL),
+        "claude-sonnet-4-20250514" => Some("claude-sonnet-4-6"),
+        _ => None,
+    };
+    if let Some(new_id) = renamed {
+        settings.model = new_id.to_string();
+        changed = true;
+    }
+
+    // One-shot: the previous default is still a shipping, selectable model, so
+    // this must NOT re-apply. Without the version gate, a user who picks Opus
+    // 4.8 back in Settings would be silently reset to Opus 5 on every relaunch
+    // and could never pin it.
+    if settings.settings_migration_version < 1 && settings.model == PREVIOUS_DEFAULT_MODEL {
+        settings.model = DEFAULT_MODEL.to_string();
+        changed = true;
+    }
+
+    // Provider/model mismatch: `model` is only ever consulted for the Anthropic
+    // provider (custom and Portkey read `custom_model` / `portkey_model`), so a
+    // non-`claude-` id here is a leftover from a provider the user has since
+    // switched away from. It reaches the CLI as a bogus `--model`, and the model
+    // dropdowns render a <select> whose value matches none of their <option>s.
+    // Unconditional: this is a repair of a value that cannot work, not a nudge.
+    if settings.ai_provider == "anthropic" && !settings.model.starts_with("claude-") {
+        settings.model = DEFAULT_MODEL.to_string();
+        changed = true;
+    }
+
+    if settings.settings_migration_version < SETTINGS_MIGRATION_VERSION {
+        settings.settings_migration_version = SETTINGS_MIGRATION_VERSION;
+        changed = true;
+    }
+    changed
+}
+
 pub struct SettingsManager {
     pub settings: Mutex<AppSettings>,
 }
@@ -276,13 +355,7 @@ impl SettingsManager {
         let path = Self::config_path()?;
         let data = std::fs::read_to_string(path).ok()?;
         let mut settings: AppSettings = serde_json::from_str(&data).ok()?;
-        let migrated = match settings.model.as_str() {
-            "claude-opus-4-20250514" => Some("claude-opus-4-8"),
-            "claude-sonnet-4-20250514" => Some("claude-sonnet-4-6"),
-            _ => None,
-        };
-        if let Some(new_id) = migrated {
-            settings.model = new_id.to_string();
+        if migrate_settings(&mut settings) {
             let _ = Self::save_to_disk(&settings);
         }
         Some(settings)
@@ -523,4 +596,124 @@ pub async fn stop_dictation() -> Result<(), String> {
     }
     *guard = None;
     Ok(())
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    /// A settings.json written before `settings_migration_version` existed:
+    /// serde fills the field with 0, so every one-shot migration is pending.
+    fn pre_versioning(model: &str) -> AppSettings {
+        AppSettings {
+            model: model.to_string(),
+            settings_migration_version: 0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn previous_default_moves_to_current_default() {
+        let mut s = pre_versioning(PREVIOUS_DEFAULT_MODEL);
+        assert!(migrate_settings(&mut s));
+        assert_eq!(s.model, DEFAULT_MODEL);
+        assert_eq!(s.settings_migration_version, SETTINGS_MIGRATION_VERSION);
+    }
+
+    #[test]
+    fn the_default_nudge_runs_exactly_once() {
+        // Upgrade moves them to Opus 5...
+        let mut s = pre_versioning(PREVIOUS_DEFAULT_MODEL);
+        assert!(migrate_settings(&mut s));
+        assert_eq!(s.model, DEFAULT_MODEL);
+
+        // ...then the user deliberately picks Opus 4.8 back in Settings.
+        s.model = PREVIOUS_DEFAULT_MODEL.to_string();
+
+        // Every subsequent launch must leave that choice alone. Without the
+        // version gate this reverts to Opus 5 forever and 4.8 can't be pinned.
+        for _ in 0..3 {
+            assert!(
+                !migrate_settings(&mut s),
+                "a re-picked previous default must not be migrated again"
+            );
+            assert_eq!(s.model, PREVIOUS_DEFAULT_MODEL);
+        }
+    }
+
+    #[test]
+    fn retired_dated_ids_are_renamed() {
+        // Unconditional — these appear in no dropdown, so they stay repairable
+        // even on an already-migrated file.
+        for version in [0, SETTINGS_MIGRATION_VERSION] {
+            let mut s = AppSettings {
+                model: "claude-opus-4-20250514".to_string(),
+                settings_migration_version: version,
+                ..Default::default()
+            };
+            assert!(migrate_settings(&mut s));
+            assert_eq!(s.model, DEFAULT_MODEL);
+
+            let mut s = AppSettings {
+                model: "claude-sonnet-4-20250514".to_string(),
+                settings_migration_version: version,
+                ..Default::default()
+            };
+            assert!(migrate_settings(&mut s));
+            assert_eq!(s.model, "claude-sonnet-4-6");
+        }
+    }
+
+    #[test]
+    fn a_deliberate_choice_is_left_alone() {
+        // Anything that isn't the superseded default is the user's call.
+        for id in [
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001",
+        ] {
+            let mut s = AppSettings {
+                model: id.to_string(),
+                ..Default::default()
+            };
+            assert!(!migrate_settings(&mut s), "{id} should not be migrated");
+            assert_eq!(s.model, id);
+        }
+    }
+
+    #[test]
+    fn non_claude_model_under_anthropic_provider_is_reset() {
+        // Real shape seen in the wild: user experiments with Ollama, switches the
+        // provider back to Anthropic, and `model` keeps the Ollama slug.
+        let mut s = AppSettings {
+            model: "ollama/glm-5.2:cloud".to_string(),
+            ai_provider: "anthropic".to_string(),
+            ..Default::default()
+        };
+        assert!(migrate_settings(&mut s));
+        assert_eq!(s.model, DEFAULT_MODEL);
+    }
+
+    #[test]
+    fn non_claude_model_under_other_providers_is_untouched() {
+        // custom/portkey read custom_model / portkey_model, so `model` is inert
+        // there and must not be rewritten out from under the user.
+        for provider in ["custom", "portkey"] {
+            let mut s = AppSettings {
+                model: "ollama/glm-5.2:cloud".to_string(),
+                ai_provider: provider.to_string(),
+                ..Default::default()
+            };
+            assert!(!migrate_settings(&mut s), "{provider} should not migrate");
+            assert_eq!(s.model, "ollama/glm-5.2:cloud");
+        }
+    }
+
+    #[test]
+    fn defaults_are_stable_under_migration() {
+        let mut s = AppSettings::default();
+        assert!(!migrate_settings(&mut s));
+        assert_eq!(s.model, DEFAULT_MODEL);
+        assert_eq!(s.effort, "high");
+    }
 }

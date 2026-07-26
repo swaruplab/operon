@@ -247,7 +247,7 @@ function PortkeyProviderPanel({
     // Do NOT pre-save portkey_model here — let the live catalog auto-pick the
     // best model once the user pastes a virtual key (see the effect below).
     // Pre-saving from suggested_models[0] locks in a possibly-stale value
-    // before the live catalog has a chance to show e.g. Opus 4.8.
+    // before the live catalog has a chance to show the newest Opus.
     const next: AppSettings = {
       ...settings,
       portkey_preset_id: id,

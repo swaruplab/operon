@@ -112,6 +112,18 @@ fn bundled_models() -> Vec<ModelInfo> {
     let no_effort = EffortCapability::default();
     vec![
         ModelInfo {
+            id: "claude-opus-5".to_string(),
+            display_name: "Claude Opus 5".to_string(),
+            created_at: "2026-07-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            // Operon's default model — see `AppSettings::default()` in
+            // settings.rs. Full effort range; the shipped default is `high`.
+            capabilities: ModelCapabilities {
+                effort: all_effort.clone(),
+            },
+        },
+        ModelInfo {
             id: "claude-opus-4-8".to_string(),
             display_name: "Claude Opus 4.8".to_string(),
             created_at: "2026-05-01T00:00:00Z".to_string(),
@@ -128,7 +140,7 @@ fn bundled_models() -> Vec<ModelInfo> {
             max_input_tokens: 1_000_000,
             max_tokens: 128_000,
             // Sonnet 5 is the first Sonnet-tier model to support the full effort
-            // range, including `xhigh` and `max` — same capabilities as Opus 4.8.
+            // range, including `xhigh` and `max` — same capabilities as Opus.
             capabilities: ModelCapabilities { effort: all_effort },
         },
         ModelInfo {
@@ -270,9 +282,17 @@ pub async fn fetch_anthropic_models(api_key: String) -> Result<Vec<ModelInfo>, S
 /// Synchronous accessor for the cached model list (with bundled fallback).
 /// Used by non-Tauri callers like the claude command assembler that need to
 /// look up a model's capabilities without going through invoke.
+///
+/// The cache is enriched on READ, not just on fetch. A model shipped in a new
+/// release (e.g. `claude-opus-5`) would otherwise be invisible to anyone with an
+/// existing `models_cache.json`: absent from both dropdowns, and — worse —
+/// unknown to [`model_supports_effort_level`], which would silently drop
+/// `--effort` from every command. That state is permanent for subscription
+/// users, since `refresh_models_if_stale` needs an API key to ever rewrite the
+/// cache and they don't have one.
 pub fn cached_models_sync() -> Vec<ModelInfo> {
     read_cache()
-        .map(|c| c.models)
+        .map(|c| enrich_fetched_models(c.models))
         .filter(|m| !m.is_empty())
         .unwrap_or_else(bundled_models)
 }
@@ -337,6 +357,44 @@ pub async fn refresh_models_if_stale(api_key: Option<String>) -> Result<bool, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opus_5_is_bundled_with_full_effort() {
+        let models = bundled_models();
+        let o5 = models
+            .iter()
+            .find(|m| m.id == "claude-opus-5")
+            .expect("Opus 5 must be in the bundled catalog — it is the shipped default model");
+        assert!(o5.capabilities.effort.supported);
+        // The shipped default is `high`; the rest of the range must be
+        // selectable so a user pinning "max"/"xhigh" isn't silently downgraded.
+        assert!(o5.capabilities.effort.low.supported);
+        assert!(o5.capabilities.effort.medium.supported);
+        assert!(o5.capabilities.effort.high.supported);
+        assert!(o5.capabilities.effort.max.supported);
+        assert!(o5.capabilities.effort.xhigh.supported);
+    }
+
+    #[test]
+    fn stale_cache_still_yields_opus_5() {
+        // A user upgrading from an older release has a models_cache.json written
+        // before Opus 5 existed. Enrichment-on-read must union it back in, or the
+        // default model is missing from the dropdowns and --effort is dropped.
+        let stale = vec![ModelInfo {
+            id: "claude-opus-4-8".to_string(),
+            display_name: "Claude Opus 4.8".to_string(),
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        let enriched = enrich_fetched_models(stale);
+        let o5 = enriched
+            .iter()
+            .find(|m| m.id == "claude-opus-5")
+            .expect("Opus 5 unioned into a cache that predates it");
+        assert!(o5.capabilities.effort.high.supported);
+    }
 
     #[test]
     fn sonnet_5_is_bundled_with_full_effort() {

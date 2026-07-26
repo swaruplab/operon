@@ -4,6 +4,44 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-07-26
+
+### Changed
+- **Claude Opus 5 at effort `high` is the new default model.** Added to the
+  bundled model catalog with the full effort range (`low`…`xhigh`). Fresh
+  installs get it outright; existing installs still sitting on the previous
+  default (`claude-opus-4-8`) are moved forward once on load — a model you
+  picked yourself is never overwritten.
+
+### Fixed
+- **Subscription sessions no longer fail with "Invalid API key".** On a Max/Pro
+  plan Operon supplies no credential on purpose — the Claude Code CLI owns the
+  login — but it spawns a *login* shell, so an `export ANTHROPIC_API_KEY=...`
+  in `~/.zshrc` (or the cluster's `~/.bashrc`) was re-sourced and outranked
+  that login, and the CLI reported "claude.ai connectors are disabled because
+  ANTHROPIC_API_KEY … takes precedence over your claude.ai login".
+  `ai_provider_env_unset` is now the exact complement of `ai_provider_env`:
+  every managed credential var Operon is *not* supplying gets cleared. Applies
+  to local chat, remote HPC terminal-mode and direct-SSH sessions, the tail
+  connection, `claude login` in a terminal tab (local and remote), the external
+  terminal login fallback, and the code reviewer. As a side effect it is now
+  impossible for the unset list to delete a credential Operon just set.
+- **The auth check no longer reports a healthy login that doesn't work.**
+  `check_oauth_status` cleared only the gateway vars, so its `claude -p ping`
+  probe would succeed *on the stale API key* and report OAuth as fine while
+  every real session failed — which is why this class of bug kept looking
+  fixed. It now clears all three, and pins `claude` to its absolute path so a
+  Finder/Dock launch can't fail the probe on PATH alone.
+- **Newly shipped models are no longer invisible to existing installs.** The
+  model cache is enriched on read, not just on fetch, so a `models_cache.json`
+  written before a new model existed still surfaces it. Without this, Opus 5
+  would have been missing from both dropdowns and unknown to the effort-level
+  check — silently dropping `--effort` — permanently for subscription users,
+  who have no API key to trigger a cache refresh.
+- A `model` left pointing at a non-Anthropic id (e.g. an Ollama slug) while the
+  provider is set back to Anthropic is reset to the default, instead of
+  reaching the CLI as a bogus `--model` and rendering an unselectable dropdown.
+
 ## [1.0.0] — 2026-07-18
 
 First stable release. Operon is a cross-platform (macOS, Windows, Linux) desktop IDE that runs Claude Code agents on HPC clusters over SSH.

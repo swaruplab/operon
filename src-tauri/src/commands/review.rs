@@ -279,6 +279,16 @@ pub async fn review_code(
     if let Some(gb) = crate::platform::find_git_bash_path() {
         cmd.env("CLAUDE_CODE_GIT_BASH_PATH", gb);
     }
+    // The reviewer is Anthropic-direct by construction — it hardcodes a
+    // `claude-*` model id that no gateway would accept — so it must run on the
+    // CLI's own credential. Clear the inherited auth vars rather than depend on
+    // how Operon was launched: a stale ANTHROPIC_API_KEY in the environment
+    // (Operon started from a terminal whose profile exports one) outranks the
+    // user's claude.ai login, and because stderr is discarded below the failure
+    // surfaces only as a silent "reviewer unavailable".
+    for var in super::claude::MANAGED_AUTH_VARS {
+        cmd.env_remove(var);
+    }
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::null());

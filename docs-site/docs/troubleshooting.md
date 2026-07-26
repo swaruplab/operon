@@ -62,6 +62,37 @@ A stale `ANTHROPIC_API_KEY` in your shell profile is being preferred over
 the bearer token Operon sends. Fixed in **v0.7.3+** — upgrade. Or remove
 the `export ANTHROPIC_API_KEY=...` from your shell profile.
 
+### "Invalid API key" on a Max / Pro subscription, or "connectors are disabled"
+
+Full message from the Claude Code CLI:
+
+```
+Invalid API key · Fix external API key
+⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another
+auth source is set and takes precedence over your claude.ai login ·
+Unset it to load your organization's connectors
+```
+
+On a subscription Operon deliberately supplies **no** credential — the
+Claude Code CLI owns the login. But Operon spawns a *login* shell, so an
+`export ANTHROPIC_API_KEY=...` in `~/.zshrc` / `~/.bash_profile` (or, for
+remote sessions, the cluster's `~/.bashrc`) gets re-sourced and outranks
+that login. The subscription is valid; it just never gets used.
+
+Fixed in **v1.0.1+** — Operon now clears `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN` and `ANTHROPIC_BASE_URL` on every path that isn't
+explicitly supplying one: local chat, remote HPC sessions, `claude login`
+in a terminal tab, the auth check, and the code reviewer.
+
+If you're on an older version, remove the `export` line from the relevant
+profile (local **and** remote) and fully quit and relaunch Operon — the
+spawned shell re-sources the profile, so the variable comes back until both
+are done. Verify with `echo $ANTHROPIC_API_KEY` in an Operon terminal.
+
+One source Operon *cannot* clear for you is an `apiKeyHelper` entry in
+`~/.claude/settings.json`. If the message persists after upgrading, check
+that file and remove the helper.
+
 ### Portkey Bedrock route returns 400 about `requestMetadata`
 
 Claude Code's default `metadata.user_id` JSON blob contains `{`, `}`, and

@@ -57,7 +57,7 @@ import { ReportPhasePanel } from '../report/ReportPhasePanel';
 import type { ReportScope } from '../report/ReportPhasePanel';
 import { listPlanHistory, readPlanHistoryEntry } from '../../lib/plans';
 import type { PlanHistoryEntry } from '../../lib/plans';
-import { getSettings, updateSettings, type AppSettings } from '../../lib/settings';
+import { getSettings, updateSettings, DEFAULT_SETTINGS, type AppSettings } from '../../lib/settings';
 import { readReviewEvents, setReviewMarker, type ReviewEvent } from '../../lib/review';
 import { ReviewActivity } from '../review/ReviewActivity';
 
@@ -80,6 +80,7 @@ import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, t
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import { copyText } from '../../lib/clipboard';
+import { CLEAR_AUTH_ENV_PREFIX } from '../../lib/claude';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -1147,7 +1148,7 @@ export function ChatPanel() {
   // the review hook writes per-session records off-stream, and we poll them.
   const [reviewEvents, setReviewEvents] = useState<ReviewEvent[]>([]);
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
-  const [model, setModel] = useState('claude-opus-4-8');
+  const [model, setModel] = useState(DEFAULT_SETTINGS.model);
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'custom' | 'portkey'>('anthropic');
   const [customModel, setCustomModel] = useState<string>('');
   const [portkeyModel, setPortkeyModel] = useState<string>('');
@@ -1641,7 +1642,7 @@ export function ChatPanel() {
       } else if (provider === 'custom' && s.custom_model) {
         setModel((prev) => (prev === s.custom_model ? prev : s.custom_model));
       } else if (provider === 'anthropic') {
-        setModel((prev) => (prev.startsWith('claude-') ? prev : 'claude-opus-4-8'));
+        setModel((prev) => (prev.startsWith('claude-') ? prev : DEFAULT_SETTINGS.model));
       }
     };
     getSettings().then(applyProviderSettings).catch(() => {});
@@ -4114,9 +4115,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           },
                         );
 
-                        // NOW inject the command — listener is already active
+                        // NOW inject the command — listener is already active.
+                        // Clear the managed auth vars first: HPC accounts very
+                        // often have `export ANTHROPIC_API_KEY=...` in the remote
+                        // ~/.bashrc, which outranks the claude.ai session and makes
+                        // `claude login` report that connectors are disabled.
                         try {
-                          const cmd = 'claude login\n';
+                          const cmd = `${CLEAR_AUTH_ENV_PREFIX}claude login\n`;
                           await invoke('write_terminal', {
                             terminalId: sshTerminalId,
                             data: Array.from(new TextEncoder().encode(cmd)),

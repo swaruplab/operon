@@ -102,14 +102,22 @@ The provider setting decides which path:
 
 | Provider | Env vars set |
 |---|---|
-| `anthropic` | `ANTHROPIC_API_KEY` |
+| `anthropic` (API key configured) | `ANTHROPIC_API_KEY` |
+| `anthropic` (Max/Pro subscription) | *none* — the Claude Code CLI owns the login |
 | `portkey` (Anthropic model) | `ANTHROPIC_BASE_URL` → Portkey gateway, `ANTHROPIC_AUTH_TOKEN` → virtual key |
 | `portkey` (non-Anthropic model) | `ANTHROPIC_BASE_URL` → local anthropic-proxy, `ANTHROPIC_AUTH_TOKEN` → placeholder |
 | `custom` | `ANTHROPIC_BASE_URL` → local anthropic-proxy (with `UPSTREAM_BASE_URL` = user URL), `ANTHROPIC_AUTH_TOKEN` |
 
-A parallel `ai_provider_env_unset` clears env vars from a different
-provider that may have been re-exported by the user's shell profile.
-(See v0.7.3 release notes.)
+A parallel `ai_provider_env_unset` clears the rest. It takes the env
+`ai_provider_env` just produced and unsets every variable in
+`MANAGED_AUTH_VARS` (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_BASE_URL`) that is *not* in it — so the two lists are disjoint by
+construction and can never disagree. This matters most in the subscription
+row above: Operon supplies no credential there on purpose, so a stale
+`export ANTHROPIC_API_KEY=...` in the user's shell profile would otherwise
+outrank their claude.ai login and every session would fail with "Invalid API
+key". The unset is applied both as a shell prefix (it has to run *after* the
+login shell sources the profile) and via `cmd.env_remove`.
 
 ## anthropic-proxy sidecar
 

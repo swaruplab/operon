@@ -21,6 +21,11 @@ export interface AppSettings {
   permission_mode: string; // 'full_auto' | 'safe_mode' | 'supervised'
   show_hidden_files: boolean;
   terminal_font_size: number;
+  /** Highest one-shot settings migration already applied to this install.
+   *  Round-tripped verbatim — the backend owns it (see SETTINGS_MIGRATION_VERSION
+   *  in src-tauri/src/commands/settings.rs). Dropping it here would make
+   *  once-per-install migrations re-run. */
+  settings_migration_version: number;
   mcp_servers: MCPServerConfig[];
   extension_settings: Record<string, Record<string, unknown>>;
   last_project_path?: string | null;
@@ -83,7 +88,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   tab_size: 2,
   word_wrap: false,
   minimap_enabled: true,
-  model: 'claude-opus-4-8',
+  // Keep in sync with DEFAULT_MODEL / default_effort() in
+  // src-tauri/src/commands/settings.rs.
+  model: 'claude-opus-5',
   effort: 'high',
   ultrathink: false,
   max_turns: 25,
@@ -91,6 +98,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   permission_mode: 'full_auto',
   show_hidden_files: false,
   terminal_font_size: 13,
+  settings_migration_version: 1,
   mcp_servers: [],
   extension_settings: {},
   last_project_path: null,

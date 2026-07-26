@@ -113,6 +113,16 @@ A stale `ANTHROPIC_API_KEY` in your shell profile is being preferred over
 the bearer token Operon sends. Fixed in v0.7.3+ — Operon clears it for
 the Custom path. On older versions, `unset ANTHROPIC_API_KEY` or upgrade.
 
+### Anthropic subscription session says "Invalid API key"
+
+Same cause, opposite direction: on a Max/Pro subscription Operon supplies
+no credential at all (the CLI owns the login), so a stale
+`ANTHROPIC_API_KEY` in your shell profile takes precedence over your
+claude.ai session. Fixed in v1.0.1+ — the Anthropic path now clears it too
+whenever Operon isn't supplying a key of its own. See
+[Troubleshooting](../troubleshooting.md) for the full message and the
+manual workaround on older versions.
+
 ### Ollama / vLLM streaming feels slower than Claude
 
 The translation proxy adds ~10ms of overhead per token chunk. For most

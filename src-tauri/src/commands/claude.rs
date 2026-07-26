@@ -204,32 +204,49 @@ fn ai_provider_env(
     }
 }
 
-/// Env vars that must be cleared (unset / `cmd.env_remove`) for the active provider,
-/// so a value the user's shell profile (~/.bashrc / ~/.zshrc) or the inherited
-/// environment may have set can't override the value we explicitly emit in
-/// [`ai_provider_env`].
+/// Every credential/routing variable Operon takes ownership of. Claude Code
+/// picks its auth source from the environment, so any of these left over from
+/// the user's shell profile silently outranks what Operon intends.
+pub(crate) const MANAGED_AUTH_VARS: [&str; 3] = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+];
+
+/// Env vars that must be cleared (unset / `cmd.env_remove`) so a value the
+/// user's shell profile (~/.bashrc / ~/.zshrc) or the inherited environment may
+/// have set can't decide which credential Claude Code uses.
 ///
-/// - "anthropic" — clear ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN. A leftover
-///   `export ANTHROPIC_BASE_URL=...` (from prior Portkey / custom-endpoint
-///   tinkering) would route Claude requests to the wrong gateway and produce a
-///   `400 Either x-portkey-config or x-portkey-provider header is required` from
-///   Portkey, or a `404` from any other proxy that doesn't speak Anthropic.
-/// - "custom" / "portkey" — clear ANTHROPIC_API_KEY. With both API_KEY and
+/// This is the exact complement of [`ai_provider_env`]: every variable in
+/// [`MANAGED_AUTH_VARS`] that we did NOT just set is cleared. Deriving it from
+/// the env we emit (rather than from the provider name) makes it impossible for
+/// the two to disagree — in particular it can never `env_remove` a variable we
+/// just `env`'d, which the previous provider-name-keyed version could.
+///
+/// What this buys per provider:
+/// - "anthropic" + user-supplied API key — clears ANTHROPIC_BASE_URL and
+///   ANTHROPIC_AUTH_TOKEN. A leftover `export ANTHROPIC_BASE_URL=...` (from
+///   prior Portkey / custom-endpoint tinkering) would route Claude requests to
+///   the wrong gateway and produce a `400 Either x-portkey-config or
+///   x-portkey-provider header is required` from Portkey, or a `404` from any
+///   other proxy that doesn't speak Anthropic.
+/// - "anthropic" + NO key (Claude Max / Pro subscription — the common case) —
+///   also clears ANTHROPIC_API_KEY. Operon supplies no credential here on
+///   purpose: the Claude Code CLI owns the login. A stale
+///   `export ANTHROPIC_API_KEY=...` in the profile takes precedence over the
+///   claude.ai session, and the CLI then reports
+///   "Invalid API key · claude.ai connectors are disabled because
+///   ANTHROPIC_API_KEY or another auth source is set and takes precedence over
+///   your claude.ai login" — a valid subscription that simply never gets used.
+/// - "custom" / "portkey" — clears ANTHROPIC_API_KEY. With both API_KEY and
 ///   AUTH_TOKEN set, the Anthropic SDK sends `x-api-key`, which most bearer-only
 ///   proxies (Ollama, vLLM, anthropic-proxy, Portkey virtual-key routes) reject
 ///   or treat as anonymous.
-fn ai_provider_env_unset(
-    settings_state: &tauri::State<'_, super::settings::SettingsManager>,
-) -> Vec<&'static str> {
-    let settings = match settings_state.settings.lock() {
-        Ok(s) => s.clone(),
-        Err(_) => return Vec::new(),
-    };
-    match settings.ai_provider.as_str() {
-        "custom" | "portkey" => vec!["ANTHROPIC_API_KEY"],
-        // Default and explicit "anthropic" both want direct-to-anthropic.
-        _ => vec!["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"],
-    }
+fn ai_provider_env_unset(env: &[(String, String)]) -> Vec<&'static str> {
+    MANAGED_AUTH_VARS
+        .into_iter()
+        .filter(|var| !env.iter().any(|(k, _)| k == var))
+        .collect()
 }
 
 /// Render the env vars as a `unset X Y; export K='V'; ...` string for injection
@@ -243,6 +260,38 @@ fn ai_provider_env_exports(env: &[(String, String)], unset: &[&str]) -> String {
     }
     for (k, v) in env {
         out.push_str(&format!("export {}='{}'; ", k, v.replace('\'', "'\\''")));
+    }
+    out
+}
+
+/// Prefix name for the staging variables described in [`local_env_prefix`].
+const LOCAL_ENV_STAGE_PREFIX: &str = "OPERON_ENV_";
+
+/// The local equivalent of [`ai_provider_env_exports`].
+///
+/// `bash -l -c '<cmd>'` sources the user's profile BEFORE running `<cmd>`, which
+/// means anything the profile exports **overwrites what we passed via
+/// `cmd.env`** — an `export ANTHROPIC_API_KEY=...` in `~/.zshrc` beats the key
+/// the user typed into Operon, and a stale `ANTHROPIC_BASE_URL` beats the
+/// gateway Operon selected. Only statements inside `<cmd>` run late enough to
+/// win. Remote sessions already re-assert their exports this way; local ones
+/// did not, so they silently ran on whatever the profile said.
+///
+/// Values are staged through `OPERON_ENV_<NAME>` (set via `cmd.env`, which the
+/// profile has no reason to touch) and re-exported by name here, so a credential
+/// never appears in the command line where `ps` would show it. The staging vars
+/// are unset immediately after so they don't leak into the agent's own shell.
+fn local_env_prefix(env: &[(String, String)], unset: &[&str]) -> String {
+    let mut out = String::new();
+    if !unset.is_empty() {
+        out.push_str(&format!("unset {}; ", unset.join(" ")));
+    }
+    for (k, _) in env {
+        out.push_str(&format!(
+            "export {k}=\"${{{p}{k}}}\"; unset {p}{k}; ",
+            k = k,
+            p = LOCAL_ENV_STAGE_PREFIX
+        ));
     }
     out
 }
@@ -329,6 +378,109 @@ fn replace_claude_token(cmd: &str, invoke: &str) -> String {
         )
     } else {
         cmd.to_string()
+    }
+}
+
+#[cfg(test)]
+mod auth_env_tests {
+    use super::{ai_provider_env_exports, ai_provider_env_unset, local_env_prefix};
+
+    fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn subscription_session_clears_every_credential() {
+        // ai_provider_env returns nothing for "anthropic" with no in-app key —
+        // the CLI's own claude.ai login is the credential. Anything left in the
+        // environment outranks it, so all three must go. This is the regression
+        // behind "connectors are disabled because ANTHROPIC_API_KEY ... takes
+        // precedence over your claude.ai login".
+        let unset = ai_provider_env_unset(&env(&[]));
+        assert!(unset.contains(&"ANTHROPIC_API_KEY"));
+        assert!(unset.contains(&"ANTHROPIC_AUTH_TOKEN"));
+        assert!(unset.contains(&"ANTHROPIC_BASE_URL"));
+    }
+
+    #[test]
+    fn never_clears_a_variable_we_just_set() {
+        // The whole point of deriving the unset list from the emitted env: an
+        // overlap would make `cmd.env_remove` delete the credential `cmd.env`
+        // just supplied, and the shell prefix `unset` it before claude runs.
+        for supplied in [
+            env(&[("ANTHROPIC_API_KEY", "sk-ant-test")]),
+            env(&[
+                ("ANTHROPIC_BASE_URL", "https://api.portkey.ai"),
+                ("ANTHROPIC_AUTH_TOKEN", "virtual-key"),
+            ]),
+        ] {
+            let unset = ai_provider_env_unset(&supplied);
+            for (k, _) in &supplied {
+                assert!(
+                    !unset.contains(&k.as_str()),
+                    "{k} was both set and unset — the two lists must be disjoint"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn api_key_session_still_clears_gateway_vars() {
+        let unset = ai_provider_env_unset(&env(&[("ANTHROPIC_API_KEY", "sk-ant-test")]));
+        assert_eq!(unset, vec!["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"]);
+    }
+
+    #[test]
+    fn gateway_session_still_clears_the_api_key() {
+        // Both API_KEY and AUTH_TOKEN set makes the SDK send x-api-key, which
+        // bearer-only proxies reject.
+        let supplied = env(&[
+            ("ANTHROPIC_BASE_URL", "http://127.0.0.1:11434"),
+            ("ANTHROPIC_AUTH_TOKEN", "local"),
+        ]);
+        assert_eq!(ai_provider_env_unset(&supplied), vec!["ANTHROPIC_API_KEY"]);
+    }
+
+    #[test]
+    fn local_prefix_reexports_by_reference_never_by_value() {
+        // The credential must not appear in the command line — it goes in via
+        // cmd.env under OPERON_ENV_*, and the prefix only names that variable.
+        let supplied = env(&[("ANTHROPIC_API_KEY", "sk-ant-secret")]);
+        let prefix = local_env_prefix(&supplied, &ai_provider_env_unset(&supplied));
+        assert!(
+            !prefix.contains("sk-ant-secret"),
+            "secret leaked into argv: {prefix}"
+        );
+        assert!(prefix.contains("export ANTHROPIC_API_KEY=\"${OPERON_ENV_ANTHROPIC_API_KEY}\";"));
+        // The staging var is cleaned up so it doesn't leak into the agent's shell.
+        assert!(prefix.contains("unset OPERON_ENV_ANTHROPIC_API_KEY;"));
+        // ...and the vars we are NOT supplying are still cleared.
+        assert!(prefix.starts_with("unset ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL; "));
+    }
+
+    #[test]
+    fn local_prefix_is_only_an_unset_for_subscription_sessions() {
+        // No credential supplied -> nothing to re-export, everything cleared.
+        let prefix = local_env_prefix(&[], &ai_provider_env_unset(&[]));
+        assert_eq!(
+            prefix,
+            "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL; "
+        );
+    }
+
+    #[test]
+    fn remote_prefix_unsets_before_it_exports() {
+        // Order matters on the remote: the prefix is spliced in after the user's
+        // profile has been sourced, so `unset` has to run before our exports.
+        let supplied = env(&[("ANTHROPIC_API_KEY", "sk-ant-test")]);
+        let rendered = ai_provider_env_exports(&supplied, &ai_provider_env_unset(&supplied));
+        let unset_at = rendered.find("unset ").expect("unset prefix present");
+        let export_at = rendered.find("export ").expect("export present");
+        assert!(unset_at < export_at, "got: {rendered}");
+        assert!(rendered.contains("export ANTHROPIC_API_KEY='sk-ant-test';"));
     }
 }
 
@@ -1948,13 +2100,23 @@ pub async fn check_oauth_status() -> Result<bool, String> {
     }
 
     // Slow path: actually run claude through a login shell to test auth.
-    // Unset the proxy vars first so we test the NATIVE OAuth credential, not a
-    // leftover `ANTHROPIC_BASE_URL` (Portkey / custom) that would route this
-    // ping through a gateway to Bedrock — where newer Claude Code beta headers
-    // 400 ("invalid beta flag") and make a valid login look unauthenticated.
-    let mut auth_cmd = crate::platform::shell_exec_async(
-        "unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN; claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null",
+    // Clear EVERY credential var first so we test the NATIVE OAuth credential:
+    //  - a leftover `ANTHROPIC_BASE_URL` (Portkey / custom) would route this ping
+    //    through a gateway to Bedrock, where newer Claude Code beta headers 400
+    //    ("invalid beta flag") and make a valid login look unauthenticated;
+    //  - a leftover `ANTHROPIC_API_KEY` is worse in the other direction — the
+    //    ping succeeds on the API key and we report the OAuth login as healthy
+    //    when the real chat session will fail with "Invalid API key". That
+    //    false positive is why this class of bug kept looking fixed.
+    // `claude` is pinned to its absolute path for the same reason as the chat
+    // spawn: a Finder/Dock launch has no ~/.local/bin on PATH.
+    // Substitute BEFORE prepending the `unset`: the rewrite only anchors at the
+    // start of the string (or after a pipe), so it must see a bare `claude ...`.
+    let probe = substitute_claude_invocation(
+        "claude -p 'ping' --max-turns 1 --output-format json 2>/dev/null",
     );
+    let auth_probe = format!("unset {}; {}", MANAGED_AUTH_VARS.join(" "), probe);
+    let mut auth_cmd = crate::platform::shell_exec_async(&auth_probe);
     if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
         auth_cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
     }
@@ -2008,6 +2170,13 @@ pub async fn launch_claude_login() -> Result<String, String> {
     cmd.env("PATH", &augmented);
     if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
         cmd.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
+    }
+    // Log in against claude.ai, not against whatever credential happens to be in
+    // the environment. With an ANTHROPIC_API_KEY set, `claude login` reports that
+    // connectors are disabled because the key takes precedence — the login then
+    // appears to succeed but is never the credential actually used.
+    for var in MANAGED_AUTH_VARS {
+        cmd.env_remove(var);
     }
     // Prevent claude from trying to open a browser itself (we'll do it)
     cmd.env("BROWSER", "echo");
@@ -2141,8 +2310,19 @@ pub async fn launch_claude_login() -> Result<String, String> {
     }
 
     // --- Strategy 2: Open an external terminal with `claude login` ---
+    // The external terminal sources the user's profile, so the same stale
+    // credential we cleared above comes right back — clear it in the command
+    // itself. POSIX only: on Windows this lands in cmd.exe/PowerShell, which
+    // have no `unset`, and those shells don't source a profile anyway (the
+    // spawned terminal inherits the env we just cleaned).
     eprintln!("[Claude Login] Direct approach failed, trying external terminal");
-    let result = crate::platform::open_terminal_with_command("claude login");
+    // `cfg!` rather than `#[cfg]` so both arms are type-checked on every target.
+    let login_cmd = if cfg!(target_os = "windows") {
+        "claude login".to_string()
+    } else {
+        format!("unset {}; claude login", MANAGED_AUTH_VARS.join(" "))
+    };
+    let result = crate::platform::open_terminal_with_command(&login_cmd);
     match result {
         Ok(()) => Ok(
             "Terminal opened with Claude login. Complete sign-in there, then click Verify below."
@@ -2903,7 +3083,7 @@ pub async fn start_claude_session(
         // field, so an apostrophe/space would otherwise corrupt the shell command.
         claude_cmd.push_str(&format!(" --model '{}'", m.replace('\'', "'\\''")));
 
-        // Effort level (Opus 4.8 / Sonnet 4.6). Only append when the model
+        // Effort level (Opus 5 / Opus 4.8 / Sonnet 5). Only append when the model
         // actually supports the chosen level — otherwise silently skip so a
         // user with "max" pinned can switch to a model that doesn't have it
         // (e.g. Haiku 4.5) without the CLI rejecting the flag.
@@ -3175,7 +3355,13 @@ pub async fn start_claude_session(
             // them set. For custom endpoints this emits ANTHROPIC_BASE_URL +
             // ANTHROPIC_AUTH_TOKEN instead of ANTHROPIC_API_KEY.
             let provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
-            let provider_unset = ai_provider_env_unset(&settings_state);
+            let provider_unset = ai_provider_env_unset(&provider_env);
+            // NOTE: this script is `source`d into the user's live tmux shell (see
+            // the write below) rather than run in a subshell, because that is the
+            // only way `claude` still resolves through their shell alias on HPC.
+            // The `unset` therefore persists in that shell for the rest of the
+            // session — deliberate: a stale credential there would shadow the
+            // subscription for anything else the user runs too.
             let api_key_line = ai_provider_env_exports(&provider_env, &provider_unset);
             // Pre-flight warmup: the Anthropic launcher (~/.local/bin/claude etc.) checks
             // its npm-cached package on every invocation and shows an interactive
@@ -3387,11 +3573,12 @@ pub async fn start_claude_session(
 
             let mut tail_cmd = AsyncCommand::new(&shell);
             tail_cmd.arg("-l").arg("-c").arg(&ssh_tail_args);
-            for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
-                tail_cmd.env(k, v);
-            }
-            for k in ai_provider_env_unset(&settings_state) {
+            let tail_provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
+            for k in ai_provider_env_unset(&tail_provider_env) {
                 tail_cmd.env_remove(k);
+            }
+            for (k, v) in tail_provider_env {
+                tail_cmd.env(k, v);
             }
             tail_cmd.stdout(std::process::Stdio::piped());
             tail_cmd.stderr(std::process::Stdio::piped());
@@ -3497,6 +3684,12 @@ pub async fn start_claude_session(
             );
         }
     }
+
+    // The credential set for this spawn. Computed once so the shell-level
+    // `unset` prefix built inside the local branch and the process-level
+    // `cmd.env` / `cmd.env_remove` applied after it are derived from the same
+    // decision — they must never disagree about which vars we own.
+    let spawn_provider_env = ai_provider_env(&settings_state, &proxy_state, &api_key);
 
     // Decide: local or remote execution
     let mut cmd = if let Some(ref ctx) = remote {
@@ -3662,8 +3855,8 @@ pub async fn start_claude_session(
         // for custom vars. For custom endpoints this forwards ANTHROPIC_BASE_URL
         // + ANTHROPIC_AUTH_TOKEN so the remote Claude hits the same proxy.
         let api_key_export = ai_provider_env_exports(
-            &ai_provider_env(&settings_state, &proxy_state, &api_key),
-            &ai_provider_env_unset(&settings_state),
+            &spawn_provider_env,
+            &ai_provider_env_unset(&spawn_provider_env),
         );
         let remote_cmd = format!(
             "export PS1=x; . \"$HOME/.profile\" 2>/dev/null; . \"$HOME/.bash_profile\" 2>/dev/null; . \"$HOME/.bashrc\" 2>/dev/null; . \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {}{}cd '{}' && {}{}",
@@ -3742,13 +3935,16 @@ pub async fn start_claude_session(
         // is cleared BEFORE claude runs. Without this, e.g. an
         // `export ANTHROPIC_BASE_URL=https://api.portkey.ai/v1` left over in
         // .zshrc routes "Anthropic-direct" sessions to Portkey and produces the
-        // confusing "x-portkey-provider header required" 400.
-        let provider_unset = ai_provider_env_unset(&settings_state);
-        let unset_prefix = if provider_unset.is_empty() {
-            String::new()
-        } else {
-            format!("unset {}; ", provider_unset.join(" "))
-        };
+        // confusing "x-portkey-provider header required" 400 — or, for a
+        // subscription user, a leftover `export ANTHROPIC_API_KEY=...` outranks
+        // their claude.ai login and every session fails with "Invalid API key".
+        //
+        // The vars we DO supply are re-exported here too, from the staging vars
+        // set via `cmd.env` below — `cmd.env` alone loses to the profile, since
+        // `bash -l` sources it after the process starts. The unset list is the
+        // complement of what we export, so the two can never collide.
+        let provider_unset = ai_provider_env_unset(&spawn_provider_env);
+        let unset_prefix = local_env_prefix(&spawn_provider_env, &provider_unset);
         // Pin `claude` to its absolute path (Unix) so a Finder/Dock launch — whose
         // login shell can't see ~/.local/bin — still finds it. No-op on Windows.
         let claude_cmd = substitute_claude_invocation(&claude_cmd);
@@ -3788,13 +3984,20 @@ pub async fn start_claude_session(
         c
     };
 
-    for (k, v) in ai_provider_env(&settings_state, &proxy_state, &api_key) {
-        cmd.env(k, v);
-    }
     // Belt-and-suspenders: also strip the conflicting vars from the inherited
     // env we hand to bash, so even profile-less spawns (`sh -c` style) stay clean.
-    for k in ai_provider_env_unset(&settings_state) {
+    // Remove first, then set — the two lists are disjoint, but ordering it this
+    // way makes a future overlap fail closed (we keep our value) instead of
+    // silently deleting the credential we just supplied.
+    for k in ai_provider_env_unset(&spawn_provider_env) {
         cmd.env_remove(k);
+    }
+    for (k, v) in spawn_provider_env {
+        // Staged copy under OPERON_ENV_<NAME>: the local shell prefix re-exports
+        // from it so our value wins over the user's profile. Remote sessions
+        // ignore these — they carry their own `export`s in the remote command.
+        cmd.env(format!("{}{}", LOCAL_ENV_STAGE_PREFIX, k), &v);
+        cmd.env(k, v);
     }
 
     // On Windows, Claude Code requires Git Bash. Set the path so it can find it.
