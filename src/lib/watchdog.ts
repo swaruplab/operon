@@ -138,7 +138,7 @@ export async function onJobEvent(
 
 // ── auto-register helper ─────────────────────────────────────────────────
 
-const SBATCH_RE = /Submitted batch job\s+(\d+)/;
+const SBATCH_RE = /Submitted batch job\s+(\d+)/g;
 
 /**
  * Scan a chunk of terminal output for `Submitted batch job NNNN` and return
@@ -146,10 +146,11 @@ const SBATCH_RE = /Submitted batch job\s+(\d+)/;
  * `registerWatchedJob` for each hit.
  */
 export function parseSbatchIds(text: string): string[] {
+  // Global match, and over the whole text rather than line-by-line: agent output
+  // arrives as NDJSON, so several `Submitted batch job` strings can share one
+  // physical line (their newlines are escaped inside the JSON). The old
+  // first-match-per-line scan silently dropped all but one.
   const ids: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const m = line.match(SBATCH_RE);
-    if (m) ids.push(m[1]);
-  }
+  for (const m of text.matchAll(SBATCH_RE)) ids.push(m[1]);
   return ids;
 }

@@ -115,7 +115,7 @@ export interface SessionMetadata {
   model: string | null;
   created_at: number;
   last_activity: number;
-  status: string; // "running" | "completed" | "failed"
+  status: string; // "running" | "completed" | "failed" | "stopped"
   use_terminal: boolean;
   terminal_id: string | null;
   name: string | null;

@@ -6,7 +6,8 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit, type UnlistenFn } from '@tauri-apps/api/event';
 import { getSettings } from '../../lib/settings';
-import { parseSbatchIds, registerWatchedJob } from '../../lib/watchdog';
+import { parseSbatchIds } from '../../lib/watchdog';
+import { registerSlurmJob } from '../../lib/jobNotify';
 import { useTheme } from '../../context/ThemeContext';
 import { copyText } from '../../lib/clipboard';
 import { CLEAR_AUTH_ENV_PREFIX, looksLikeClaudeMissing } from '../../lib/claude';
@@ -173,14 +174,30 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
   const onCwdChangeRef = useRef(onCwdChange);
   onCwdChangeRef.current = onCwdChange;
 
+  /// Fit the terminal to its container, unless the container has no size.
+  ///
+  /// The terminal panel collapses to zero height rather than unmounting (so the
+  /// PTY and its tab survive a hide/show), and xterm's FitAddon clamps to its
+  /// minimum geometry when measured against a zero-sized element — which sticks
+  /// until something resizes it again. Every fit() must go through here: the
+  /// initial fit and the visibility-change fit can both run while collapsed,
+  /// because child effects commit before the parent effect that expands the panel.
+  /// Returns whether the fit actually happened.
+  const fitIfSized = useCallback(() => {
+    const el = containerRef.current;
+    if (!fitAddonRef.current || !el) return false;
+    if (el.clientHeight === 0 || el.clientWidth === 0) return false;
+    fitAddonRef.current.fit();
+    return true;
+  }, []);
+
   // Debounced resize handler — fit first, then sync to backend
   const handleResize = useCallback(() => {
     if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
 
     resizeTimeoutRef.current = setTimeout(() => {
-      if (!fitAddonRef.current || !termRef.current) return;
-
-      fitAddonRef.current.fit();
+      if (!termRef.current) return;
+      if (!fitIfSized()) return;
       const { rows, cols } = termRef.current;
       invoke('resize_terminal', { terminalId, rows, cols }).catch(console.error);
     }, 100);
@@ -190,7 +207,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
   useEffect(() => {
     if (isVisible && fitAddonRef.current && termRef.current) {
       const timeout = setTimeout(() => {
-        fitAddonRef.current?.fit();
+        fitIfSized();
         const term = termRef.current;
         if (term) {
           invoke('resize_terminal', {
@@ -203,7 +220,7 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
       }, 50);
       return () => clearTimeout(timeout);
     }
-  }, [isVisible, terminalId]);
+  }, [isVisible, terminalId, fitIfSized]);
 
   // Live theme swap — when the user toggles light/dark, update the existing
   // terminal's color palette without recreating the instance (which would
@@ -336,8 +353,9 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
     };
     attachDprWatcher();
 
-    // Initial fit
-    fitAddon.fit();
+    // Initial fit — skipped while the panel is collapsed; the ResizeObserver
+    // below fires with real dimensions as soon as it expands.
+    fitIfSized();
 
     // Watch for container resize
     const resizeObserver = new ResizeObserver(handleResize);
@@ -372,7 +390,20 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
           // ssh can't authenticate — must be retried on the next output chunk,
           // not silently lost the way `registered.add()` before the call did.
           registerInFlight.add(id);
-          registerWatchedJob(sshProfileId, id, 'slurm', null)
+          // registerSlurmJob, not registerWatchedJob: it writes the local
+          // registry entry that completion notifications are driven from and
+          // THEN delegates to register_watched_job, so the watchdog behaviour is
+          // unchanged while jobs scraped out of the terminal finally become
+          // notifiable. Previously nothing in the app ever wrote that registry.
+          registerSlurmJob({
+            profileId: sshProfileId,
+            jobId: id,
+            sessionId: `terminal-${id}`,
+            sessionName: `Job ${id}`,
+            jobName: null,
+            expectedOutput: null,
+            sbatchPath: null,
+          })
             .then(() => {
               registered.add(id);
             })

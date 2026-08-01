@@ -4,6 +4,141 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] — 2026-08-01
+
+### Security
+- **Remote file operations no longer execute the names of the files they touch.**
+  Remote paths were wrapped in *double* quotes by a helper that escaped only `"`.
+  A POSIX shell still performs command substitution and parameter expansion
+  inside double quotes, so `$(…)`, backticks and `$VAR` in a path ran on the
+  remote host during `ls`, `cat`, `base64`, `mkdir`, `rm`, `mv` and file writes.
+  On a shared HPC filesystem the directory contents are not under your control:
+  a file named `$(touch ~/.operon-pwn)` executed that command when you merely
+  opened the folder in the Remote Explorer.
+
+  All 13 path operands now use POSIX single-quote escaping and carry a `--`
+  separator so a leading-dash filename cannot be read as an option. **The
+  double-quote helper is deleted rather than corrected**, in both
+  `commands/ssh.rs` and `platform/common.rs` — a "safe double-quote escaper"
+  cannot exist, and leaving one in the module guarantees the next remote command
+  reaches for it. A test fails the build if either copy reappears.
+
+  Single quotes also suppress the `$VAR` expansion that HPC users rely on when
+  typing `$SCRATCH/run` or `~/data` into the path bar, so expansion now happens
+  **once**, in a dedicated resolver that escapes `` ` `` and `$(` while leaving
+  `$VAR` intact; every file operation downstream receives the already-resolved
+  literal path. Expanding a variable and running a command are now different
+  things.
+
+### Fixed
+- **A long-running agent is no longer declared dead and its transcript deleted.**
+  The remote tail's heartbeat treated more than five minutes of quiet on the
+  `.jsonl` as agent death: it emitted an `error`, created the `.done` marker
+  itself, and the outer script then removed both files. Stream-json only emits at
+  message and tool boundaries, so any single long step — a compile, a download, a
+  queued job, an NFS stall — tripped it while Claude was still working, and the
+  output written after that point went to an unlinked inode. The tail is now a
+  read-only observer: it creates nothing, deletes nothing, and reports the
+  silence as a non-fatal `stall_warning`. Only the run script writes `.done`, and
+  file cleanup belongs to session delete / teardown, which know when you are
+  actually finished.
+- **A stale `.done` no longer silently kills the next turn.** Because only the run
+  script owns that marker, it now clears both files before starting — previously a
+  marker left by a killed tail made the next turn's tail see "already finished"
+  and exit immediately, so the new agent streamed nothing at all.
+- **Stop now stops the remote agent.** In HPC terminal mode the only child Operon
+  tracked was the login-node SSH tail, so Stop detached the stream while Claude
+  kept running on the compute node — editing files, holding the pane, and burning
+  node hours, with the next turn's command typed into its stdin instead of a
+  shell. Stop now delivers a real interrupt (Ctrl-C) to the recorded pane for
+  terminal-mode sessions and records the stop server-side, so a late completion
+  event can no longer resurrect the session as "completed".
+- **Hiding the terminal panel no longer orphans running shells.** The panel
+  unmounted `TerminalArea`, which owns the tab list, while `TerminalInstance`
+  deliberately leaves the backend PTY alive — so every running shell and SSH
+  session was stranded with no UI left to reach it, invisible until app exit. The
+  panel now collapses instead of unmounting.
+- **SLURM completion notifications actually fire.** `registerSlurmJob` existed,
+  was registered as a command, and had **zero callers** anywhere in the app, so
+  the local job registry stayed empty and the completion banner and dock bounce
+  never happened — while the agent prompt told users Operon would notify them.
+  Both submit paths (the Job Submission panel and the terminal `sbatch` scrape)
+  now register. The scrape switched from `registerWatchedJob` to `registerSlurmJob`,
+  which delegates to it, so watchdog behaviour is unchanged.
+- **Windows sign-in works again.** `open_url` ran `cmd /C start "" <url>`; `cmd`
+  re-parses its command line and treats `&` as a command separator, so every
+  OAuth URL was truncated at its first query parameter and the remainder ran as a
+  second command. URLs now go to `rundll32 url.dll,FileProtocolHandler` as a
+  single argv entry, with a quoted `cmd` fallback for locked-down images, and
+  only `http`/`https` are accepted.
+- **The Sonnet 5 pre-submit reviewer was almost never actually reviewing your
+  job.** Across 93 recorded production reviews it produced exactly one block,
+  and that one was a false positive. The reviewer itself was fine — an e2e run
+  against the real CLI catches 3/3 seeded methods bugs and stays clean on
+  correct code. The `PreToolUse` hook feeding it was broken four ways, none of
+  which any test exercised, because the hook is a shell script embedded in a
+  Rust string that only ever runs on a compute node:
+  - **It reviewed the wrong file.** The rule was "first token on the command
+    line that is an existing file", so `source conda.sh && sbatch job.sh` sent
+    *conda.sh*, `sbatch -o logs/out.txt job.sh` sent the *log file*, and
+    `sbatch --dependency=… .job_ids job.sh` sent the *job-id list*. 39% of real
+    reviews (36/93) examined something that was not an sbatch script — and duly
+    came back "no issues". Now only tokens after `sbatch` are considered, and
+    the file must carry a `#!` shebang or a `#SBATCH` directive (sbatch itself
+    requires the shebang, so this is a spec rule rather than a heuristic).
+  - **`cd /work && sbatch job.sh` was skipped entirely.** The file test ran in
+    the hook's own directory, so the most common submission idiom found no
+    script and recorded "unavailable" — 29% of all events. The submit directory
+    is now resolved from a leading `cd`, or from sbatch's `-D` / `--chdir`.
+  - **`high`-severity findings were reported as "clean".** Only `blocking`
+    survived the filter; everything else was dropped without a trace, so the UI
+    showed a green "no issues" chip for a script the reviewer had just faulted.
+    They now surface as a new `warned` outcome with the findings attached. They
+    still do not block: `high` means likely-wrong, and a reviewer that stops
+    real jobs on a maybe is one you switch off.
+  - **A blocked script was exempted from review forever.** The marker that lets
+    the agent resubmit an identical script after a block was never cleaned up,
+    so it silently disabled review for that script in every future session. It
+    is now cleared at session start, in both the remote and local guard setup.
+
+  Also: the hook now passes the configured `--effort` (it never did), falling
+  back to a plain call if the model rejects the level rather than degrading to
+  "unavailable". Six regression tests drive the real `GUARD_HOOK_SCRIPT` with a
+  stub reviewer and assert on which file it picked, so CI now executes the hook
+  on every run — including a check that the file-deletion guard still denies.
+- **"End session & clean up everything" now actually releases the interactive
+  node — and only claims what it can verify.** Ending a session left the
+  compute-node allocation running, and the next connect silently re-attached to
+  it. Three causes, each of which alone was enough:
+  - **Killing the tmux session stopped releasing the allocation.** It used to
+    work as a side effect, because the pane process *was* the `srun --pty` that
+    owned the job. Since reuse-before-acquire the pane may instead hold
+    `srun --jobid=N --overlap --pty`, which is a job *step* on an allocation
+    something else owns — killing that pane releases nothing, and the reuse
+    snippet finds the still-running job on the next connect and re-attaches.
+    Teardown can now `scancel` an interactive allocation, as an explicit,
+    itemised choice in the confirm dialog.
+  - **The dialog defaulted to keeping the tmux session in exactly the case that
+    mattered.** `killTmux` was initialised to `!slurm_in_pane`, so whenever a
+    SLURM allocation was live in the pane the checkbox started *unchecked* and
+    the red confirm button quietly relabelled itself to "Clean up (keep tmux)".
+    The tmux kill now defaults on, matching what the menu item promises.
+  - **The result message was unconditional.** `scan_remote_footprint` turned an
+    SSH failure into an *empty* footprint ("No Operon tmux session found"), and
+    `teardown_remote_footprint` discarded the SSH result entirely and always
+    reported "killed Operon tmux session(s)" — whether or not the script ran,
+    a session existed, or the kill worked. Both now surface failures, and the
+    summary is built from a post-hoc `tmux ls` + `squeue` check, so a surviving
+    session or allocation is reported as a warning instead of a success.
+
+  `scancel` is reachable only for a job the *server* re-confirms is
+  `BatchFlag=0` and owned by the connecting user, re-checked immediately before
+  the cancel rather than trusted from the scan. Batch (`sbatch`) jobs remain
+  uncancellable through this path regardless of what the frontend sends, job ids
+  are validated before they reach a shell, and anything unparseable refuses.
+  Allocations Operon cannot positively attribute to its own tmux pane are listed
+  but never pre-selected.
+
 ## [1.0.3] — 2026-07-26
 
 ### Fixed

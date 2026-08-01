@@ -32,7 +32,8 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useProject } from '../../context/ProjectContext';
 import type { FileEntry } from '../../lib/files';
-import { listRemoteDirectoryCached, invalidateRemotePath, clearRemoteCache, batchDeleteRemoteFiles } from '../../lib/ssh';
+import { listRemoteDirectoryCached, invalidateRemotePath, clearRemoteCache, batchDeleteRemoteFiles, resolveRemotePath
+} from '../../lib/ssh';
 import { RegexAddDialog } from './Sidebar';
 import { Copy } from 'lucide-react';
 
@@ -610,7 +611,17 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
   const commitPathInput = () => {
     const trimmed = pathInput.trim();
     if (trimmed && trimmed !== remotePath) {
-      navigateTo(trimmed);
+      // Resolve `~` / `$VAR` HERE, before anything stores or uses the string.
+      // Every remote operation quotes its path literally, so navigating to the raw
+      // text would list the right folder while New Folder, upload and
+      // cd-to-terminal all operated on a directory literally named `$SCRATCH`.
+      if (/^~|\$/.test(trimmed)) {
+        resolveRemotePath(profileId, trimmed)
+          .then((resolved) => navigateTo(resolved || trimmed))
+          .catch(() => navigateTo(trimmed));
+      } else {
+        navigateTo(trimmed);
+      }
     }
     setIsEditingPath(false);
   };

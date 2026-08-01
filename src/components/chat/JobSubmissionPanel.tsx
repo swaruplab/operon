@@ -20,6 +20,7 @@ import {
   type SlurmJobSpec,
 } from '../../lib/slurm';
 import { reviewCode, type ReviewResult } from '../../lib/review';
+import { registerSlurmJob } from '../../lib/jobNotify';
 import { getSettings } from '../../lib/settings';
 import { ReviewFindings } from '../review/ReviewFindings';
 
@@ -231,6 +232,21 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
     try {
       const jobId = await slurmSubmitJob(spec);
       setSubmitMsg({ ok: true, text: `Submitted job ${jobId}` });
+
+      // Register the job for completion notification. Without this the local
+      // job registry stays empty, so the completion banner and dock bounce never
+      // fire — the feature looked wired end to end in the UI and settings but had
+      // no caller anywhere in the app. Best-effort: a failed registration costs
+      // the notification, never the submitted job.
+      registerSlurmJob({
+        profileId,
+        jobId,
+        sessionId: `sbatch-${jobId}`,
+        sessionName: spec.job_name?.trim() || `Job ${jobId}`,
+        jobName: spec.job_name ?? null,
+        expectedOutput: spec.output_dir ?? null,
+        sbatchPath: null,
+      }).catch((e) => console.error('job registration failed', e));
       // Refresh queue shortly after — give the scheduler a moment to register the job.
       window.setTimeout(fetchJobs, 1200);
     } catch (e) {

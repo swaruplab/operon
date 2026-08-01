@@ -306,8 +306,31 @@ fn read_registry_path(key: &str, value: &str) -> Option<String> {
 // ─── Browser & OS Integration ────────────────────────────────────
 
 pub fn open_url(url: &str) -> Result<(), String> {
+    if !super::common::is_web_url(url) {
+        return Err(format!("Refusing to open non-http(s) URL: {url}"));
+    }
+
+    // NOT `cmd.exe /C start "" <url>`. `cmd` re-parses its command line after
+    // Rust's argv quoting, and `&` is a command separator there — so an OAuth URL
+    // like `...?code=x&state=y` was truncated at the first `&` and the remainder
+    // ran as a second command. Every Claude sign-in URL carries multiple query
+    // parameters, so this broke login on Windows rather than being an edge case.
+    //
+    // `rundll32 url.dll,FileProtocolHandler` is the documented shell-free way to
+    // hand a URL to the default browser: it is an ordinary process, so the URL
+    // travels as a single argv entry and `&`, `%` and `^` are all literal.
+    let direct = std::process::Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", url])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
+    if direct.is_ok() {
+        return Ok(());
+    }
+
+    // Fallback for locked-down images where rundll32 is unavailable. Quote the
+    // URL as a single token via `raw_arg` so `cmd` cannot split it on `&`.
     std::process::Command::new("cmd.exe")
-        .args(["/C", "start", "", url])
+        .raw_arg(format!("/C start \"\" \"{}\"", url.replace('"', "%22")))
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| format!("Failed to open URL: {}", e))?;

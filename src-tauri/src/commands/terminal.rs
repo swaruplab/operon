@@ -383,6 +383,35 @@ pub async fn kill_terminal(
     Ok(())
 }
 
+/// Write bytes directly into a terminal's PTY from Rust, without going through
+/// the Tauri command layer.
+///
+/// Added for `stop_claude_session`: in HPC terminal mode the agent runs inside the
+/// user's tmux pane, and the only child Operon tracks is the login-node SSH tail.
+/// Killing that tail detached the stream while Claude kept running on the compute
+/// node — so Stop needs to deliver a real interrupt to the pane.
+///
+/// Clones the writer `Arc` under the map lock and releases the map before touching
+/// the PTY, so a blocked write cannot stall resize/kill on unrelated terminals.
+pub fn write_terminal_bytes(
+    state: &TerminalManager,
+    terminal_id: &str,
+    data: &[u8],
+) -> Result<(), String> {
+    let writer = {
+        let terminals = state.terminals.lock().map_err(|e| e.to_string())?;
+        terminals
+            .get(terminal_id)
+            .ok_or_else(|| format!("Terminal {} not found", terminal_id))?
+            .writer
+            .clone()
+    };
+    let mut w = writer.lock().map_err(|e| e.to_string())?;
+    w.write_all(data).map_err(|e| e.to_string())?;
+    w.flush().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod terminal_path_tests {
     use super::terminal_path;

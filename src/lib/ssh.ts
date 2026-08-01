@@ -259,3 +259,17 @@ export async function clearRemoteCache(): Promise<void> {
     /* backend may be unavailable; client cache already cleared */
   }
 }
+
+/**
+ * Resolve a user-typed remote path (`~`, `~/x`, `$SCRATCH/run`) to a concrete one.
+ *
+ * Remote paths reach the shell inside single quotes, which is what makes remote
+ * file operations injection-proof but also stops `$VAR` expanding. Resolution
+ * therefore happens once, here, at the point the user's text enters the app — so
+ * everything downstream (listing, mkdir, upload, cd-to-terminal, the chat
+ * session's working directory) shares one concrete path. Returns the input
+ * unchanged if it needs no expansion or the server can't be reached.
+ */
+export async function resolveRemotePath(profileId: string, path: string): Promise<string> {
+  return invoke<string>('resolve_remote_path', { profileId, path });
+}

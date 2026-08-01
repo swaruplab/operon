@@ -1943,12 +1943,149 @@ pub(crate) async fn ssh_exec_async(
         .map_err(|e| format!("SSH task failed to run: {}", e))?
 }
 
-fn shell_escape(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
+/// True when a user-typed remote path still needs the remote shell to expand it
+/// (`~`, `~user`, `$HOME`, `$SCRATCH/...`).
+///
+/// Every path operand now reaches the remote inside SINGLE quotes, which is what
+/// makes remote file operations injection-proof — but single quotes also suppress
+/// the `$VAR` expansion that double quotes used to allow. HPC users legitimately
+/// type `$SCRATCH/run` or `~/data` into the Remote Explorer's path bar (the app's
+/// own `work_dir` setting documents `$USER`/`$SCRATCH` support), so those must
+/// keep working. The answer is to expand ONCE, in a dedicated resolver, and then
+/// treat the concrete result as a literal everywhere else — never to loosen the
+/// quoting of the file operations themselves.
+pub(crate) fn needs_remote_expansion(path: &str) -> bool {
+    path.starts_with('~') || path.contains('$')
 }
 
-fn shell_escape_inner(s: &str) -> String {
-    format!("\"{}\"", s.replace('"', "\\\""))
+/// Shell snippet that expands `raw` on the remote and prints the resulting
+/// absolute path, with command substitution defanged.
+///
+/// `\`, `"` and backtick are escaped so the value cannot break out of the
+/// double-quoted assignment, and `$(` is escaped so parameter expansion still
+/// works while command substitution does not. That is the whole difference
+/// between "expand a variable" and "run whatever the string says".
+pub(crate) fn remote_expansion_script(raw: &str) -> String {
+    let esc = raw
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
+        .replace("$(", "\\$(");
+    // Tilde expansion does NOT happen inside double quotes, so `~`/`~/x` has to be
+    // rewritten explicitly after the assignment. `~user` is left alone: resolving
+    // another account's home needs the shell's own expansion, which is exactly what
+    // we are refusing to give this string.
+    format!(
+        "d=\"{}\"; case \"$d\" in \"~\") d=\"$HOME\";; \"~/\"*) d=\"$HOME/${{d#\"~/\"}}\";; esac; printf '%s' \"$d\"",
+        esc
+    )
+}
+
+/// Resolve a user-typed remote path to a concrete one.
+///
+/// Called at the ONE point raw text enters the app — the Remote Explorer's path
+/// bar — so that everything downstream (listing, mkdir, upload, cd-to-terminal,
+/// the chat session's working directory) operates on the same resolved literal.
+///
+/// Resolving inside `list_remote_directory` instead would be worse than not
+/// resolving at all: the listing would succeed while `remotePath` still held
+/// `$SCRATCH/run`, so New Folder would create a directory literally named
+/// `$SCRATCH` and the user would have no signal anything was wrong.
+#[tauri::command]
+pub async fn resolve_remote_path(
+    state: tauri::State<'_, SSHManager>,
+    profile_id: String,
+    path: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    Ok(expand_remote_path(&profile, &path).await)
+}
+
+/// Expand a user-typed remote path to a concrete one. Falls back to the input
+/// unchanged if the remote round-trip fails — navigation degrades to "folder not
+/// found", never to executing the string.
+async fn expand_remote_path(profile: &SSHProfile, path: &str) -> String {
+    if !needs_remote_expansion(path) {
+        return path.to_string();
+    }
+    let b64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        remote_expansion_script(path).as_bytes(),
+    );
+    let wrapped = format!("echo '{}' | base64 -d | bash", b64);
+    match ssh_exec_async(profile.clone(), wrapped).await {
+        Ok(out) => {
+            let t = out.trim();
+            if t.is_empty() {
+                path.to_string()
+            } else {
+                t.to_string()
+            }
+        }
+        Err(_) => path.to_string(),
+    }
+}
+
+/// Reject remote paths that a legacy `scp` would let the remote shell execute.
+///
+/// `scp` is the one remote operation whose path CANNOT be protected by quoting.
+/// OpenSSH ≥ 9.0 transfers over SFTP and treats the operand literally, so quotes
+/// would become part of the filename; older clients (RHEL/Rocky 8 ships 8.0p1 —
+/// a platform Operon targets) use the legacy protocol, where the operand IS
+/// expanded by the remote user's shell. One escaping cannot be right for both.
+///
+/// So instead of escaping, refuse: a filename containing shell-active characters
+/// is blocked from transfer with an explanation. That is safe on every client, and
+/// it costs nothing for real paths — spaces, brackets, quotes and non-ASCII are all
+/// still allowed, because none of them can start a command.
+///
+/// This is the same threat model as the path-quoting fix: on a shared HPC
+/// filesystem the directory contents are not under the user's control, so
+/// downloading a file someone else named must not run anything.
+pub(crate) fn scp_path_is_safe(path: &str) -> bool {
+    !path.chars().any(|c| {
+        matches!(
+            c,
+            '`' | '$' | ';' | '&' | '|' | '<' | '>' | '(' | ')' | '\n' | '\r' | '\\'
+        )
+    })
+}
+
+fn reject_unsafe_scp_path(path: &str) -> Result<(), String> {
+    if scp_path_is_safe(path) {
+        return Ok(());
+    }
+    Err(format!(
+        "Refusing to transfer a remote path containing shell metacharacters: {path}\n\
+         Older scp clients let the remote shell expand this path, so a name like \
+         `$(...)` would execute. Rename the file on the server, or move it into a \
+         directory whose full path is free of ` $ ; & | < > ( ) \\ and newlines."
+    ))
+}
+
+/// POSIX single-quote escaping — the ONLY correct way to put a remote path into
+/// a shell command.
+///
+/// There used to be a sibling `shell_escape_inner` that wrapped values in DOUBLE
+/// quotes and escaped only `"`. Inside double quotes a POSIX shell still performs
+/// command substitution and parameter expansion, so every remote file operation
+/// (`ls`, `cat`, `base64`, `mkdir`, `rm`, `mv`, write) executed whatever was in
+/// the path: a file named `$(touch ~/.operon-pwn)` ran that command when the user
+/// merely listed the directory. On a shared HPC filesystem the directory contents
+/// are not under the user's control, so this was reachable without any mistake on
+/// their part.
+///
+/// It is deleted rather than fixed. A "safe double-quote escaper" cannot exist,
+/// and leaving one in the module means the next remote command reaches for it.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 // ── Remote File Operations ──
@@ -1981,7 +2118,7 @@ pub async fn list_remote_directory(
     };
 
     let ls_flag = if show_hidden { "-lLA" } else { "-lL" };
-    let cmd = format!("ls {} {} 2>/dev/null", ls_flag, shell_escape_inner(&path));
+    let cmd = format!("ls {} -- {} 2>/dev/null", ls_flag, shell_escape(&path));
 
     let output = ssh_exec_async(profile, cmd).await?;
 
@@ -2147,7 +2284,7 @@ pub async fn read_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let content = ssh_exec_async(profile, format!("cat {}", shell_escape_inner(&path))).await?;
+    let content = ssh_exec_async(profile, format!("cat -- {}", shell_escape(&path))).await?;
     state.cache.put_file(cache_key, content.clone());
     Ok(content)
 }
@@ -2167,7 +2304,7 @@ pub async fn read_remote_file_base64(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let output = ssh_exec_async(profile, format!("base64 {}", shell_escape_inner(&path))).await?;
+    let output = ssh_exec_async(profile, format!("base64 -- {}", shell_escape(&path))).await?;
     Ok(output.chars().filter(|c| !c.is_whitespace()).collect())
 }
 
@@ -2187,7 +2324,7 @@ pub async fn create_remote_directory(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let cmd = format!("mkdir -p {}", shell_escape_inner(&path));
+    let cmd = format!("mkdir -p -- {}", shell_escape(&path));
     ssh_exec(&profile, &cmd)?;
     state.cache.invalidate_path(&profile_id, &path);
     Ok(())
@@ -2210,7 +2347,7 @@ pub async fn delete_remote_file(
     };
 
     // Check if path is a file or directory
-    let escaped = shell_escape_inner(&path);
+    let escaped = shell_escape(&path);
     let check_cmd = format!(
         "if [ -d {} ]; then echo DIR; elif [ -f {} ]; then echo FILE; else echo NONE; fi",
         escaped, escaped
@@ -2220,11 +2357,11 @@ pub async fn delete_remote_file(
 
     match kind {
         "FILE" => {
-            let cmd = format!("rm {}", escaped);
+            let cmd = format!("rm -- {}", escaped);
             ssh_exec(&profile, &cmd)?;
         }
         "DIR" => {
-            let cmd = format!("rm -rf {}", escaped);
+            let cmd = format!("rm -rf -- {}", escaped);
             ssh_exec(&profile, &cmd)?;
         }
         _ => return Err("Path does not exist".to_string()),
@@ -2257,8 +2394,8 @@ pub async fn batch_delete_remote_files(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let escaped: Vec<String> = paths.iter().map(|p| shell_escape_inner(p)).collect();
-    let bulk_cmd = format!("rm -rf {}; echo $?", escaped.join(" "));
+    let escaped: Vec<String> = paths.iter().map(|p| shell_escape(p)).collect();
+    let bulk_cmd = format!("rm -rf -- {}; echo $?", escaped.join(" "));
     let result = ssh_exec_async(profile.clone(), bulk_cmd).await?;
     let exit = result.trim().lines().last().unwrap_or("1").trim();
 
@@ -2268,7 +2405,7 @@ pub async fn batch_delete_remote_files(
         // Per-path verification — count any paths that no longer exist.
         let probes: Vec<String> = paths
             .iter()
-            .map(|p| format!("[ -e {} ] || echo MISSING", shell_escape_inner(p)))
+            .map(|p| format!("[ -e {} ] || echo MISSING", shell_escape(p)))
             .collect();
         let probe_out = ssh_exec_async(profile, probes.join("; ")).await?;
         probe_out.lines().filter(|l| l.trim() == "MISSING").count()
@@ -2298,9 +2435,9 @@ pub async fn rename_remote_path(
     };
 
     let cmd = format!(
-        "mv {} {}",
-        shell_escape_inner(&old_path),
-        shell_escape_inner(&new_path)
+        "mv -- {} {}",
+        shell_escape(&old_path),
+        shell_escape(&new_path)
     );
     ssh_exec(&profile, &cmd)?;
     state.cache.invalidate_path(&profile_id, &old_path);
@@ -2330,17 +2467,17 @@ pub async fn write_remote_file(
 
     // Ensure parent directory exists
     if let Some(parent) = std::path::Path::new(&path).parent() {
-        let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&parent.to_string_lossy()));
+        let mkdir_cmd = format!("mkdir -p -- {}", shell_escape(&parent.to_string_lossy()));
         let _ = ssh_exec(&profile, &mkdir_cmd);
     }
 
-    let escaped_path = shell_escape_inner(&path);
+    let escaped_path = shell_escape(&path);
 
     // Encode content as base64 and write in chunks to avoid ControlMaster
     // socket message size limits (~256KB). Each chunk is appended to a temp
     // b64 file, then decoded in one shot.
     let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
-    let tmp_b64 = format!("{}.__operon_tmp_b64__", escaped_path);
+    let tmp_b64 = shell_escape(&format!("{}.__operon_tmp_b64__", path));
 
     // Max chunk size ~100KB to stay well under the socket limit
     const CHUNK_SIZE: usize = 100_000;
@@ -2368,7 +2505,7 @@ pub async fn write_remote_file(
 
         // Decode the assembled base64 file and clean up
         let cmd = format!(
-            "base64 -d {} > {} && rm -f {}",
+            "base64 -d -- {} > {} && rm -f -- {}",
             tmp_b64, escaped_path, tmp_b64
         );
         ssh_exec(&profile, &cmd)?;
@@ -2398,7 +2535,7 @@ pub async fn scp_to_remote(
 
     // Ensure remote parent directory exists
     if let Some(parent) = std::path::Path::new(&remote_path).parent() {
-        let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&parent.to_string_lossy()));
+        let mkdir_cmd = format!("mkdir -p -- {}", shell_escape(&parent.to_string_lossy()));
         let _ = ssh_exec(&profile, &mkdir_cmd);
     }
 
@@ -2434,6 +2571,7 @@ pub async fn scp_to_remote(
     }
 
     scp_args.push(local_path);
+    reject_unsafe_scp_path(&remote_path)?;
     scp_args.push(format!("{}:{}", host_str, remote_path));
 
     let output = hide_window(std::process::Command::new("scp").args(&scp_args))
@@ -2504,6 +2642,7 @@ pub async fn scp_from_remote(
         }
     }
 
+    reject_unsafe_scp_path(&remote_path)?;
     scp_args.push(format!("{}:{}", host_str, remote_path));
     scp_args.push(local_path);
 
@@ -2573,6 +2712,7 @@ pub async fn scp_dir_from_remote(
         }
     }
 
+    reject_unsafe_scp_path(&remote_path)?;
     scp_args.push(format!("{}:{}", host_str, remote_path));
     scp_args.push(local_path);
 
@@ -2883,7 +3023,7 @@ pub async fn scp_batch_upload(
     };
 
     // Ensure remote directory exists
-    let mkdir_cmd = format!("mkdir -p {}", shell_escape_inner(&remote_dir));
+    let mkdir_cmd = format!("mkdir -p -- {}", shell_escape(&remote_dir));
     let _ = ssh_exec(&profile, &mkdir_cmd);
 
     let total = local_paths.len() as u32;
@@ -2938,6 +3078,7 @@ pub async fn scp_batch_upload(
             args.insert(0, "-r".to_string());
         }
         args.push(local_path.clone());
+        reject_unsafe_scp_path(&remote_dest)?;
         args.push(format!("{}:{}", host_str, remote_dest));
 
         let output = hide_window(std::process::Command::new("scp").args(&args))
@@ -4281,6 +4422,265 @@ mod tests {
         assert!(
             s.contains(&format!("{delim}0")),
             "second command exit code 0 not reported: {s:?}"
+        );
+    }
+}
+
+/// The remote-path escaping contract.
+///
+/// Every one of these payloads was executable on the remote host before
+/// `shell_escape_inner` was deleted: paths reached `ls`/`cat`/`base64`/`mkdir`/
+/// `rm`/`mv`/write wrapped in double quotes, which stop neither `$(...)` nor
+/// backticks nor `$VAR`. On a shared HPC filesystem the attacker only has to
+/// create a filename in a directory the user will browse.
+#[cfg(test)]
+mod remote_path_escaping_tests {
+    use super::*;
+
+    /// Filenames that are legal on a POSIX filesystem and hostile in a shell.
+    const HOSTILE: &[&str] = &[
+        "$(touch /tmp/operon-pwn)",
+        "`touch /tmp/operon-pwn`",
+        "$(id)",
+        "${HOME}",
+        "$HOME",
+        "a$(id)b.txt",
+        "back\\slash",
+        "semi;colon",
+        "pipe|char",
+        "amp&ersand",
+        "new\nline",
+        "quote'single",
+        "quote\"double",
+        "-rf",
+        "--no-preserve-root",
+        "* glob",
+        "tab\there",
+    ];
+
+    /// Everything a POSIX shell would act on if it were not inside single quotes.
+    fn is_inert(escaped: &str) -> bool {
+        // Must be single-quoted end to end.
+        if !escaped.starts_with('\'') || !escaped.ends_with('\'') {
+            return false;
+        }
+        // Inside single quotes the ONLY character with meaning is `'` itself, and
+        // the escaper must have rewritten every one as the '\'' idiom. Strip those
+        // and no bare quote may remain.
+        let body = &escaped[1..escaped.len() - 1];
+        !body.replace("'\\''", "").contains('\'')
+    }
+
+    #[test]
+    fn every_hostile_filename_is_rendered_inert() {
+        for p in HOSTILE {
+            let e = shell_escape(p);
+            assert!(is_inert(&e), "not inert: {p:?} -> {e}");
+        }
+    }
+
+    #[test]
+    fn escaping_survives_a_round_trip_through_sh() {
+        // The real proof: hand the escaped value to a POSIX shell and check the
+        // argument it reconstructs is byte-identical to what we started with.
+        // If any expansion had survived, the printed value would differ.
+        for p in HOSTILE {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("printf %s {}", shell_escape(p)))
+                .output()
+                .expect("run sh");
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                **p,
+                "shell altered {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_substitution_does_not_execute() {
+        // Belt and braces: run the escaped payload as a command operand and prove
+        // the side effect never happened.
+        let marker = std::env::temp_dir().join("operon-escape-test-marker");
+        let _ = std::fs::remove_file(&marker);
+        let payload = format!("$(touch {})", marker.display());
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf %s {}", shell_escape(&payload)))
+            .output()
+            .expect("run sh");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), payload);
+        assert!(
+            !marker.exists(),
+            "command substitution executed — the escaper is not holding"
+        );
+    }
+
+    /// `ssh.rs` with this test module removed, so a needle cannot be satisfied by
+    /// the assertion that searches for it. Without this, `include_str!` hands the
+    /// test its own source and any unquoted needle matches itself — the
+    /// `--`-separator check below passed even with the production `ls` reverted
+    /// to the unseparated form.
+    fn production_code() -> &'static str {
+        let src = include_str!("ssh.rs");
+        let marker = concat!("mod remote_path_", "escaping_tests");
+        match src.find(marker) {
+            Some(i) => &src[..i],
+            None => src,
+        }
+    }
+
+    #[test]
+    fn a_leading_dash_is_still_a_filename_not_a_flag() {
+        // Quoting alone does not stop `rm -rf` reading `-rf` as options, which is
+        // why every path operand also gets a `--` separator. Guard the separator
+        // here so a future edit cannot quietly drop it.
+        let src = production_code();
+        for pat in [
+            "cat -- {}",
+            "base64 -- {}",
+            "mkdir -p -- {}",
+            "rm -- {}",
+            "rm -rf -- {}",
+            "mv -- {} {}",
+            "ls {} -- {} 2>/dev/null",
+            "base64 -d -- {} > {} && rm -f -- {}",
+        ] {
+            assert!(src.contains(pat), "lost the -- separator: {pat}");
+        }
+    }
+
+    #[test]
+    fn the_double_quote_escaper_is_gone_and_stays_gone() {
+        // The fix is the deletion. If someone reintroduces a double-quote
+        // "escaper", every remote command becomes injectable again.
+        //
+        // The needle is assembled at runtime: spelled literally it would appear
+        // in this test's own source, which `include_str!` then matches.
+        let needle = format!("fn shell_escape{}", "_inner");
+        for (file, src) in [
+            ("ssh.rs", include_str!("ssh.rs")),
+            ("platform/common.rs", include_str!("../platform/common.rs")),
+        ] {
+            assert!(
+                !src.contains(&needle),
+                "{file}: the double-quote escaper is back — remote paths are injectable again"
+            );
+        }
+    }
+
+    #[test]
+    fn only_paths_that_need_expansion_pay_for_it() {
+        for p in ["~", "~/data", "$SCRATCH/run", "/a/$USER/b", "~alice/x"] {
+            assert!(needs_remote_expansion(p), "should expand {p}");
+        }
+        for p in [
+            "/absolute/path",
+            "relative/path",
+            "/with space/x",
+            "/with'quote",
+        ] {
+            assert!(!needs_remote_expansion(p), "should NOT expand {p}");
+        }
+    }
+
+    #[test]
+    fn expansion_keeps_variables_but_kills_command_substitution() {
+        // The whole point: `$VAR` must still expand, `$(...)` and backticks must not.
+        let run = |raw: &str| {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(remote_expansion_script(raw))
+                .env("SCRATCH", "/scratch/me")
+                .output()
+                .expect("run sh");
+            String::from_utf8_lossy(&out.stdout).to_string()
+        };
+        assert_eq!(run("$SCRATCH/run"), "/scratch/me/run");
+        // Tilde: not expanded by double quotes, so the script rewrites it. These two
+        // assertions failed before that rewrite existed, while the predicate test
+        // above happily claimed `~/data` was "handled".
+        let home = std::env::var("HOME").expect("HOME");
+        assert_eq!(run("~/data"), format!("{home}/data"));
+        assert_eq!(run("~"), home);
+        // `~user` is deliberately NOT expanded — it stays literal rather than
+        // reaching for the shell expansion we are withholding.
+        assert_eq!(run("~alice/x"), "~alice/x");
+        // Command substitution is defanged — the text survives verbatim.
+        assert_eq!(run("/x/$(id)"), "/x/$(id)");
+        assert_eq!(run("/x/`id`"), "/x/`id`");
+        // And a quote cannot break out of the assignment.
+        assert_eq!(
+            run("/x/\"; touch /tmp/pwn; \""),
+            "/x/\"; touch /tmp/pwn; \""
+        );
+    }
+
+    #[test]
+    fn expansion_cannot_execute_a_command() {
+        let marker = std::env::temp_dir().join("operon-expand-test-marker");
+        let _ = std::fs::remove_file(&marker);
+        let payload = format!("/x/$(touch {})", marker.display());
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(remote_expansion_script(&payload))
+            .output()
+            .expect("run sh");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), payload);
+        assert!(!marker.exists(), "expansion executed a command");
+    }
+
+    #[test]
+    fn scp_refuses_paths_a_legacy_client_would_execute() {
+        // scp's remote operand cannot be quoted portably, so these are refused.
+        for p in [
+            "/data/$(touch /tmp/pwn)",
+            "/data/`id`",
+            "/data/a;rm -rf x",
+            "/data/a&b",
+            "/data/a|b",
+            "/data/a>b",
+            "/data/a<b",
+            "/data/a(b)",
+            "/data/a\\b",
+            "/data/a\nb",
+        ] {
+            assert!(!scp_path_is_safe(p), "should refuse {p:?}");
+        }
+    }
+
+    #[test]
+    fn scp_still_allows_the_filenames_researchers_actually_use() {
+        // Refusing must not cost normal usage: spaces, brackets, quotes, dots,
+        // dashes and non-ASCII are all harmless to a shell operand.
+        for p in [
+            "/data/sample 01.fastq.gz",
+            "/data/run[1].txt",
+            "/data/o'brien.csv",
+            "/data/résultats.tsv",
+            "/data/GSE12345_RAW.tar",
+            "/dfs3b/scratch/user/-leading-dash",
+            "/data/a{b}c",
+            "/data/star*",
+        ] {
+            assert!(scp_path_is_safe(p), "should allow {p:?}");
+        }
+    }
+
+    #[test]
+    fn every_scp_operand_is_guarded() {
+        // Four call sites build `host:path` for scp. Each must reject first.
+        let src = production_code();
+        let operands = src.matches("format!(\"{}:{}\", host_str").count();
+        let guards = src.matches("reject_unsafe_scp_path(&").count();
+        assert_eq!(
+            operands, guards,
+            "an scp host:path operand was added without a reject_unsafe_scp_path guard"
+        );
+        assert!(
+            operands >= 4,
+            "expected at least 4 scp operands, found {operands}"
         );
     }
 }

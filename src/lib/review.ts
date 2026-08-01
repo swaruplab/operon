@@ -57,7 +57,10 @@ export function isReviewableCode(path: string): boolean {
 // a per-session file; Operon polls it to show a chip — a CLEAN review is as
 // visible as a blocked one.
 
-export type ReviewOutcome = 'clean' | 'blocked' | 'unavailable';
+/** `warned` = the reviewer found `high`-severity issues but nothing `blocking`,
+ *  so the submit proceeded. These used to be discarded and reported as `clean`,
+ *  i.e. "no issues" on a script the reviewer had just faulted. */
+export type ReviewOutcome = 'clean' | 'blocked' | 'warned' | 'unavailable';
 
 export interface ReviewEvent {
   ts: number;

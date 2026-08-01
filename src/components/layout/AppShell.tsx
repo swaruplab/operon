@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels';
 import { listen } from '@tauri-apps/api/event';
 import { TopBar } from './TopBar';
 import { ActivityBar } from './ActivityBar';
@@ -21,10 +21,28 @@ export function AppShell() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [chatVisible, setChatVisible] = useState(true);
   const [terminalVisible, setTerminalVisible] = useState(true);
-  // Login-terminal requests are received HERE, not in TerminalArea: that component
-  // is unmounted while the terminal panel is collapsed, so its listener wouldn't
-  // exist and the event would be dropped with no visible failure. AppShell never
-  // unmounts, so it can reveal the panel and hand the request down as a prop.
+  // Drives the terminal panel imperatively so it can collapse to zero height
+  // while staying mounted — see the Panel below for why unmounting is unsafe.
+  const terminalPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Keep the panel's collapsed state in sync with the toggle. Collapsing rather
+  // than unmounting is what keeps live PTYs reachable: TerminalInstance's cleanup
+  // intentionally does NOT kill the backend process, so an unmount used to strand
+  // every running shell and SSH session with no UI left to reach it.
+  useEffect(() => {
+    const panel = terminalPanelRef.current;
+    if (!panel) return;
+    if (terminalVisible) {
+      if (panel.isCollapsed()) panel.expand();
+    } else if (!panel.isCollapsed()) {
+      panel.collapse();
+    }
+  }, [terminalVisible]);
+  // Login-terminal requests are received HERE and handed down as a prop rather
+  // than listened for inside TerminalArea. TerminalArea no longer unmounts (the
+  // panel collapses instead), but the prop hand-off is still the right shape: it
+  // lets AppShell reveal the panel first, and it delivers even if TerminalArea
+  // mounts after the request was made.
   const [pendingLoginTab, setPendingLoginTab] = useState<PendingLoginTab | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -212,6 +230,10 @@ export function AppShell() {
           // Surface the remote explorer: open the sidebar on the files view.
           setActiveView('files');
           setSidebarVisible(true);
+          // And reveal the terminal, which is where the SSH session actually is.
+          // The panel now stays mounted while hidden, so the tab would otherwise
+          // be created inside a zero-height panel the user cannot see.
+          setTerminalVisible(true);
         }
       }
     );
@@ -293,17 +315,37 @@ export function AppShell() {
               <Panel id="editor" defaultSize={terminalVisible ? 65 : 100} minSize={20} order={1}>
                 <EditorArea />
               </Panel>
-              {terminalVisible && (
-                <>
-                  <PanelResizeHandle className="h-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:h-[3px]" />
-                  <Panel id="terminal" defaultSize={35} minSize={10} order={2}>
-                    <TerminalArea
-                      pendingLoginTab={pendingLoginTab}
-                      onPendingLoginConsumed={handlePendingLoginConsumed}
-                    />
-                  </Panel>
-                </>
-              )}
+              {/* The terminal panel COLLAPSES; it must never unmount. TerminalArea
+                  owns the tab list, and TerminalInstance deliberately leaves the
+                  backend PTY running on cleanup — so unmounting it threw away the
+                  only handle to shells and SSH sessions that were still alive,
+                  leaving them running invisibly until app exit. */}
+              <PanelResizeHandle
+                className={`h-px bg-zinc-300 dark:bg-zinc-800 hover:bg-blue-500 active:bg-blue-500 transition-colors duration-150 data-[resize-handle-state=hover]:bg-blue-500 data-[resize-handle-state=hover]:h-[3px] ${
+                  terminalVisible ? '' : 'hidden'
+                }`}
+              />
+              <Panel
+                ref={terminalPanelRef}
+                id="terminal"
+                order={2}
+                defaultSize={terminalVisible ? 35 : 0}
+                minSize={10}
+                collapsible
+                collapsedSize={0}
+                // The PanelGroup persists its layout (autoSaveId="center-v"), so the
+                // panel can come back collapsed from a previous run while
+                // `terminalVisible` defaults to true. Mirroring the panel's real
+                // state back into it keeps the toggle honest — otherwise Cmd+J
+                // would appear to do nothing the first time it was pressed.
+                onCollapse={() => setTerminalVisible(false)}
+                onExpand={() => setTerminalVisible(true)}
+              >
+                <TerminalArea
+                  pendingLoginTab={pendingLoginTab}
+                  onPendingLoginConsumed={handlePendingLoginConsumed}
+                />
+              </Panel>
             </PanelGroup>
           </Panel>
 

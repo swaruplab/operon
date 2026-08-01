@@ -181,6 +181,7 @@ use commands::{
     request_user_attention,
     reset_ssh_diagnostics,
     resize_terminal,
+    resolve_remote_path,
     // Light code reviewer (Sonnet 5, checklist-driven)
     review_code,
     save_attachment_file,
@@ -399,6 +400,7 @@ pub fn run() {
             detect_server_config,
             delete_ssh_profile,
             reorder_ssh_profiles,
+            resolve_remote_path,
             list_remote_directory,
             get_remote_home,
             get_remote_initial_dir,
@@ -605,4 +607,163 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Every Tauri command registered for the frontend must actually be reachable
+/// from it.
+///
+/// This is the check that would have caught SLU-01: `register_slurm_job_metadata`
+/// was implemented, registered here, wrapped in TypeScript — and called by nothing.
+/// Completion notifications therefore never fired, while the UI and the agent
+/// prompt both told users they would. Nothing failed; the feature was simply
+/// disconnected, and it stayed that way through several releases.
+///
+/// A command with no caller is not always a bug — some are invoked only from
+/// other Rust code, or exist for an extension surface. Those go in
+/// `CALLED_FROM_RUST_ONLY` with a reason, so the exemption is a deliberate,
+/// reviewable act rather than silence.
+#[cfg(test)]
+mod command_wiring_tests {
+    /// Commands intentionally not invoked from `src/`. Keep the reason attached.
+    const CALLED_FROM_RUST_ONLY: &[(&str, &str)] = &[(
+        "register_watched_job",
+        "called from register_slurm_job_metadata (job_notify.rs) after it writes \
+         the local registry; the frontend deliberately goes through registerSlurmJob \
+         so notification metadata is never skipped",
+    )];
+
+    /// Commands that were registered but never wired to the UI, found when this
+    /// check was first written. They are recorded rather than silently tolerated:
+    /// each is either a feature that was built and never connected (the SLU-01
+    /// shape — the completion-notification command sat here for releases while the
+    /// UI claimed it worked) or dead weight that should be deleted.
+    ///
+    /// This list may shrink. It must not grow: a NEW entry means someone shipped
+    /// another disconnected feature, which is exactly what the test exists to stop.
+    const KNOWN_UNWIRED: &[&str] = &[
+        // Tauri template leftover.
+        "greet",
+        // Session management implemented backend-only; the chat panel manages
+        // sessions through other commands.
+        "save_session_metadata",
+        "list_sessions",
+        "check_session_files",
+        "reconnect_session",
+        "delete_session",
+        "rename_session",
+        "archive_current_plan",
+        // Setup/install paths the wizard reaches by other routes.
+        "install_xcode_cli",
+        "install_node",
+        "remote_claude_login",
+        "check_remote_ripgrep",
+        "get_protocol_template_params",
+        // Git write operations — exposed, never called from the UI.
+        "git_commit_all",
+        "git_push",
+        "git_tag_version",
+    ];
+
+    /// Pull the identifiers out of the `tauri::generate_handler![...]` list.
+    fn registered_commands(src: &str) -> Vec<String> {
+        let start = match src.find("generate_handler!") {
+            Some(i) => i,
+            None => return Vec::new(),
+        };
+        let open = match src[start..].find('[') {
+            Some(i) => start + i + 1,
+            None => return Vec::new(),
+        };
+        let close = match src[open..].find(']') {
+            Some(i) => open + i,
+            None => return Vec::new(),
+        };
+        src[open..close]
+            .split(',')
+            .map(|s| {
+                // Strip comments and whitespace; keep the bare identifier.
+                s.lines()
+                    .map(|l| l.split("//").next().unwrap_or("").trim())
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("")
+            })
+            .map(|s| s.rsplit("::").next().unwrap_or("").trim().to_string())
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            .collect()
+    }
+
+    fn frontend_sources() -> String {
+        fn walk(dir: &std::path::Path, out: &mut String) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if matches!(
+                    p.extension().and_then(|s| s.to_str()),
+                    Some("ts") | Some("tsx")
+                ) {
+                    if let Ok(s) = std::fs::read_to_string(&p) {
+                        out.push_str(&s);
+                    }
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("src"));
+        let mut out = String::new();
+        if let Some(root) = root {
+            walk(&root, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn every_registered_command_has_a_caller() {
+        let commands = registered_commands(include_str!("lib.rs"));
+        assert!(
+            commands.len() > 50,
+            "failed to parse the handler list — got {} commands, so this test \
+             would pass vacuously",
+            commands.len()
+        );
+
+        let frontend = frontend_sources();
+        assert!(
+            frontend.len() > 100_000,
+            "failed to read the frontend sources — got {} bytes",
+            frontend.len()
+        );
+
+        let mut exempt: Vec<&str> = CALLED_FROM_RUST_ONLY.iter().map(|(n, _)| *n).collect();
+        exempt.extend_from_slice(KNOWN_UNWIRED);
+        let orphans: Vec<&String> = commands
+            .iter()
+            .filter(|c| !exempt.contains(&c.as_str()))
+            // The name appears in an invoke() call, a wrapper, or a listen() target.
+            .filter(|c| !frontend.contains(c.as_str()))
+            .collect();
+
+        // If a KNOWN_UNWIRED command gains a caller, delete it from the list — the
+        // debt is paid and leaving it there would mask a future regression.
+        let now_wired: Vec<&&str> = KNOWN_UNWIRED
+            .iter()
+            .filter(|c| frontend.contains(**c))
+            .collect();
+        assert!(
+            now_wired.is_empty(),
+            "these commands are now called from src/ — remove them from KNOWN_UNWIRED: {now_wired:?}"
+        );
+
+        assert!(
+            orphans.is_empty(),
+            "these Tauri commands are registered but never referenced from src/ — \
+             either wire them up or add them to CALLED_FROM_RUST_ONLY with a reason: \
+             {orphans:?}"
+        );
+    }
 }

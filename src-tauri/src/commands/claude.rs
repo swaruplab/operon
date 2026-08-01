@@ -646,7 +646,7 @@ pub struct SessionMetadata {
     pub model: Option<String>,
     pub created_at: u64,             // Unix timestamp ms
     pub last_activity: u64,          // Unix timestamp ms
-    pub status: String,              // "running", "completed", "failed"
+    pub status: String,              // "running", "completed", "failed", "stopped"
     pub use_terminal: bool,          // Whether this used terminal mode
     pub terminal_id: Option<String>, // Terminal ID if terminal mode
     #[serde(default)]
@@ -2584,7 +2584,56 @@ if [ "${OPERON_REVIEW_ENABLED:-0}" = "1" ] && \
   # skip review for a run without touching the persisted setting.
   [ -f "$HOME/.operon/guard/review-off" ] && exit 0
   _rq="$HOME/.operon/guard/.review-seen"; mkdir -p "$_rq" 2>/dev/null
-  _sf=""; for _t in $cmd; do [ "$_t" = "sbatch" ] && continue; [ -f "$_t" ] && { _sf="$_t"; break; }; done
+  # Resolve the script sbatch will actually run.
+  #
+  # The old rule — "first token in the whole command that is an existing file" —
+  # reviewed the WRONG FILE constantly: `source conda.sh && sbatch job.sh` sent
+  # conda.sh, `sbatch -o logs/out.txt job.sh` sent the log file, and
+  # `sbatch --dependency=.. .job_ids job.sh` sent the job-id list. Whatever it
+  # picked came back "no issues", which read as a clean review of the job.
+  #
+  # Three rules fix that:
+  #   1. Only look at tokens AFTER the `sbatch` keyword (kills the conda.sh case).
+  #   2. Require a `#!` shebang or a `#SBATCH` directive — sbatch itself requires
+  #      the script to start with `#!`, so this is a spec rule, not a guess. It
+  #      rejects logs, job-id lists and data files handed to flags.
+  #   3. Resolve relative paths against the directory the submit runs in: a
+  #      leading `cd DIR &&` or sbatch's own -D/--chdir. Without this the single
+  #      most common idiom, `cd /work && sbatch job.sh`, found no file at all and
+  #      was recorded as "unavailable" — a silent skip.
+  _wd=""; _sf=""; _cands=""; _prev=""; _seen=0
+  for _t in $cmd; do
+    if [ "$_seen" = "0" ]; then
+      [ "$_prev" = "cd" ] && _wd="$_t"
+      [ "$_t" = "sbatch" ] && _seen=1
+    else
+      case "$_t" in
+        --chdir=*) _wd=${_t#--chdir=} ;;
+        -D?*)      _wd=${_t#-D} ;;
+        -*)        [ "$_prev" = "-D" ] || [ "$_prev" = "--chdir" ] && _wd="$_t" ;;
+        *)
+          if [ "$_prev" = "-D" ] || [ "$_prev" = "--chdir" ]; then _wd="$_t"
+          else _cands="$_cands $_t"; fi
+          ;;
+      esac
+    fi
+    _prev="$_t"
+  done
+  # Tokens carry the separator that followed them (`cd /work; sbatch ...` yields
+  # `/work;`) and any quoting the user typed. Strip both, or the directory never
+  # resolves and the review is silently skipped.
+  _unq() { _v=$1; _v=${_v%;}; _v=${_v%&}; _v=${_v#\"}; _v=${_v%\"}; _v=${_v#\'}; _v=${_v%\'}; printf '%s' "$_v"; }
+  _wd=$(_unq "$_wd")
+  for _c in $_cands; do
+    _c=$(_unq "$_c")
+    for _p in "${_wd:+$_wd/}$_c" "$_c"; do
+      [ -f "$_p" ] || continue
+      if [ "$(head -c 2 "$_p" 2>/dev/null)" = '#!' ] || head -n 40 "$_p" 2>/dev/null | grep -q '^#SBATCH'; then
+        _sf="$_p"; break
+      fi
+    done
+    [ -n "$_sf" ] && break
+  done
   _body=""
   if [ -n "$_sf" ]; then
     _body=$(head -c 160000 "$_sf" 2>/dev/null)
@@ -2619,7 +2668,15 @@ $_numbered
 
 Return only the JSON object."
     _to=""; command -v timeout >/dev/null 2>&1 && _to="timeout 120"; [ -z "$_to" ] && command -v gtimeout >/dev/null 2>&1 && _to="gtimeout 120"
-    _res=$(printf '%s\n' "$_pr" | $_to $_rc -p --model "${OPERON_REVIEW_MODEL:-claude-sonnet-5}" --max-turns 1 --output-format json --disallowedTools 'Read,Write,Edit,Bash,Glob,Grep,WebFetch,WebSearch,NotebookEdit' 2>/dev/null)
+    # Honour the configured effort, but never let it cost us the review: models
+    # that don't support the level make the CLI exit non-zero with empty stdout,
+    # so fall back to a plain call rather than degrading to "unavailable".
+    _ef=""; [ -n "${OPERON_REVIEW_EFFORT:-}" ] && _ef="--effort ${OPERON_REVIEW_EFFORT}"
+    _inv="$_to $_rc -p --model ${OPERON_REVIEW_MODEL:-claude-sonnet-5} --max-turns 1 --output-format json --disallowedTools Read,Write,Edit,Bash,Glob,Grep,WebFetch,WebSearch,NotebookEdit"
+    _res=$(printf '%s\n' "$_pr" | $_inv $_ef 2>/dev/null)
+    if [ -z "$_res" ] && [ -n "$_ef" ]; then
+      _res=$(printf '%s\n' "$_pr" | $_inv 2>/dev/null)
+    fi
     _msg=$(printf '%s' "$_res" | OP_SCRIPT="${_sf:-inline}" OP_EVENTS="${OPERON_REVIEW_EVENTS:-}" python3 -c '
 import sys,json,re,os,time
 def emit(outcome,n,findings):
@@ -2646,9 +2703,20 @@ if m:
         findings=None
 if findings is None:
     emit("unavailable",0,[]); sys.exit(0)
-blk=[x for x in findings if str(x.get("severity","")).lower()=="blocking"][:3]
+sev=lambda x: str(x.get("severity","")).lower()
+blk=[x for x in findings if sev(x)=="blocking"][:3]
+hi=[x for x in findings if sev(x)=="high"][:3]
+# A "high" finding used to be thrown away and the submit recorded as "clean" —
+# the reviewer said "no issues" about a script it had just found a serious
+# problem in. Surface it as its own outcome instead. It still does NOT block:
+# "high" means likely-wrong, and a reviewer that stops real jobs on a maybe is
+# one the user switches off. Blocking stays reserved for "blocking".
 if not blk:
-    emit("clean",0,[]); sys.exit(0)
+    if hi:
+        emit("warned",len(hi),hi)
+    else:
+        emit("clean",0,[])
+    sys.exit(0)
 emit("blocked",len(blk),blk)
 print("\n".join("- line %s: %s -- %s  FIX: %s" % (x.get("line"), x.get("title",""), x.get("why_wrong",""), x.get("fix","")) for x in blk))
 ' 2>/dev/null)
@@ -2756,6 +2824,11 @@ fn remote_guard_setup_block(cfg: &ReviewGuardCfg) -> String {
     // Clear a stale runtime toggle so this session honors the persisted setting;
     // the chat-box checkbox re-creates it if the user turns review off mid-run.
     s.push_str("rm -f \"$__og/review-off\" 2>/dev/null\n");
+    // Drop the block-exemption cache. A marker is written when a script is
+    // blocked so the agent's immediate resubmit of the identical script goes
+    // through — that override is meant to last one submit, not forever. Left on
+    // disk it silently exempted that script from review in every future session.
+    s.push_str("rm -rf \"$__og/.review-seen\" 2>/dev/null\n");
     s.push_str("cat > \"$__og/operon-guard.sh\" <<'__OPERON_GUARD_EOF__'\n");
     s.push_str(GUARD_HOOK_SCRIPT);
     if !s.ends_with('\n') {
@@ -2802,6 +2875,9 @@ fn install_local_guard(claude_cmd: &mut String, cfg: &ReviewGuardCfg) {
         // Clear a stale runtime toggle so this session honors the persisted
         // setting; the chat-box checkbox re-creates it if turned off mid-run.
         let _ = std::fs::remove_file(dir.join("review-off"));
+        // Same one-session lifetime for the block-exemption cache as the remote
+        // path — a blocked script must be re-reviewed in the next session.
+        let _ = std::fs::remove_dir_all(dir.join(".review-seen"));
         claude_cmd.push_str(&format!(
             " --settings '{}'",
             settings.to_string_lossy().replace('\'', "'\\''")
@@ -3528,12 +3604,20 @@ pub async fn start_claude_session(
             let guard_block =
                 remote_guard_setup_block(&review_guard_cfg(&settings_state, &session_id, None));
             claude_cmd.push_str(" --settings \"$HOME/.operon/guard/operon-guard-settings.json\"");
+            // The run script is the ONLY writer of `.done` — see the tail script,
+            // which is a read-only observer. It therefore also owns clearing a
+            // stale one: a `.done` left behind by a killed tail (or by a previous
+            // turn that was interrupted) made the next turn's tail see "already
+            // finished" and exit immediately, so the new agent streamed nothing.
+            // Clearing both files here means every run starts from a clean slate.
             let script_content = format!(
-                "{}{}{}cd '{}' && (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}{}cd '{}' && rm -f '{}' '{}'; (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
                 REMOTE_PATH_PREFIX,
                 api_key_line,
                 guard_block,
                 ctx.remote_path.replace('\'', "'\\''"),
+                output_file.replace('\'', "'\\''"),
+                done_file.replace('\'', "'\\''"),
                 claude_cmd,
                 output_file.replace('\'', "'\\''"),
                 done_file.replace('\'', "'\\''"),
@@ -3613,6 +3697,31 @@ pub async fn start_claude_session(
                 "[operon] writing source command to terminal id={:?}",
                 terminal_id
             );
+
+            // Clear the previous turn's transcript and marker HERE, synchronously,
+            // before the agent is launched and before the tail is spawned.
+            //
+            // The run script clears them too, but that is not sufficient on its own:
+            // the script runs on the compute node via the PTY while the tail is
+            // spawned from here over a separate SSH connection, with no ordering
+            // between them. `session_id` is reused for every turn of a conversation,
+            // so from turn 2 onward the previous turn's .jsonl and .done are still
+            // on disk — and a tail that wins the race sees the stale marker, replays
+            // the whole previous transcript into the chat, and exits immediately.
+            // (Before the tail stopped deleting these files that state could not
+            // arise, so this race is new; doing the clear from Rust removes it.)
+            {
+                let clear = format!(
+                    "rm -f -- '{}' '{}'",
+                    output_file.replace('\'', "'\\''"),
+                    done_file.replace('\'', "'\\''"),
+                );
+                if let Err(e) = super::ssh::ssh_exec(&profile, &clear) {
+                    // Non-fatal: the run script's own `rm -f` still covers the common
+                    // case. Log it so a stale-marker replay is diagnosable.
+                    eprintln!("[operon] could not pre-clear session files: {e}");
+                }
+            }
 
             // Send a short source command to the terminal (the script is already on the remote)
             // The leading space prevents it from appearing in shell history.
@@ -3704,12 +3813,11 @@ pub async fn start_claude_session(
                  if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
                  if command -v stdbuf >/dev/null 2>&1; then TAIL_CMD=\"stdbuf -oL tail -f '{out_esc}'\"; else TAIL_CMD=\"tail -f '{out_esc}'\"; fi; \
                  eval $TAIL_CMD & TAIL_PID=$!; \
-                 ( while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ ! -f '{donef}' ]; then printf '{{\"type\":\"error\",\"error\":{{\"message\":\"Agent appears to have died — no output for over 5 minutes. The Claude process on the compute node may have been killed (tmux pane closed, SLURM preempt, OOM, or NFS stall).\"}}}}\\n'; touch '{donef}'; break; fi; fi; fi; done ) & HB_PID=$!; \
+                 ( _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
                  _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
                  sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
                  [ \"$_capped\" = \"1\" ] && exit 0; \
-                 cat '{out_esc}'; \
-                 rm -f '{out}' '{donef}'",
+                 cat '{out_esc}'",
                 out = output_file,
                 out_esc = output_file.replace('\'', "'\\''"),
                 donef = done_file,
@@ -4306,6 +4414,7 @@ pub async fn start_claude_session(
 #[tauri::command]
 pub async fn stop_claude_session(
     state: tauri::State<'_, ClaudeManager>,
+    terminal_state: tauri::State<'_, super::terminal::TerminalManager>,
     session_id: String,
 ) -> Result<(), String> {
     // Extract session from lock first, then await kill — never hold Mutex across .await.
@@ -4319,6 +4428,33 @@ pub async fn stop_claude_session(
 
     if let Some(mut session) = session {
         let _ = session.child.kill().await;
+    }
+
+    // Killing the tracked child is NOT enough in terminal mode. There the tracked
+    // child is the login-node SSH tail; the agent itself was typed into the user's
+    // tmux pane and keeps running on the compute node — still editing files, still
+    // burning node hours, and still owning the pane, so the next turn's `source`
+    // line would be typed into Claude's stdin instead of a shell. Deliver a real
+    // interrupt to the pane.
+    //
+    // Best-effort by construction: the terminal tab may have been closed, or this
+    // may be a local session with no terminal at all. Stop must never fail because
+    // the interrupt could not be delivered.
+    if let Ok(Some(meta)) = load_session_from_disk(&session_id) {
+        if meta.use_terminal {
+            if let Some(tid) = meta.terminal_id.as_deref() {
+                // ETX (Ctrl-C) — what the user would press themselves.
+                if let Err(e) = super::terminal::write_terminal_bytes(&terminal_state, tid, b"\x03")
+                {
+                    eprintln!("[operon] stop: could not interrupt terminal {tid}: {e}");
+                }
+            }
+        }
+        // Record the stop server-side so a late `done` event cannot resurrect the
+        // session as "completed" in the history/resume UI.
+        let mut meta = meta;
+        meta.status = "stopped".to_string();
+        let _ = save_session_to_disk(&meta);
     }
 
     Ok(())
@@ -4565,9 +4701,23 @@ pub async fn update_session_claude_id(
 }
 
 /// Mark a session as completed or failed.
+/// Whether a session's persisted status may move from `from` to `to`.
+///
+/// `stopped` is terminal. Killing the tracked child is exactly what makes the
+/// stdout task end and emit `claude-done-{id}`, whose frontend handler writes
+/// "completed" — so without this guard every Stop was immediately overwritten and
+/// the session showed as completed in history and the resume UI. The ordering is
+/// stopped → completed by construction, not by an unlucky race.
+pub(crate) fn status_transition_allowed(from: &str, to: &str) -> bool {
+    !(from == "stopped" && to != "stopped")
+}
+
 #[tauri::command]
 pub async fn update_session_status(session_id: String, status: String) -> Result<(), String> {
     if let Some(mut meta) = load_session_from_disk(&session_id)? {
+        if !status_transition_allowed(&meta.status, &status) {
+            return Ok(());
+        }
         meta.status = status;
         meta.last_activity = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -4882,7 +5032,7 @@ pub async fn reconnect_tail(
          i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
          if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start, or the file was cleaned up. Check the terminal for errors.\"}}}}'; exit 1; fi; \
          if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; else cat '{out}'; tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; fi; \
-         ( while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ ! -f '{donef}' ]; then printf '{{\"type\":\"error\",\"error\":{{\"message\":\"Agent appears to have died — no output for over 5 minutes. The Claude process on the compute node may have been killed (tmux pane closed, SLURM preempt, OOM, or NFS stall).\"}}}}\\n'; touch '{donef}'; break; fi; fi; fi; done ) & HB_PID=$!; \
+         ( _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
          _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
          sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
          [ \"$_capped\" = \"1\" ] && exit 0; \
@@ -4952,6 +5102,14 @@ pub async fn delete_session(
     remote: Option<RemoteContext>,
     delete_output: Option<bool>,
 ) -> Result<(), String> {
+    // Load the metadata BEFORE deleting it — the output paths are derived from it.
+    // This used to run after `remove_file`, so `load_session_from_disk` always
+    // returned `None` and the whole `delete_output` block below was dead code: the
+    // transcripts it promised to remove were never touched. That matters more now
+    // that the remote tail no longer deletes them at the end of each turn — this is
+    // the path that actually reaps them.
+    let meta = load_session_from_disk(&session_id).ok().flatten();
+
     // Delete metadata file
     let dir = sessions_dir()?;
     let path = dir.join(format!("{}.json", session_id));
@@ -4961,7 +5119,7 @@ pub async fn delete_session(
 
     // Optionally delete output files
     if delete_output.unwrap_or(false) {
-        if let Some(meta) = load_session_from_disk(&session_id).ok().flatten() {
+        if let Some(meta) = meta {
             let base_path = meta.remote_path.as_deref().unwrap_or(&meta.project_path);
             let output_file = format!("{}/.operon-{}.jsonl", base_path, session_id);
             let done_file = format!("{}/.operon-{}.done", base_path, session_id);
@@ -4995,11 +5153,39 @@ pub async fn delete_session(
 //   • "Disconnect (keep remote session)"  → existing `stop_control_master` + UI reset.
 //   • "End session & clean up everything"  → `scan_remote_footprint` → confirm →
 //                                            `teardown_remote_footprint`.
-// This never runs `scancel`. It kills only what Operon spawned (local SSH children,
-// remote log-streamers, the `operon-*` tmux session, scratch files). If an
-// `srun`/`salloc` is running *inside* the operon tmux pane, killing that session
-// releases the allocation as a side effect — `slurm_in_pane` flags that so the UI
-// can warn first and let the user opt out of the tmux kill.
+// It kills what Operon spawned (local SSH children, remote log-streamers, the
+// `operon-*` tmux session, scratch files) and — only for job ids the user ticks
+// in the dialog — releases an *interactive* allocation with `scancel`.
+//
+// Why interactive allocations need their own explicit step: killing the tmux
+// session used to end the allocation as a side effect, because the pane process
+// WAS the `srun --pty` that owned it. Since the reuse-before-acquire feature the
+// pane may instead hold `srun --jobid=N --overlap --pty`, which is a job *step*
+// on an allocation someone else's process owns. Killing that pane releases
+// nothing, and the next connect's reuse snippet re-attaches to the same job —
+// "I ended the session but it picked the node right back up".
+//
+// SAFETY: `scancel` is *only ever* reachable for a job the remote re-verifies as
+// `BatchFlag=0` (salloc / `srun --pty`) and owned by the connecting user. A batch
+// job is never cancellable through this path, whatever the frontend sends.
+
+/// A running *interactive* SLURM allocation (`BatchFlag=0`) belonging to the user.
+#[derive(Debug, Serialize)]
+pub struct InteractiveJob {
+    pub id: String,
+    pub name: String,
+    pub nodes: String,
+    /// Elapsed run time (`squeue %M`).
+    pub time: String,
+    /// Node list (`squeue %R`).
+    pub nodelist: String,
+    /// How Operon tied this allocation to its own tmux pane:
+    /// * `"pane"` — a `--jobid=<id>` was found on an `operon-*` pane process. Certain.
+    /// * `"sole"` — the only running interactive allocation while an `srun`/`salloc`
+    ///   is live in an `operon-*` pane. Near-certain.
+    /// * `"none"` — unattributed. Listed for the user, never pre-selected.
+    pub attribution: String,
+}
 
 /// What Operon has left running / lying around on a remote host.
 #[derive(Debug, Serialize)]
@@ -5009,10 +5195,104 @@ pub struct RemoteFootprint {
     /// tmux sessions whose name starts with `operon` (e.g. `operon-main`).
     pub tmux_sessions: Vec<String>,
     /// true if an `srun`/`salloc`/`sbatch` is running inside one of those tmux panes —
-    /// i.e. killing the tmux session would release a SLURM allocation.
+    /// i.e. killing the tmux session *might* release a SLURM allocation.
     pub slurm_in_pane: bool,
     /// `squeue` lines for the user's currently-running jobs (context for the warning).
     pub running_jobs: Vec<String>,
+    /// Running interactive allocations the user can choose to release.
+    pub interactive_jobs: Vec<InteractiveJob>,
+    /// Set when the remote scan could not be completed. An empty footprint with
+    /// `scan_error: None` means "nothing is running"; with `Some(..)` it means
+    /// "we don't know" — the UI must not present the two as the same thing.
+    pub scan_error: Option<String>,
+}
+
+/// A SLURM job id is digits plus the array (`_`), heterogeneous (`+`) and step
+/// (`.`) separators — nothing else. Everything that reaches a remote `scancel`
+/// is filtered through this, so a malformed or hostile id from the frontend can
+/// never become shell syntax.
+pub(crate) fn is_valid_job_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 32
+        && id.starts_with(|c: char| c.is_ascii_digit())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '_' || c == '+' || c == '.')
+}
+
+/// The remote-side guard for one `scancel`, emitting a one-word verdict.
+///
+/// The checks are re-run *on the server, immediately before the cancel* rather
+/// than trusted from the scan, so a job that turned into something else (or was
+/// never ours) between the dialog opening and the button being pressed is still
+/// refused. `id` must have passed [`is_valid_job_id`] — it is interpolated bare.
+///
+/// Verdicts: `ok` cancelled · `fail` scancel errored · `batch` refused, not an
+/// interactive allocation · `gone` not in the user's running queue any more.
+///
+/// The `BatchFlag` read is deliberately paranoid: tokenize on spaces, keep only
+/// whole `BatchFlag=[01]` tokens, and take the FIRST one. Whole-token matching
+/// stops a job whose *name* contains `BatchFlag=0` from passing, and taking the
+/// first stops a later field that echoes user text (`Command=`, `StdOut=`) from
+/// overriding the real flag. Anything unparseable falls through to `batch`,
+/// i.e. refuse.
+pub(crate) fn cancel_job_snippet(id: &str) -> String {
+    debug_assert!(is_valid_job_id(id));
+    format!(
+        "if [ -n \"$(squeue -h -j {id} -u \"$_u\" -o '%i' 2>/dev/null)\" ]; then \
+           if [ \"$(scontrol show job {id} 2>/dev/null | tr ' ' '\\n' | grep -x 'BatchFlag=[01]' | head -1)\" = 'BatchFlag=0' ]; then \
+             scancel {id} >/dev/null 2>&1 && echo 'ok {id}' || echo 'fail {id}'; \
+           else echo 'batch {id}'; fi; \
+         else echo 'gone {id}'; fi\n",
+        id = id
+    )
+}
+
+/// Turn the `__INTERACTIVE__` lines (`id|name|nodes|time|nodelist`) into typed
+/// jobs, tagging each with how confidently it belongs to Operon's tmux pane.
+///
+/// `pane_job_ids` are the ids scraped off `--jobid=` on an `operon-*` pane
+/// process — a positive identification. When there is no such id but an
+/// `srun`/`salloc` *is* live in an Operon pane and the user has exactly one
+/// interactive allocation, that allocation is necessarily the one the pane is
+/// sitting in. Anything else is left unattributed so the UI never pre-selects a
+/// job Operon cannot account for.
+pub(crate) fn attribute_interactive_jobs(
+    raw: &[String],
+    pane_job_ids: &[String],
+    slurm_in_pane: bool,
+) -> Vec<InteractiveJob> {
+    let mut jobs: Vec<InteractiveJob> = raw
+        .iter()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            let id = f.first().copied().unwrap_or_default();
+            if !is_valid_job_id(id) {
+                return None;
+            }
+            Some(InteractiveJob {
+                id: id.to_string(),
+                name: f.get(1).copied().unwrap_or_default().to_string(),
+                nodes: f.get(2).copied().unwrap_or_default().to_string(),
+                time: f.get(3).copied().unwrap_or_default().to_string(),
+                nodelist: f.get(4).copied().unwrap_or_default().to_string(),
+                attribution: "none".to_string(),
+            })
+        })
+        .collect();
+    jobs.dedup_by(|a, b| a.id == b.id);
+
+    let mut matched_pane = false;
+    for job in jobs.iter_mut() {
+        if pane_job_ids.iter().any(|p| p.trim() == job.id) {
+            job.attribution = "pane".to_string();
+            matched_pane = true;
+        }
+    }
+    if !matched_pane && slurm_in_pane && jobs.len() == 1 {
+        jobs[0].attribution = "sole".to_string();
+    }
+    jobs
 }
 
 #[tauri::command]
@@ -5034,28 +5314,57 @@ pub async fn scan_remote_footprint(
     // running this very script.
     let script = r#"
 H=$(printf 'operon')
+U=$(id -un 2>/dev/null || echo "$USER")
+T=""; command -v timeout >/dev/null 2>&1 && T="timeout 10"
+PANES=$(tmux list-panes -aF '#{session_name} #{pane_pid}' 2>/dev/null | awk -v h="$H" '$1 ~ ("^" h) {print $2}')
 echo '__HELPERS__'
 pgrep -af "${H}-[0-9a-f]" 2>/dev/null | grep -v -e 'pgrep ' || true
 echo '__TMUX__'
 tmux ls -F '#{session_name}' 2>/dev/null | grep -E "^${H}" || true
 echo '__PANEPROCS__'
-for _p in $(tmux list-panes -aF '#{session_name} #{pane_pid}' 2>/dev/null | awk -v h="$H" '$1 ~ ("^" h) {print $2}'); do
+for _p in $PANES; do
   ps -p "$_p" -o args= 2>/dev/null
   for _c in $(pgrep -P "$_p" 2>/dev/null); do
     ps -p "$_c" -o args= 2>/dev/null
     for _g in $(pgrep -P "$_c" 2>/dev/null); do ps -p "$_g" -o args= 2>/dev/null; done
   done
 done
+echo '__PANEJOBS__'
+for _p in $PANES; do
+  for _q in "$_p" $(pgrep -P "$_p" 2>/dev/null); do
+    ps -p "$_q" -o args= 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^--jobid=/){sub(/^--jobid=/,"",$i); print $i} else if($i=="--jobid" && i<NF){print $(i+1)}}}'
+  done
+done
 echo '__SLURM__'
-squeue -u "$(id -un 2>/dev/null || echo "$USER")" -h -o '%i %j %T %D %m %R' 2>/dev/null || true
+squeue -u "$U" -h -o '%i %j %T %D %m %R' 2>/dev/null || true
+echo '__INTERACTIVE__'
+for _j in $($T squeue -h -u "$U" -t R -o '%i' 2>/dev/null | grep -v '_' | head -20); do
+  $T scontrol show job "$_j" 2>/dev/null | tr ' ' '\n' | grep -qx 'BatchFlag=0' && \
+    $T squeue -h -j "$_j" -o '%i|%j|%D|%M|%R' 2>/dev/null
+done
 echo '__END__'
 "#;
-    let out = super::ssh::ssh_exec(&profile, script).unwrap_or_default();
+    // A failed scan must NOT look like a clean server. `.unwrap_or_default()`
+    // used to turn an SSH error into an empty footprint, which the dialog then
+    // rendered as "No Operon tmux session found" and the teardown reported as a
+    // successful kill.
+    let (out, mut scan_error) = match super::ssh::ssh_exec(&profile, script) {
+        Ok(o) => (o, None),
+        Err(e) => (String::new(), Some(e)),
+    };
+    // The script ends with a sentinel, so a connection that dropped mid-stream
+    // (or a shell that died on the way) is detectable even though `ssh_exec`
+    // returned `Ok`.
+    if scan_error.is_none() && !out.lines().any(|l| l.trim() == "__END__") {
+        scan_error = Some("the remote scan did not run to completion".to_string());
+    }
 
     let mut section = "";
     let mut helpers = Vec::new();
     let mut tmux_sessions = Vec::new();
     let mut pane_procs: Vec<String> = Vec::new();
+    let mut pane_job_ids: Vec<String> = Vec::new();
+    let mut interactive_raw: Vec<String> = Vec::new();
     let mut running_jobs = Vec::new();
     for line in out.lines() {
         let t = line.trim();
@@ -5072,8 +5381,16 @@ echo '__END__'
                 section = "p";
                 continue;
             }
+            "__PANEJOBS__" => {
+                section = "j";
+                continue;
+            }
             "__SLURM__" => {
                 section = "s";
+                continue;
+            }
+            "__INTERACTIVE__" => {
+                section = "i";
                 continue;
             }
             "__END__" => {
@@ -5089,7 +5406,9 @@ echo '__END__'
             "h" => helpers.push(t.to_string()),
             "t" => tmux_sessions.push(t.to_string()),
             "p" => pane_procs.push(t.to_string()),
+            "j" => pane_job_ids.push(t.to_string()),
             "s" => running_jobs.push(t.to_string()),
+            "i" => interactive_raw.push(t.to_string()),
             _ => {}
         }
     }
@@ -5103,11 +5422,16 @@ echo '__END__'
             || p.contains(" sbatch ")
     });
 
+    let interactive_jobs =
+        attribute_interactive_jobs(&interactive_raw, &pane_job_ids, slurm_in_pane);
+
     Ok(RemoteFootprint {
         helpers,
         tmux_sessions,
         slurm_in_pane,
         running_jobs,
+        interactive_jobs,
+        scan_error,
     })
 }
 
@@ -5117,6 +5441,10 @@ pub async fn teardown_remote_footprint(
     ssh_state: tauri::State<'_, super::ssh::SSHManager>,
     profile_id: String,
     kill_tmux: bool,
+    // `cancel_job_ids`: interactive allocations the user explicitly ticked in the
+    // confirm dialog. Validated here and re-verified on the remote before any
+    // `scancel`.
+    cancel_job_ids: Vec<String>,
 ) -> Result<String, String> {
     // 1. Kill the local SSH child processes Operon spawned for sessions on this
     //    profile (log-streamers, reconnect tails, headless claude). With the
@@ -5188,17 +5516,813 @@ pub async fn teardown_remote_footprint(
             "for _s in $(tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^operon'); do tmux kill-session -t \"$_s\" 2>/dev/null; done\n",
         );
     }
-    script.push_str("true\n");
 
-    let _ = super::ssh::ssh_exec(&profile, &script);
-
-    let mut msg = format!(
-        "Stopped {} Operon SSH process(es); cleaned up remote log-streamers and scratch files",
-        n_local
-    );
-    if kill_tmux {
-        msg.push_str("; killed Operon tmux session(s)");
+    // 3. Release the interactive allocations the user ticked. Killing the tmux
+    //    pane only ends an allocation the pane's `srun` actually owns — a reuse
+    //    step (`srun --jobid=N --overlap`) leaves the job running and the next
+    //    connect re-attaches to it. This is the step that closes that loop.
+    //
+    //    The remote re-verifies ownership and `BatchFlag=0` immediately before
+    //    every `scancel`, so the frontend cannot talk this into cancelling a
+    //    batch job or someone else's work no matter what it sends.
+    let cancel_ids: Vec<String> = cancel_job_ids
+        .into_iter()
+        .filter(|id| is_valid_job_id(id))
+        .collect();
+    if !cancel_ids.is_empty() {
+        script.push_str("_u=$(id -un 2>/dev/null || echo \"$USER\")\n");
+        script.push_str("echo '__CANCEL__'\n");
+        for id in &cancel_ids {
+            script.push_str(&cancel_job_snippet(id));
+        }
     }
-    msg.push('.');
-    Ok(msg)
+
+    // 4. Report what is ACTUALLY left, not what we asked for. Every step above is
+    //    best-effort on a remote we may not even have reached.
+    script.push_str("echo '__VTMUX__'\n");
+    script.push_str("tmux ls -F '#{session_name}' 2>/dev/null | grep -E '^operon' || true\n");
+    script.push_str("echo '__VJOBS__'\n");
+    script.push_str(
+        "squeue -h -u \"$(id -un 2>/dev/null || echo \"$USER\")\" -t R -o '%i' 2>/dev/null || true\n",
+    );
+    script.push_str("echo '__VEND__'\n");
+
+    let outcome = super::ssh::ssh_exec(&profile, &script);
+    Ok(teardown_report(
+        n_local,
+        kill_tmux,
+        &cancel_ids,
+        outcome.as_deref(),
+    ))
+}
+
+/// Build the human-readable teardown summary from the remote transcript.
+///
+/// Split out from `teardown_remote_footprint` so the reporting can be tested
+/// without a cluster. The old code discarded the SSH result entirely and
+/// unconditionally claimed "killed Operon tmux session(s)" — including when the
+/// connection failed and nothing ran at all.
+pub(crate) fn teardown_report(
+    n_local: usize,
+    kill_tmux: bool,
+    cancel_ids: &[String],
+    outcome: Result<&str, &String>,
+) -> String {
+    let mut lines = vec![format!("Stopped {} local Operon SSH process(es).", n_local)];
+
+    let out = match outcome {
+        Ok(o) => o,
+        Err(e) => {
+            lines.push(format!(
+                "Could NOT reach the server — no remote cleanup ran: {e}"
+            ));
+            lines.push(
+                "Reconnect and try again; the tmux session and any allocation are still up."
+                    .to_string(),
+            );
+            return lines.join("\n");
+        }
+    };
+
+    // Section the transcript.
+    let mut section = "";
+    let mut cancel_results: Vec<(&str, &str)> = Vec::new();
+    let mut tmux_left: Vec<&str> = Vec::new();
+    let mut jobs_left: Vec<&str> = Vec::new();
+    let mut saw_end = false;
+    for line in out.lines() {
+        let t = line.trim();
+        match t {
+            "__CANCEL__" => {
+                section = "c";
+                continue;
+            }
+            "__VTMUX__" => {
+                section = "t";
+                continue;
+            }
+            "__VJOBS__" => {
+                section = "j";
+                continue;
+            }
+            "__VEND__" => {
+                saw_end = true;
+                section = "";
+                continue;
+            }
+            _ => {}
+        }
+        if t.is_empty() {
+            continue;
+        }
+        match section {
+            "c" => {
+                if let Some((verdict, id)) = t.split_once(' ') {
+                    cancel_results.push((verdict, id.trim()));
+                }
+            }
+            "t" => tmux_left.push(t),
+            "j" => jobs_left.push(t),
+            _ => {}
+        }
+    }
+
+    if !saw_end {
+        lines.push(
+            "The remote cleanup script did not run to completion — treat everything below as unverified."
+                .to_string(),
+        );
+    }
+
+    lines.push("Cleaned up remote log-streamers and scratch files.".to_string());
+
+    if kill_tmux {
+        if tmux_left.is_empty() {
+            lines.push("Killed Operon's tmux session(s).".to_string());
+        } else {
+            lines.push(format!(
+                "WARNING: tmux session(s) still present after the kill: {}",
+                tmux_left.join(", ")
+            ));
+        }
+    } else {
+        lines.push("Left Operon's tmux session running (not selected).".to_string());
+    }
+
+    for id in cancel_ids {
+        let verdict = cancel_results
+            .iter()
+            .find(|(_, j)| j == id)
+            .map(|(v, _)| *v)
+            .unwrap_or("unknown");
+        let still_running = jobs_left
+            .iter()
+            .any(|j| j.split_whitespace().next() == Some(id.as_str()));
+        let line = match verdict {
+            _ if still_running => format!("WARNING: job {} is STILL RUNNING after scancel.", id),
+            "ok" => format!("Released interactive allocation {}.", id),
+            "gone" => format!("Allocation {} had already ended.", id),
+            "batch" => format!(
+                "Refused to cancel {}: it is a batch job, not an interactive allocation.",
+                id
+            ),
+            "fail" => format!("scancel {} failed on the server.", id),
+            _ => format!("Could not confirm what happened to job {}.", id),
+        };
+        lines.push(line);
+    }
+
+    lines.join("\n")
+}
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+
+    fn raw(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|s| s.to_string()).collect()
+    }
+
+    // ── job-id validation: the only thing standing between the frontend and a
+    //    remote shell ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn accepts_real_slurm_job_ids() {
+        for id in ["54585562", "54621366_103", "12345+0", "999.4"] {
+            assert!(is_valid_job_id(id), "{id} should be valid");
+        }
+    }
+
+    #[test]
+    fn a_job_id_can_never_carry_shell_syntax() {
+        for id in [
+            "",
+            "123; rm -rf ~",
+            "123 456",
+            "$(id)",
+            "`id`",
+            "123|cat",
+            "123'",
+            "-u",
+            "abc",
+            "'",
+        ] {
+            assert!(!is_valid_job_id(id), "{id:?} must be rejected");
+        }
+    }
+
+    #[test]
+    fn a_job_id_cannot_be_unbounded() {
+        assert!(!is_valid_job_id(&"1".repeat(33)));
+    }
+
+    // ── attribution: which allocation the dialog is allowed to pre-tick ───────
+
+    #[test]
+    fn a_jobid_on_an_operon_pane_is_a_certain_match() {
+        let jobs = attribute_interactive_jobs(
+            &raw(&[
+                "54585562|bash|4|16:37:54|hpc3-21-32",
+                "77777|salloc|1|0:10|hpc3-14-01",
+            ]),
+            &raw(&["54585562"]),
+            true,
+        );
+        assert_eq!(jobs[0].attribution, "pane");
+        // A second allocation the pane is NOT in stays unattributed, so the UI
+        // never pre-selects someone's unrelated interactive work.
+        assert_eq!(jobs[1].attribution, "none");
+    }
+
+    #[test]
+    fn the_sole_allocation_under_a_live_srun_is_ours() {
+        let jobs =
+            attribute_interactive_jobs(&raw(&["54585562|bash|4|16:37:54|hpc3-21-32"]), &[], true);
+        assert_eq!(jobs[0].attribution, "sole");
+    }
+
+    #[test]
+    fn nothing_is_attributed_without_an_srun_in_an_operon_pane() {
+        // No Operon pane holds a SLURM process — the user's interactive node was
+        // started somewhere else entirely and must not be pre-ticked.
+        let jobs =
+            attribute_interactive_jobs(&raw(&["54585562|bash|4|16:37:54|hpc3-21-32"]), &[], false);
+        assert_eq!(jobs[0].attribution, "none");
+    }
+
+    #[test]
+    fn ambiguity_is_never_resolved_by_guessing() {
+        // Two interactive allocations, no --jobid to disambiguate: guessing would
+        // mean cancelling a coin-flip. Both stay unattributed.
+        let jobs = attribute_interactive_jobs(
+            &raw(&["111|bash|1|1:00|n1", "222|bash|1|2:00|n2"]),
+            &[],
+            true,
+        );
+        assert!(jobs.iter().all(|j| j.attribution == "none"));
+    }
+
+    #[test]
+    fn squeue_column_padding_is_stripped() {
+        let jobs = attribute_interactive_jobs(
+            &raw(&["54585562  |bash      |4  |16:37:54|hpc3-21-32 "]),
+            &raw(&["54585562 "]),
+            true,
+        );
+        assert_eq!(jobs[0].id, "54585562");
+        assert_eq!(jobs[0].name, "bash");
+        assert_eq!(jobs[0].nodelist, "hpc3-21-32");
+        assert_eq!(jobs[0].attribution, "pane");
+    }
+
+    #[test]
+    fn garbage_squeue_lines_are_dropped_not_passed_through() {
+        let jobs = attribute_interactive_jobs(
+            &raw(&[
+                "",
+                "slurm_load_jobs error: Unable to contact slurm controller",
+                "111|bash|1|1:00|n1",
+            ]),
+            &[],
+            false,
+        );
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "111");
+    }
+
+    // ── the scancel guard (branch behaviour verified against stub squeue /
+    //    scontrol / scancel; these lock the shape the harness exercised) ───────
+
+    #[test]
+    fn the_cancel_guard_re_verifies_on_the_server_before_cancelling() {
+        let s = cancel_job_snippet("54585562");
+        // Ownership: the job must still be in THIS user's running queue.
+        assert!(s.contains("squeue -h -j 54585562 -u \"$_u\""), "{s}");
+        // Interactive-only: whole-token BatchFlag match, first occurrence wins.
+        assert!(s.contains("grep -x 'BatchFlag=[01]' | head -1"), "{s}");
+        assert!(s.contains("= 'BatchFlag=0'"), "{s}");
+        // Every branch reports a verdict — silence is never a possible outcome.
+        for verdict in [
+            "ok 54585562",
+            "fail 54585562",
+            "batch 54585562",
+            "gone 54585562",
+        ] {
+            assert!(s.contains(verdict), "missing verdict {verdict} in {s}");
+        }
+    }
+
+    #[test]
+    fn the_cancel_guard_refuses_by_default() {
+        // The `else` of the BatchFlag comparison is `batch` (refuse), not scancel —
+        // so unparseable/missing scontrol output can never cancel anything.
+        let s = cancel_job_snippet("999");
+        let scancel_at = s.find("scancel 999").unwrap();
+        let refuse_at = s.find("echo 'batch 999'").unwrap();
+        assert!(
+            refuse_at > scancel_at,
+            "refusal must be the else-branch: {s}"
+        );
+    }
+
+    // ── reporting: the bug the user actually saw was Operon claiming success ──
+
+    #[test]
+    fn an_unreachable_server_is_never_reported_as_a_successful_kill() {
+        let err = "ssh: connect to host hpc3 port 22: Operation timed out".to_string();
+        let msg = teardown_report(2, true, &["54585562".into()], Err(&err));
+        assert!(!msg.contains("Killed"), "{msg}");
+        assert!(!msg.contains("Released"), "{msg}");
+        assert!(msg.contains("Could NOT reach"), "{msg}");
+        assert!(msg.contains("still up"), "{msg}");
+    }
+
+    #[test]
+    fn a_surviving_tmux_session_is_reported_as_a_warning() {
+        let out = "__VTMUX__\noperon-node\n__VJOBS__\n__VEND__\n";
+        let msg = teardown_report(1, true, &[], Ok(out));
+        assert!(msg.contains("WARNING"), "{msg}");
+        assert!(msg.contains("operon-node"), "{msg}");
+        assert!(!msg.contains("Killed Operon's tmux"), "{msg}");
+    }
+
+    #[test]
+    fn a_clean_kill_is_reported_plainly() {
+        let out = "__CANCEL__\nok 54585562\n__VTMUX__\n__VJOBS__\n__VEND__\n";
+        let msg = teardown_report(1, true, &["54585562".into()], Ok(out));
+        assert!(msg.contains("Killed Operon's tmux session(s)."), "{msg}");
+        assert!(
+            msg.contains("Released interactive allocation 54585562."),
+            "{msg}"
+        );
+        assert!(!msg.contains("WARNING"), "{msg}");
+    }
+
+    #[test]
+    fn a_job_still_in_squeue_after_scancel_beats_the_ok_verdict() {
+        // scancel returned 0 but the allocation outlived it. The post-hoc squeue
+        // is the authority — this is exactly the "Operon said it killed it" case.
+        let out = "__CANCEL__\nok 54585562\n__VTMUX__\n__VJOBS__\n54585562\n__VEND__\n";
+        let msg = teardown_report(1, true, &["54585562".into()], Ok(out));
+        assert!(msg.contains("STILL RUNNING"), "{msg}");
+        assert!(!msg.contains("Released interactive allocation"), "{msg}");
+    }
+
+    #[test]
+    fn a_batch_job_refusal_is_surfaced_to_the_user() {
+        let out = "__CANCEL__\nbatch 54621366\n__VTMUX__\n__VJOBS__\n__VEND__\n";
+        let msg = teardown_report(1, true, &["54621366".into()], Ok(out));
+        assert!(msg.contains("Refused to cancel 54621366"), "{msg}");
+    }
+
+    #[test]
+    fn a_truncated_transcript_marks_everything_unverified() {
+        // Connection dropped mid-script: no __VEND__ sentinel.
+        let msg = teardown_report(1, true, &[], Ok("__VTMUX__\n"));
+        assert!(msg.contains("did not run to completion"), "{msg}");
+    }
+
+    #[test]
+    fn declining_the_tmux_kill_says_so_rather_than_claiming_it() {
+        let msg = teardown_report(
+            0,
+            false,
+            &[],
+            Ok("__VTMUX__\noperon-node\n__VJOBS__\n__VEND__\n"),
+        );
+        assert!(msg.contains("Left Operon's tmux session running"), "{msg}");
+        assert!(!msg.contains("WARNING"), "{msg}");
+    }
+}
+
+/// Drives the real `GUARD_HOOK_SCRIPT` with a stub reviewer.
+///
+/// The hook is a shell script embedded in a Rust string that only ever runs on
+/// a compute node, which is how it drifted: for 93 recorded production reviews
+/// it managed exactly one true catch, because it kept reviewing the wrong file
+/// (a `conda.sh`, a log, a job-id list), skipping `cd X && sbatch` entirely, and
+/// reporting `high` findings as "clean". Nothing in CI executed a single line of
+/// it. These tests do, against the same constant that ships.
+#[cfg(all(test, unix))]
+mod guard_hook_tests {
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    fn have(bin: &str) -> bool {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {bin}"))
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    struct Env {
+        root: PathBuf,
+        home: PathBuf,
+        work: PathBuf,
+        /// A directory that is NOT the submit dir — the hook runs from here, as
+        /// it does in production, so `cd`-relative resolution is actually tested.
+        elsewhere: PathBuf,
+        hook: PathBuf,
+        mock_out: PathBuf,
+        events: PathBuf,
+    }
+
+    fn write(p: &PathBuf, s: &str) {
+        if let Some(d) = p.parent() {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::File::create(p)
+            .unwrap()
+            .write_all(s.as_bytes())
+            .unwrap();
+    }
+
+    fn chmod_x(p: &PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    impl Env {
+        fn new(tag: &str) -> Self {
+            let root =
+                std::env::temp_dir().join(format!("operon-guard-{}-{}", std::process::id(), tag));
+            let _ = std::fs::remove_dir_all(&root);
+            let home = root.join("home");
+            let work = root.join("work");
+            let elsewhere = root.join("elsewhere");
+            std::fs::create_dir_all(&work).unwrap();
+            std::fs::create_dir_all(&elsewhere).unwrap();
+            let hook = home.join(".operon/guard/operon-guard.sh");
+            write(&hook, super::GUARD_HOOK_SCRIPT);
+            chmod_x(&hook);
+
+            // Stub reviewer: ignores the prompt, replays a canned CLI envelope.
+            let mock = root.join("mockclaude");
+            let mock_out = root.join("mock_out.json");
+            write(&mock, "#!/bin/sh\ncat >/dev/null\ncat \"$MOCK_OUT\"\n");
+            chmod_x(&mock);
+
+            let events = home.join(".operon/reviews/test.jsonl");
+            write(
+                &home.join(".operon/guard/operon-review.env"),
+                &format!(
+                    "OPERON_REVIEW_ENABLED=1\nOPERON_REVIEW_MODEL='claude-sonnet-5'\nOPERON_REVIEW_EFFORT=''\nOPERON_REVIEW_EVENTS=\"{}\"\nOPERON_REVIEW_CLAUDE='{}'\n",
+                    events.display(),
+                    mock.display()
+                ),
+            );
+
+            // A real sbatch script, plus the decoy files that fooled the old rule.
+            write(
+                &work.join("job.sh"),
+                "#!/bin/bash\n#SBATCH --time=10:00\npython train.py --out /tmp/m.pt\n",
+            );
+            write(
+                &work.join("conda.sh"),
+                "#!/bin/sh\nexport PATH=/opt/conda/bin:$PATH\n",
+            );
+            write(&work.join(".mast_rerun_jobids"), "12345\n");
+            write(&work.join("logs/out.txt"), "previous run log\n");
+
+            Env {
+                root,
+                home,
+                work,
+                elsewhere,
+                hook,
+                mock_out,
+                events,
+            }
+        }
+
+        /// Run the hook on `cmd` with the reviewer returning `findings`.
+        /// Returns (exit code, recorded outcome, reviewed script basename).
+        fn run(&self, cmd: &str, findings: &str) -> (i32, String, String) {
+            let _ = std::fs::remove_dir_all(self.home.join(".operon/guard/.review-seen"));
+            let _ = std::fs::remove_file(&self.events);
+            write(
+                &self.mock_out,
+                &serde_json::json!({ "type": "result", "result": findings }).to_string(),
+            );
+            let payload = serde_json::json!({ "tool_input": { "command": cmd } }).to_string();
+            let script = format!(
+                "printf '%s' {} | bash {}",
+                shell_quote(&payload),
+                shell_quote(&self.hook.to_string_lossy())
+            );
+            let out = Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .current_dir(&self.elsewhere)
+                .env("HOME", &self.home)
+                .env("MOCK_OUT", &self.mock_out)
+                .output()
+                .expect("run hook");
+            let code = out.status.code().unwrap_or(-1);
+            let ev = std::fs::read_to_string(&self.events).unwrap_or_default();
+            let last = ev.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
+            let v: serde_json::Value =
+                serde_json::from_str(last).unwrap_or(serde_json::Value::Null);
+            (
+                code,
+                v.get("outcome")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("none")
+                    .to_string(),
+                v.get("script")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("none")
+                    .to_string(),
+            )
+        }
+    }
+
+    impl Drop for Env {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn shell_quote(s: &str) -> String {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+
+    const BLOCKING: &str = r#"{"findings":[{"severity":"blocking","line":3,"title":"tmp output","why_wrong":"w","fix":"f"}]}"#;
+    const HIGH: &str = r#"{"findings":[{"severity":"high","line":3,"title":"tmp output","why_wrong":"w","fix":"f"}]}"#;
+    const EMPTY: &str = r#"{"findings":[]}"#;
+
+    fn skip() -> bool {
+        if have("bash") && have("python3") {
+            return false;
+        }
+        eprintln!("skipping guard hook tests: bash/python3 unavailable");
+        true
+    }
+
+    // ── it must review the script sbatch actually runs ───────────────────────
+
+    #[test]
+    fn reviews_the_sbatch_script_not_the_first_file_on_the_line() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("target");
+        let w = e.work.display();
+        // Every one of these picked the WRONG file (or nothing) before the fix;
+        // each shape is taken from the reviewer's own production event log.
+        for cmd in [
+            format!("cd {w} && sbatch job.sh"),
+            format!("cd {w}; sbatch job.sh"),
+            format!("cd \"{w}\" && sbatch job.sh"),
+            format!("sbatch --chdir={w} job.sh"),
+            format!("sbatch -D {w} job.sh"),
+            format!("sbatch {w}/job.sh"),
+            format!("cd {w} && source conda.sh && sbatch job.sh"),
+            format!("cd {w} && sbatch -o logs/out.txt job.sh"),
+            format!("cd {w} && sbatch --dependency=afterok:1 .mast_rerun_jobids job.sh"),
+        ] {
+            let (code, outcome, script) = e.run(&cmd, BLOCKING);
+            assert_eq!(script, "job.sh", "reviewed the wrong file for: {cmd}");
+            assert_eq!(outcome, "blocked", "for: {cmd}");
+            assert_eq!(code, 2, "a blocking finding must block: {cmd}");
+        }
+    }
+
+    // ── severity must not be silently downgraded to "clean" ──────────────────
+
+    #[test]
+    fn a_high_finding_is_surfaced_not_reported_as_clean() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("sev");
+        let cmd = format!("cd {} && sbatch job.sh", e.work.display());
+        let (code, outcome, _) = e.run(&cmd, HIGH);
+        // Surfaced as its own outcome...
+        assert_eq!(outcome, "warned", "a high finding must not read as clean");
+        // ...but still does not stop the job: blocking is reserved for "blocking".
+        assert_eq!(code, 0, "high must not block a real submission");
+    }
+
+    #[test]
+    fn only_an_empty_review_counts_as_clean() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("clean");
+        let cmd = format!("cd {} && sbatch job.sh", e.work.display());
+        assert_eq!(e.run(&cmd, EMPTY), (0, "clean".into(), "job.sh".into()));
+    }
+
+    #[test]
+    fn an_unparseable_review_is_unavailable_never_clean() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("garbage");
+        let cmd = format!("cd {} && sbatch job.sh", e.work.display());
+        let (code, outcome, _) = e.run(&cmd, "not json at all");
+        assert_eq!(outcome, "unavailable");
+        assert_eq!(code, 0, "reviewer trouble must never block a real job");
+    }
+
+    // ── the block-exemption is one submit, not forever ───────────────────────
+
+    #[test]
+    fn a_block_is_overridden_by_an_immediate_resubmit_only() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("once");
+        let cmd = format!("cd {} && sbatch job.sh", e.work.display());
+        // `run` clears the marker, so drive the hook directly for submit #2.
+        let (first, _, _) = e.run(&cmd, BLOCKING);
+        assert_eq!(first, 2, "first submit must block");
+        write(
+            &e.mock_out,
+            &serde_json::json!({"type":"result","result":BLOCKING}).to_string(),
+        );
+        let payload = serde_json::json!({ "tool_input": { "command": cmd } }).to_string();
+        let out = Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "printf '%s' {} | bash {}",
+                shell_quote(&payload),
+                shell_quote(&e.hook.to_string_lossy())
+            ))
+            .current_dir(&e.elsewhere)
+            .env("HOME", &e.home)
+            .env("MOCK_OUT", &e.mock_out)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "identical resubmit must pass");
+        // And the marker must be session-scoped: setup wipes it next run.
+        assert!(
+            super::remote_guard_setup_block(&super::ReviewGuardCfg {
+                enabled: true,
+                model: "claude-sonnet-5".into(),
+                effort: "low".into(),
+                claude: None,
+                events_path: "$HOME/.operon/reviews/x.jsonl".into(),
+            })
+            .contains(".review-seen"),
+            "session setup must clear the exemption cache"
+        );
+    }
+
+    // ── the hook's original job must still work ──────────────────────────────
+
+    #[test]
+    fn the_deletion_guard_still_denies_and_still_lets_normal_work_through() {
+        if skip() {
+            return;
+        }
+        let e = Env::new("del");
+        for bad in [
+            "rm -rf /data/results",
+            "python -c \"import shutil; shutil.rmtree('/x')\"",
+            "find . -name '*.tmp' -delete",
+            "git clean -fd",
+            "rsync -a --delete src/ dst/",
+        ] {
+            assert_eq!(e.run(bad, EMPTY).0, 2, "must deny: {bad}");
+        }
+        for ok in ["ls -la", "cp a b", "squeue -u $USER"] {
+            assert_eq!(e.run(ok, EMPTY).0, 0, "must allow: {ok}");
+        }
+    }
+}
+
+/// Invariants of the HPC terminal-mode file protocol.
+///
+/// The three files (`.jsonl` output, `.done` marker, run script) are the only
+/// coordination between three processes on two machines: the agent in a tmux pane
+/// on a compute node, the tail on a login node, and Operon locally. Nothing here
+/// can be exercised without a cluster, so these lock the *contract* at the source
+/// level — every one of them encodes a bug that shipped.
+#[cfg(test)]
+mod terminal_mode_protocol_tests {
+    const SRC: &str = include_str!("claude.rs");
+
+    /// Body of `claude.rs` minus this test module, so assertions about "the code"
+    /// are not satisfied by the test module's own text.
+    fn code() -> &'static str {
+        // The needle is split so it does not appear literally in the region it
+        // is searching for.
+        let marker = concat!("mod terminal_mode_", "protocol_tests");
+        match SRC.find(marker) {
+            Some(i) => &SRC[..i],
+            None => SRC,
+        }
+    }
+
+    #[test]
+    fn the_tail_never_creates_the_done_marker() {
+        // The tail used to `touch` .done after 5 minutes of output silence, which
+        // declared a live agent dead. A long Bash step, a compile, an NFS stall or
+        // a queued job routinely exceeds that, and stream-json emits nothing
+        // between tool boundaries — so this fired during normal work.
+        assert!(
+            !code().contains("touch '{donef}'"),
+            "the tail is creating .done again — only the run script may do that"
+        );
+    }
+
+    #[test]
+    fn the_tail_never_deletes_the_transcript() {
+        // It also `rm -f`'d the .jsonl, so the evidence of what the agent had done
+        // went with it. Cleanup belongs to delete_session / teardown, which know
+        // when the user is actually finished.
+        assert!(
+            !code().contains("rm -f '{out}' '{donef}'"),
+            "the tail is deleting session output again"
+        );
+    }
+
+    #[test]
+    fn a_five_minute_silence_is_a_warning_not_a_death() {
+        assert!(
+            code().contains("stall_warning"),
+            "the silence path should emit a non-fatal stall_warning"
+        );
+        assert!(
+            !code().contains("Agent appears to have died"),
+            "silence is being reported as death again"
+        );
+    }
+
+    #[test]
+    fn the_run_script_clears_a_stale_done_before_starting() {
+        // A .done left by a killed tail made the next turn's tail see "already
+        // finished" and exit instantly, so the new agent streamed nothing at all.
+        // The run script owns .done, so it owns clearing it.
+        let c = code();
+        let start = c
+            .find("cd '{}' && rm -f '{}' '{}';")
+            .expect("run script no longer clears stale out/done before the agent starts");
+        let claude_at = c[start..]
+            .find("{} > '{}' 2>&1; echo $? > '{}'")
+            .expect("run script shape changed");
+        assert!(claude_at > 0, "the clear must precede the agent invocation");
+    }
+
+    #[test]
+    fn stop_interrupts_the_pane_for_terminal_mode_sessions() {
+        // Killing the tracked child only kills the login-node tail; the agent
+        // itself lives in the user's tmux pane on the compute node.
+        let c = code();
+        let stop = c
+            .find("pub async fn stop_claude_session")
+            .expect("stop_claude_session missing");
+        let body = &c[stop..];
+        let end = body.find("\n#[tauri::command]").unwrap_or(body.len());
+        let body = &body[..end];
+        assert!(
+            body.contains("write_terminal_bytes"),
+            "Stop no longer delivers an interrupt to the terminal"
+        );
+        assert!(
+            body.contains(r"\x03"),
+            "Stop should send ETX (Ctrl-C) to the pane"
+        );
+        assert!(
+            body.contains("use_terminal"),
+            "the interrupt must be gated on terminal-mode sessions"
+        );
+    }
+}
+
+#[cfg(test)]
+mod session_status_tests {
+    use super::status_transition_allowed;
+
+    #[test]
+    fn stopped_is_terminal() {
+        // The exact sequence Stop produces: the button writes "stopped", then the
+        // child dies, then the done handler tries to write "completed".
+        assert!(!status_transition_allowed("stopped", "completed"));
+        assert!(!status_transition_allowed("stopped", "failed"));
+        assert!(!status_transition_allowed("stopped", "running"));
+    }
+
+    #[test]
+    fn every_other_transition_still_works() {
+        for (from, to) in [
+            ("running", "completed"),
+            ("running", "failed"),
+            ("running", "stopped"),
+            ("completed", "running"),
+            ("failed", "running"),
+        ] {
+            assert!(status_transition_allowed(from, to), "{from} -> {to}");
+        }
+    }
+
+    #[test]
+    fn re_writing_stopped_is_not_treated_as_a_regression() {
+        assert!(status_transition_allowed("stopped", "stopped"));
+    }
 }

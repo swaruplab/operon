@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Files, Search, MonitorSmartphone, Settings, BookOpen, HelpCircle, GitBranch, Blocks, Activity,
-  OctagonX, Unplug, AlertTriangle, Loader2, Trash2, Send,
+  OctagonX, Unplug, AlertTriangle, Loader2, Trash2, Send, Cpu,
 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { Tooltip } from "../ui/Tooltip";
@@ -121,7 +121,7 @@ export function ActivityBar({ activeView, onViewChange }: ActivityBarProps) {
               <OctagonX className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
               <span>
                 End session &amp; clean up everything
-                <span className="block text-[11px] text-red-600 dark:text-red-400/70">Kills the SSH link, Operon's tmux session, leftover helpers &amp; files. Never runs scancel.</span>
+                <span className="block text-[11px] text-red-600 dark:text-red-400/70">Kills the SSH link, Operon's tmux session, leftover helpers &amp; files — and can release your interactive node. Never touches sbatch jobs.</span>
               </span>
             </button>
           </div>
@@ -148,7 +148,11 @@ function EndSessionDialog({
 }) {
   const [footprint, setFootprint] = useState<RemoteFootprint | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  // "End session & clean up everything" means what it says: the tmux kill is on
+  // by default. It used to default OFF whenever a SLURM allocation was in the
+  // pane — the one case where users most expect the node to be let go.
   const [killTmux, setKillTmux] = useState(true);
+  const [cancelIds, setCancelIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -158,18 +162,30 @@ function EndSessionDialog({
       .then((fp) => {
         if (cancelled) return;
         setFootprint(fp);
-        // If a SLURM allocation is living inside the operon tmux pane, default to
-        // NOT killing the tmux (which would release it) — make it an explicit opt-in.
-        setKillTmux(!fp.slurm_in_pane);
+        if (fp.scan_error) setScanError(fp.scan_error);
+        // Pre-select only the allocations Operon can actually account for. An
+        // unattributed interactive job may be the user's own work in another
+        // terminal, so it is listed but never ticked for them.
+        setCancelIds(
+          new Set(fp.interactive_jobs.filter((j) => j.attribution !== "none").map((j) => j.id)),
+        );
       })
       .catch((e) => { if (!cancelled) setScanError(String(e)); });
     return () => { cancelled = true; };
   }, [remote.profileId]);
 
+  const toggleJob = (id: string) => {
+    setCancelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   const run = async () => {
     setBusy(true);
     try {
-      const msg = await teardownRemoteFootprint(remote.profileId, killTmux);
+      const msg = await teardownRemoteFootprint(remote.profileId, killTmux, [...cancelIds]);
       setResult(msg);
     } catch (e) {
       setResult(`Teardown failed: ${e}`);
@@ -179,6 +195,7 @@ function EndSessionDialog({
   };
 
   const tmuxNames = footprint?.tmux_sessions ?? [];
+  const interactiveJobs = footprint?.interactive_jobs ?? [];
   // squeue output is "%i %j %T %D %m %R" — STATE is the 3rd field.
   // Only RUNNING jobs can be the in-pane allocation; PENDING/queued jobs live
   // entirely in the SLURM controller and are unaffected by killing the tmux pane.
@@ -212,7 +229,17 @@ function EndSessionDialog({
               </div>
             )}
             {scanError && (
-              <p className="text-yellow-600 dark:text-yellow-400 py-2">Couldn't scan the server ({scanError}). You can still proceed.</p>
+              <div className="rounded-md border border-yellow-600/40 bg-yellow-500/10 p-2.5 mb-2 text-yellow-800 dark:text-yellow-200">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
+                  <div>
+                    <div>Couldn't scan the server ({scanError}).</div>
+                    <div className="mt-1 text-[11px] text-yellow-700 dark:text-yellow-300/80">
+                      Anything listed below is incomplete — an empty list here means "unknown", not "nothing running". You can still proceed; Operon will report what it actually managed to do.
+                    </div>
+                  </div>
+                </div>
+              </div>
             )}
 
             {footprint && (
@@ -228,46 +255,79 @@ function EndSessionDialog({
                       : <span>No Operon tmux session found.</span>}
                   </li>
                 </ul>
-                <p className="text-[11px] text-muted">Submitted SLURM jobs are never touched.</p>
+                <p className="text-[11px] text-muted">
+                  <code>sbatch</code> jobs are never touched — they keep running on their own nodes.
+                </p>
 
-                {footprint.slurm_in_pane && (
+                {tmuxNames.length > 0 && (
+                  <label className="flex items-center gap-2 text-secondary">
+                    <input type="checkbox" checked={killTmux} onChange={(e) => setKillTmux(e.target.checked)} />
+                    Kill the tmux session
+                  </label>
+                )}
+
+                {interactiveJobs.length > 0 && (
                   <div className="rounded-md border border-yellow-600/40 bg-yellow-500/10 p-2.5 text-yellow-800 dark:text-yellow-200">
                     <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
-                      <div>
+                      <Cpu className="w-4 h-4 mt-0.5 shrink-0 text-yellow-600 dark:text-yellow-400" />
+                      <div className="min-w-0">
                         <div className="text-yellow-900 dark:text-yellow-100">
-                          One running SLURM allocation is open in this tmux pane. Killing the tmux session will end <em>only that allocation</em>.
+                          Interactive allocation{interactiveJobs.length > 1 ? "s" : ""} still held
                         </div>
-                        <div className="mt-1 text-yellow-800 dark:text-yellow-200/90">
-                          <code>sbatch</code> jobs in your queue keep running on their own nodes — Operon never calls <code>scancel</code>.
+                        <div className="mt-1 text-[11px] text-yellow-800 dark:text-yellow-200/90">
+                          Killing the tmux session does <em>not</em> always release these — when Operon
+                          re-used an allocation it had only attached a job step to it, so the node stays
+                          up and the next connect picks it right back up. Tick one to release it with{" "}
+                          <code>scancel</code>.
                         </div>
-                        {runningJobs.length > 0 && (
-                          <div className="mt-2">
-                            <div className="text-[11px] text-yellow-700 dark:text-yellow-300/70 mb-0.5">Currently running on this account:</div>
-                            <div className="font-mono text-[11px] text-yellow-700 dark:text-yellow-300/90">
-                              {runningJobs.slice(0, 4).map((j, i) => <div key={i}>{j}</div>)}
-                            </div>
-                          </div>
-                        )}
+                        <div className="mt-2 space-y-1.5">
+                          {interactiveJobs.map((j) => (
+                            <label key={j.id} className="flex items-start gap-2 text-yellow-900 dark:text-yellow-100">
+                              <input
+                                type="checkbox"
+                                className="mt-1 shrink-0"
+                                checked={cancelIds.has(j.id)}
+                                onChange={() => toggleJob(j.id)}
+                              />
+                              <span className="min-w-0">
+                                <span className="font-mono">{j.id}</span>
+                                {j.name ? <span className="text-yellow-700 dark:text-yellow-300/90"> · {j.name}</span> : null}
+                                <span className="block text-[11px] text-yellow-700 dark:text-yellow-300/80">
+                                  {j.nodes} node{j.nodes === "1" ? "" : "s"} · running {j.time}
+                                  {j.nodelist ? ` · ${j.nodelist}` : ""}
+                                </span>
+                                <span className="block text-[11px] text-yellow-700 dark:text-yellow-300/70">
+                                  {j.attribution === "pane"
+                                    ? "Your Operon session is attached to this one."
+                                    : j.attribution === "sole"
+                                      ? "Your only interactive allocation, and an srun is live in Operon's pane — almost certainly this one."
+                                      : "Operon can't confirm this one is its own — check before releasing it."}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
                         {queuedCount > 0 && (
-                          <div className="mt-1.5 text-[11px] text-yellow-700 dark:text-yellow-300/70">
-                            {queuedCount} queued/pending job{queuedCount === 1 ? "" : "s"} not shown — these are independent and will keep waiting in the SLURM queue.
+                          <div className="mt-2 text-[11px] text-yellow-700 dark:text-yellow-300/70">
+                            {queuedCount} queued/pending job{queuedCount === 1 ? "" : "s"} not shown — independent, and left waiting in the queue.
                           </div>
                         )}
-                        <label className="mt-2 flex items-center gap-2 text-yellow-900 dark:text-yellow-100">
-                          <input type="checkbox" checked={killTmux} onChange={(e) => setKillTmux(e.target.checked)} />
-                          Also kill the tmux session (ends the running allocation)
-                        </label>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {!footprint.slurm_in_pane && tmuxNames.length > 0 && (
-                  <label className="flex items-center gap-2 text-secondary">
-                    <input type="checkbox" checked={killTmux} onChange={(e) => setKillTmux(e.target.checked)} />
-                    Also kill the tmux session
-                  </label>
+                {footprint.slurm_in_pane && interactiveJobs.length === 0 && (
+                  <div className="rounded-md border border-yellow-600/40 bg-yellow-500/10 p-2.5 text-[11px] text-yellow-800 dark:text-yellow-200">
+                    An <code>srun</code>/<code>salloc</code> is live in Operon's tmux pane but no interactive
+                    allocation came back from <code>squeue</code>. Killing the tmux session may not release the
+                    node — check with <code>squeue -u $USER</code> afterwards.
+                    {runningJobs.length > 0 && (
+                      <div className="mt-1.5 font-mono text-yellow-700 dark:text-yellow-300/90">
+                        {runningJobs.slice(0, 4).map((j, i) => <div key={i}>{j}</div>)}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -280,7 +340,13 @@ function EndSessionDialog({
                 className="px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 flex items-center gap-1.5"
               >
                 {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                {killTmux ? "End everything" : "Clean up (keep tmux)"}
+                {killTmux && cancelIds.size > 0
+                  ? `End everything & release ${cancelIds.size} node${cancelIds.size > 1 ? "s" : ""}`
+                  : cancelIds.size > 0
+                    ? `Release ${cancelIds.size} node${cancelIds.size > 1 ? "s" : ""} (keep tmux)`
+                    : killTmux
+                      ? "End everything"
+                      : "Clean up (keep tmux)"}
               </button>
             </div>
           </>

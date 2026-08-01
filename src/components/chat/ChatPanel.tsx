@@ -87,8 +87,10 @@ import {
   requestUserAttention,
   variantForState,
   formatElapsed,
+  registerSlurmJob,
   type PendingCompletion,
 } from '../../lib/jobNotify';
+import { parseSbatchIds } from '../../lib/watchdog';
 import { JobCompletionBanner } from './JobCompletionBanner';
 import { TokenUsageBar } from './TokenUsageBar';
 
@@ -1265,6 +1267,10 @@ export function ChatPanel() {
   // the agent has likely died (tmux pane killed, SLURM preempt, OOM, etc.) and
   // we surface a separate "agent unresponsive" banner.
   const [agentUnresponsive, setAgentUnresponsive] = useState(false);
+  /** The remote tail's own explanation of a stall, when it sends one. Kept
+   *  separate from `agentUnresponsive` because the tail's 5-minute notice must
+   *  never be mistaken for content and reset the liveness clock. */
+  const [agentStallNote, setAgentStallNote] = useState<string | null>(null);
   const lastEventTime = useRef<number>(0);
   const lastContentTime = useRef<number>(0);
   // Session time budget — soft wall-clock cap. Banners fire at 75% and 100%
@@ -1276,6 +1282,14 @@ export function ChatPanel() {
   const reconnectAttempts = useRef<number>(0);
   const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
+  /** Stable read of sessionId for the NDJSON handler, which is created once per
+   *  stream and would otherwise close over a stale value. */
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+  /** Job ids already registered for notification this session — the same chunk of
+   *  agent output can be re-emitted (reconnect, replay), and duplicate
+   *  registrations would mean duplicate completion banners. */
+  const registeredJobsRef = useRef<Set<string>>(new Set());
   // Visible proof the Sonnet-5 pre-submit reviewer ran on the agent's sbatch:
   // the review hook writes per-session records off-stream, and we poll them.
   const [reviewEvents, setReviewEvents] = useState<ReviewEvent[]>([]);
@@ -2191,10 +2205,54 @@ export function ChatPanel() {
       reconnectAttempts.current = 0;
       setReconnecting(false);
       if (line.includes('"type":"heartbeat"')) return;
+      // A stall warning is the tail telling us the agent has produced nothing for
+      // five minutes. It is emphatically NOT content: treating it as such would
+      // reset the liveness clock and dismiss the "agent unresponsive" banner that
+      // is, at that moment, correct — making a stall *less* visible the longer it
+      // lasts. Surface it and leave the clock alone.
+      if (line.includes('"type":"stall_warning"')) {
+        try {
+          const w = JSON.parse(line) as { message?: string };
+          if (w.message) setAgentStallNote(w.message);
+        } catch {
+          /* malformed warning line — the banner already covers the user */
+        }
+        return;
+      }
       // Real content arrived — agent is alive. Update the content-liveness
       // clock so the "agent unresponsive" watchdog stays quiet.
       lastContentTime.current = Date.now();
       setAgentUnresponsive(false);
+      setAgentStallNote(null);
+
+      // Register any job the AGENT submitted. The terminal scrape cannot see these:
+      // in terminal mode the agent's stdout is redirected into the .jsonl transcript,
+      // so `Submitted batch job NNN` never reaches the PTY screen that
+      // TerminalInstance watches. Without this, the completion notifications that
+      // the agent prompt promises still never fire for agent-submitted work.
+      {
+        const pid = remoteInfoRef.current?.profileId;
+        if (pid) {
+          for (const jobId of parseSbatchIds(line)) {
+            if (registeredJobsRef.current.has(jobId)) continue;
+            registeredJobsRef.current.add(jobId);
+            registerSlurmJob({
+              profileId: pid,
+              jobId,
+              sessionId: sessionIdRef.current || `agent-${jobId}`,
+              sessionName: `Job ${jobId}`,
+              jobName: null,
+              expectedOutput: null,
+              sbatchPath: null,
+            }).catch((e) => {
+              // Let a later chunk retry — a transient MFA/mux blip must not
+              // permanently lose the registration.
+              registeredJobsRef.current.delete(jobId);
+              console.error('agent job registration failed', e);
+            });
+          }
+        }
+      }
       try {
         const data = JSON.parse(line) as ClaudeEvent;
 
@@ -4762,10 +4820,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             </p>
             <p className="text-rose-200/60 mb-2">
               The SSH stream is alive (heartbeats are arriving) but no real
-              output has come through. The Claude process on the compute node
-              may have been killed (tmux pane closed, SLURM preempt, OOM, or
-              NFS stall). It's safest to stop and retry.
+              output has come through. A long tool call, compile, download or
+              queued job can look exactly like this and is harmless — but so can
+              a Claude process that was killed on the compute node (tmux pane
+              closed, SLURM preempt, OOM, or NFS stall). Check the terminal pane
+              before stopping.
             </p>
+            {agentStallNote && (
+              <p className="text-rose-200/60 mb-2 italic">{agentStallNote}</p>
+            )}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {

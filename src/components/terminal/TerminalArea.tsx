@@ -74,7 +74,16 @@ export function TerminalArea({ pendingLoginTab, onPendingLoginConsumed }: Termin
         spawnedAt: Date.now(),
         exited: false,
       };
-      setTabs((prev) => [...prev, newTab]);
+      // Dedupe on id, exactly as the login-tab path does. `listen()` resolves
+      // asynchronously, so a mount→cleanup→mount cycle (StrictMode in dev, or a
+      // fast collapse/expand of the terminal panel, which unmounts this
+      // component) can transiently leave TWO live listeners: the old one is only
+      // detached once its `unlisten` promise resolves. An event landing in that
+      // window ran this handler twice and appended the SAME id twice — React
+      // then rendered two <TerminalInstance> on one terminalId, each with its
+      // own onData writing to the same PTY, so every keystroke reached the shell
+      // twice ("clear" -> "cclleeaarr").
+      setTabs((prev) => (prev.some((t) => t.id === terminalId) ? prev : [...prev, newTab]));
       setActiveTab(terminalId);
     });
 
@@ -300,6 +309,13 @@ export function TerminalArea({ pendingLoginTab, onPendingLoginConsumed }: Termin
     );
   }, []);
 
+  // Defense in depth: whatever put them there, a duplicated id must never reach
+  // the render below. Two <TerminalInstance> sharing a terminalId means two
+  // onData handlers writing to one PTY (every keystroke sent twice) and two
+  // pty-output listeners, and React would silently warn about duplicate keys
+  // rather than fail. First occurrence wins.
+  const uniqueTabs = tabs.filter((t, i) => tabs.findIndex((o) => o.id === t.id) === i);
+
   // If all tabs closed, show empty state
   if (tabs.length === 0) {
     return (
@@ -322,7 +338,7 @@ export function TerminalArea({ pendingLoginTab, onPendingLoginConsumed }: Termin
       <div className="flex items-center h-[33px] bg-panel border-b border-border-default shrink-0">
 
         <div className="flex items-center gap-0.5 px-1 flex-1 overflow-x-auto">
-          {tabs.map((tab) => (
+          {uniqueTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -366,7 +382,7 @@ export function TerminalArea({ pendingLoginTab, onPendingLoginConsumed }: Termin
 
       {/* Terminal instances — all rendered, only active visible */}
       <div className="flex-1 relative">
-        {tabs.map((tab) => (
+        {uniqueTabs.map((tab) => (
           <div
             key={tab.id}
             className="absolute inset-0"

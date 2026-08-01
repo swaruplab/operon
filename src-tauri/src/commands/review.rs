@@ -360,7 +360,8 @@ pub struct ReviewEvent {
     pub kind: String,
     #[serde(default)]
     pub script: String,
-    /// "clean" | "blocked" | "unavailable"
+    /// "clean" | "blocked" | "warned" | "unavailable". `warned` = high-severity
+    /// findings with nothing blocking: surfaced, but the submit went ahead.
     pub outcome: String,
     #[serde(default)]
     pub n: u32,
