@@ -11,7 +11,6 @@ import {
 
 interface WatchdogTick {
   profileId: string;
-  watchdogRunning: boolean;
   total: number;
   running: number;
   pending: number;
@@ -137,7 +136,7 @@ export function StatusBar({ sidebarVisible, terminalVisible, chatVisible, active
         )}
         {watchdog && watchdog.total > 0 && (
           <Tooltip
-            label={`Watchdog ${watchdog.watchdogRunning ? 'running' : 'idle'} — ${watchdog.total} job(s): ${watchdog.running}R / ${watchdog.pending}P / ${watchdog.failed}F`}
+            label={`${watchdog.total} live job(s): ${watchdog.running} running / ${watchdog.pending} pending / ${watchdog.failed} failed`}
             position="top"
           >
             <div
@@ -200,7 +199,10 @@ function SshHealthPill({ profileId, profileName }: SshHealthPillProps) {
       }
     };
     tick();
-    const id = setInterval(tick, 5000);
+    // 15s: the probe execs `echo OK` on the remote over the persistent channel,
+    // so a 5s cadence meant ~17k remote execs/day per connected profile purely to
+    // colour a status pill. Latency/health does not change meaningfully faster.
+    const id = setInterval(tick, 15_000);
     return () => {
       alive = false;
       clearInterval(id);

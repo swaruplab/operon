@@ -1,72 +1,74 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { emit, listen } from '@tauri-apps/api/event';
+import { emit } from '@tauri-apps/api/event';
 import {
   Activity,
   RefreshCw,
-  Play,
-  Square,
-  Trash2,
-  Download,
+  XCircle,
   AlertCircle,
   CheckCircle2,
   Clock,
   Server,
+  Info,
 } from 'lucide-react';
 import { listSSHProfiles, type SSHProfile } from '../../lib/ssh';
+import { slurmCancelJob } from '../../lib/slurm';
 import {
-  detectScheduler,
-  installWatchdog,
-  startWatchdog,
-  stopWatchdog,
-  watchdogStatus,
-  listWatchedJobs,
-  unregisterWatchedJob,
-  readJobEvents,
-  getJobPolicy,
-  setJobPolicy,
-  type WatchedJob,
-  type WatchdogStatus,
-  type JobEvent,
-  type JobPolicy,
+  listClusterJobs,
+  readJobLogTail,
+  isTerminalState,
+  type ClusterJob,
 } from '../../lib/watchdog';
 
-const TERMINAL_STATES = new Set([
-  'COMPLETED',
-  'FAILED',
-  'CANCELLED',
-  'TIMEOUT',
-  'OUT_OF_MEMORY',
-  'NODE_FAIL',
-  'BOOT_FAIL',
-  'DEADLINE',
-  'PREEMPTED',
-]);
+/**
+ * Jobs panel.
+ *
+ * Reads the scheduler directly — `squeue` for live jobs, `sacct` for finished
+ * ones — only while this panel is mounted. There is no longer a watchdog daemon
+ * on the login node; see src/lib/watchdog.ts for why it was removed.
+ */
 
 function stateColor(state?: string): string {
   if (!state) return 'text-muted';
-  if (state.startsWith('CANCELLED')) return 'text-muted';
-  if (TERMINAL_STATES.has(state)) {
-    if (state === 'COMPLETED') return 'text-green-600 dark:text-green-400';
-    return 'text-red-600 dark:text-red-400';
-  }
-  if (state === 'RUNNING') return 'text-blue-600 dark:text-blue-400';
-  if (state === 'PENDING') return 'text-yellow-600 dark:text-yellow-400';
+  const s = state.trim().toUpperCase();
+  if (s.startsWith('CANCELLED')) return 'text-muted';
+  if (s === 'COMPLETED') return 'text-green-600 dark:text-green-400';
+  if (isTerminalState(s)) return 'text-red-600 dark:text-red-400';
+  if (s === 'RUNNING') return 'text-blue-600 dark:text-blue-400';
+  if (s === 'PENDING') return 'text-yellow-600 dark:text-yellow-400';
   return 'text-secondary';
+}
+
+function fmtElapsed(job: ClusterJob): string {
+  if (job.elapsed) return job.elapsed;
+  if (!job.elapsed_seconds) return '';
+  const s = job.elapsed_seconds;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
 }
 
 export function JobsView() {
   const [profiles, setProfiles] = useState<SSHProfile[]>([]);
   const [profileId, setProfileId] = useState<string>('');
-  const [status, setStatus] = useState<WatchdogStatus | null>(null);
-  const [jobs, setJobs] = useState<WatchedJob[]>([]);
-  const [policy, setPolicy] = useState<JobPolicy | null>(null);
+  const [jobs, setJobs] = useState<ClusterJob[]>([]);
+  const [accounting, setAccounting] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [jobStates, setJobStates] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [events, setEvents] = useState<Record<string, JobEvent[]>>({});
+  const [logs, setLogs] = useState<Record<string, string>>({});
+  // Errors are kept OUT of `logs` so a transient failure is never cached as if
+  // it were log content.
+  const [logErrors, setLogErrors] = useState<Record<string, string>>({});
+  const [logLoading, setLogLoading] = useState<string | null>(null);
+  const [userResolved, setUserResolved] = useState(true);
   const pollRef = useRef<number | null>(null);
+  const logsRef = useRef<Record<string, string>>({});
+  // Mirrors `expanded` for the poll callback, which must not re-fire on every
+  // expand/collapse (that would restart the 30s interval).
+  const expandedRef = useRef<string | null>(null);
 
   useEffect(() => {
     listSSHProfiles()
@@ -83,40 +85,30 @@ export function JobsView() {
     setLoading(true);
     setError(null);
     try {
-      const [s, j, p] = await Promise.all([
-        watchdogStatus(profileId),
-        listWatchedJobs(profileId),
-        getJobPolicy(profileId).catch(() => null),
-      ]);
-      setStatus(s);
-      setJobs(j);
-      if (p) setPolicy(p);
+      const res = await listClusterJobs(profileId);
+      setJobs(res.jobs);
+      setAccounting(res.accounting);
+      setUserResolved(res.user_resolved);
 
-      // derive latest state per job from event log
-      const states: Record<string, string> = {};
-      await Promise.all(
-        j.map(async (job) => {
-          try {
-            const evs = await readJobEvents(profileId, job.job_id);
-            const last = [...evs].reverse().find((e) => e.state);
-            if (last?.state) states[job.job_id] = last.state;
-          } catch {
-            /* ignore */
-          }
-        }),
-      );
-      setJobStates(states);
+      // Refresh the log of whatever is currently expanded. Without this the
+      // pane froze at first expansion — the replacement for a `tail -f` that
+      // never updated would be worse than none.
+      if (expandedRef.current) {
+        void loadLog(expandedRef.current, true);
+      }
 
-      // Broadcast a tick so the status bar can surface an aggregate pill.
-      const running = Object.values(states).filter((st) => st === 'RUNNING').length;
-      const pending = Object.values(states).filter((st) => st === 'PENDING').length;
-      const failed = Object.values(states).filter(
-        (st) => st && TERMINAL_STATES.has(st) && st !== 'COMPLETED',
+      // Broadcast a tick for the status-bar pill. LIVE rows only: `jobs` also
+      // carries a week of sacct history, so counting all of it left one job the
+      // user cancelled days ago pinning the pill red forever.
+      const live = res.jobs.filter((j) => j.source === 'squeue');
+      const running = live.filter((j) => j.state.toUpperCase() === 'RUNNING').length;
+      const pending = live.filter((j) => j.state.toUpperCase() === 'PENDING').length;
+      const failed = live.filter(
+        (j) => isTerminalState(j.state) && j.state.toUpperCase() !== 'COMPLETED',
       ).length;
       emit('watchdog-tick', {
         profileId,
-        watchdogRunning: s.running,
-        total: j.length,
+        total: live.length,
         running,
         pending,
         failed,
@@ -131,118 +123,81 @@ export function JobsView() {
   useEffect(() => {
     refresh();
     if (pollRef.current) window.clearInterval(pollRef.current);
-    pollRef.current = window.setInterval(() => refresh(), 15_000);
+    // 30s. One `squeue` + one `sacct` per tick, and only while this panel is
+    // open — scheduler polling is something HPC sites actively police, and job
+    // state is minutes-granular anyway.
+    pollRef.current = window.setInterval(() => refresh(), 30_000);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
+      // Zero the status-bar pill. Nothing else emits this event, so without a
+      // clear on unmount the pill froze on the last counts for the rest of the
+      // app run — showing "3 jobs" long after they finished.
+      emit('watchdog-tick', {
+        profileId,
+        total: 0,
+        running: 0,
+        pending: 0,
+        failed: 0,
+      });
     };
   }, [profileId, refresh]);
 
-  // A terminal-scraped sbatch id that failed to register (transient MFA/mux
-  // failure) used to vanish silently; now TerminalInstance emits this so we can
-  // tell the user why a job they just submitted isn't showing up.
-  useEffect(() => {
-    const un = listen<{ profileId: string; jobId: string; error: string }>(
-      'watchdog-register-failed',
-      (e) => {
-        if (!profileId || e.payload.profileId !== profileId) return;
-        setError(
-          `Couldn't register job ${e.payload.jobId} with the watchdog — ` +
-            `open an SSH terminal to this host and complete login (e.g. Duo). ` +
-            `The watcher reuses that authenticated connection.`,
-        );
-      },
-    );
-    return () => {
-      un.then((u) => u());
-    };
-  }, [profileId]);
-
-  const install = async () => {
-    if (!profileId) return;
-    setBusy(true);
-    setError(null);
+  const cancel = async (jobId: string) => {
     try {
-      await installWatchdog(profileId);
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const start = async () => {
-    if (!profileId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await startWatchdog(profileId);
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const stop = async () => {
-    if (!profileId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await stopWatchdog(profileId);
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const unregister = async (jobId: string) => {
-    try {
-      await unregisterWatchedJob(profileId, jobId);
+      await slurmCancelJob(profileId, jobId);
       await refresh();
     } catch (e) {
       setError(String(e));
     }
   };
+
+  /** Fetch a job's log. `force` re-reads even when we already have content. */
+  const loadLog = useCallback(
+    async (jobId: string, force = false) => {
+      if (!profileId) return;
+      // A pending array RANGE ("12345_[5-9]") is not a real job id — the backend
+      // validator rejects it, so requesting a log is a guaranteed failure.
+      if (!/^\d[\d_+.]*$/.test(jobId)) {
+        setLogErrors((prev) => ({
+          ...prev,
+          [jobId]: 'Pending array tasks — no log until they start.',
+        }));
+        return;
+      }
+      // Read through a ref, not `logs` state: depending on `logs` here would
+      // make `refresh` a new function on every fetch, which restarts the 30s
+      // poll interval each time.
+      if (!force && logsRef.current[jobId] !== undefined) return;
+      setLogLoading(jobId);
+      try {
+        const tail = await readJobLogTail(profileId, jobId, null, 100);
+        logsRef.current = { ...logsRef.current, [jobId]: tail };
+        setLogs(logsRef.current);
+        setLogErrors((prev) => {
+          const { [jobId]: _drop, ...rest } = prev;
+          return rest;
+        });
+      } catch (e) {
+        // Never cached as content — the next poll or re-expand retries.
+        setLogErrors((prev) => ({ ...prev, [jobId]: String(e) }));
+      } finally {
+        setLogLoading(null);
+      }
+    },
+    [profileId],
+  );
 
   const toggleExpand = async (jobId: string) => {
     if (expanded === jobId) {
       setExpanded(null);
+      expandedRef.current = null;
       return;
     }
     setExpanded(jobId);
-    try {
-      const evs = await readJobEvents(profileId, jobId);
-      setEvents((prev) => ({ ...prev, [jobId]: evs }));
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const updatePolicy = async (patch: Partial<JobPolicy>) => {
-    if (!policy) return;
-    const next = { ...policy, ...patch };
-    setPolicy(next);
-    try {
-      await setJobPolicy(profileId, next);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const detect = async () => {
-    setBusy(true);
-    try {
-      const s = await detectScheduler(profileId);
-      setError(`Detected: ${s}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    expandedRef.current = jobId;
+    // Always re-read for a job that is still running; its log is growing.
+    const job = jobs.find((j) => j.job_id === jobId);
+    await loadLog(jobId, job ? !isTerminalState(job.state) : false);
   };
 
   return (
@@ -262,7 +217,7 @@ export function JobsView() {
         </button>
       </div>
 
-      <div className="px-3 py-2 border-b border-border-default space-y-2">
+      <div className="px-3 py-2 border-b border-border-default">
         <label className="flex items-center gap-2 text-xs">
           <Server className="w-3 h-3 text-muted" />
           <select
@@ -278,102 +233,29 @@ export function JobsView() {
             ))}
           </select>
         </label>
-
-        {status && (
-          <div className="text-[11px] text-muted flex items-center gap-3">
-            <span className={status.installed ? 'text-secondary' : 'text-subtle'}>
-              {status.installed ? 'installed' : 'not installed'}
-            </span>
-            <span className={status.running ? 'text-green-600 dark:text-green-400' : 'text-subtle'}>
-              {status.running ? 'running' : 'stopped'}
-            </span>
-            <span className="text-muted">{status.scheduler ?? '—'}</span>
-          </div>
-        )}
-
-        <div className="flex gap-1">
-          {!status?.installed && (
-            <button
-              onClick={install}
-              disabled={busy || !profileId}
-              className="flex-1 text-[11px] px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40"
-            >
-              <Download className="inline w-3 h-3 mr-1" />
-              Install
-            </button>
-          )}
-          {status?.installed && !status.running && (
-            <button
-              onClick={start}
-              disabled={busy}
-              className="flex-1 text-[11px] px-2 py-1 rounded bg-green-700 hover:bg-green-600 disabled:opacity-40"
-            >
-              <Play className="inline w-3 h-3 mr-1" />
-              Start
-            </button>
-          )}
-          {status?.running && (
-            <button
-              onClick={stop}
-              disabled={busy}
-              className="flex-1 text-[11px] px-2 py-1 rounded bg-elevated hover:bg-elevated disabled:opacity-40"
-            >
-              <Square className="inline w-3 h-3 mr-1" />
-              Stop
-            </button>
-          )}
-          <button
-            onClick={detect}
-            disabled={busy || !profileId}
-            className="text-[11px] px-2 py-1 rounded bg-surface hover:bg-elevated disabled:opacity-40"
-            title="Detect scheduler"
-          >
-            Detect
-          </button>
-        </div>
-
-        {policy && (
-          <div className="text-[11px] text-muted space-y-1 pt-1">
-            <div className="flex items-center gap-2">
-              <span className="flex-1">Max retries</span>
-              <input
-                type="number"
-                min={0}
-                max={10}
-                value={policy.max_retries}
-                onChange={(e) => updatePolicy({ max_retries: Number(e.target.value) })}
-                className="w-12 bg-surface border border-border-strong rounded px-1 py-0.5 text-right"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="flex-1">Timeout × walltime</span>
-              <input
-                type="number"
-                step={0.1}
-                min={1}
-                max={5}
-                value={policy.on_timeout_walltime_mult}
-                onChange={(e) =>
-                  updatePolicy({ on_timeout_walltime_mult: Number(e.target.value) })
-                }
-                className="w-12 bg-surface border border-border-strong rounded px-1 py-0.5 text-right"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="flex-1">OOM × mem</span>
-              <input
-                type="number"
-                step={0.1}
-                min={1}
-                max={8}
-                value={policy.on_oom_mem_mult}
-                onChange={(e) => updatePolicy({ on_oom_mem_mult: Number(e.target.value) })}
-                className="w-12 bg-surface border border-border-strong rounded px-1 py-0.5 text-right"
-              />
-            </div>
-          </div>
-        )}
       </div>
+
+      {!userResolved && profileId && (
+        <div className="px-3 py-1.5 text-[10px] text-yellow-700 dark:text-yellow-400 bg-yellow-950/20 border-b border-border-default flex items-start gap-1.5">
+          <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+          <span>
+            Couldn&rsquo;t determine your username on this host, so the job query was
+            skipped rather than run unfiltered. Check that the account has a normal
+            login shell.
+          </span>
+        </div>
+      )}
+
+      {!accounting && profileId && (
+        <div className="px-3 py-1.5 text-[10px] text-muted bg-surface/60 border-b border-border-default flex items-start gap-1.5">
+          <Info className="w-3 h-3 mt-0.5 shrink-0" />
+          <span>
+            This cluster has no SLURM accounting (<code>sacct</code>), so finished jobs
+            disappear from the queue and leave no record to show. Set a notification
+            email in this server&rsquo;s settings to be told when jobs end.
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="px-3 py-1.5 text-[11px] text-red-600 dark:text-red-400 bg-red-950/30 border-b border-red-900/40 flex items-start gap-1.5">
@@ -388,80 +270,97 @@ export function JobsView() {
             <Clock className="w-5 h-5 mx-auto mb-2 opacity-50" />
             {error ? (
               <>
-                Couldn&rsquo;t reach the watchdog.
+                Couldn&rsquo;t reach the cluster.
                 <div className="mt-1 text-[10px]">
                   Open an SSH terminal to this host and complete login (e.g. Duo) —
-                  the job watcher reuses that authenticated connection.
+                  this panel reuses that authenticated connection.
                 </div>
               </>
             ) : (
               <>
-                No jobs being watched.
+                No jobs in the queue.
                 <div className="mt-1 text-[10px]">
-                  Submit an sbatch in any terminal — Operon auto-registers it. Once
-                  the watchdog is running it also picks up your live SLURM jobs
-                  automatically.
+                  Anything you submit shows up here — including jobs started outside
+                  Operon. {accounting && 'Recent finished jobs are listed too.'}
                 </div>
               </>
             )}
           </div>
         ) : (
           jobs.map((job) => {
-            const state = jobStates[job.job_id];
             const isExpanded = expanded === job.job_id;
+            const terminal = isTerminalState(job.state);
+            const elapsed = fmtElapsed(job);
             return (
-              <div
-                key={job.job_id}
-                className="border-b border-border-default/60 hover:bg-hover/40"
-              >
+              <div key={job.job_id} className="border-b border-border-default/60 hover:bg-hover/40">
                 <button
                   onClick={() => toggleExpand(job.job_id)}
                   className="w-full flex items-center gap-2 px-3 py-2 text-left"
                 >
-                  {state === 'COMPLETED' ? (
+                  {job.state.toUpperCase() === 'COMPLETED' ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" />
-                  ) : state && TERMINAL_STATES.has(state) ? (
+                  ) : terminal ? (
                     <AlertCircle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
                   ) : (
                     <Clock className="w-3.5 h-3.5 text-muted shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-xs font-mono">{job.job_id}</div>
-                    <div className={`text-[10px] ${stateColor(state)}`}>
-                      {state ?? 'polling…'}
-                      {job.retries_left > 0 && (
-                        <span className="ml-1 text-subtle">· {job.retries_left} retries</span>
-                      )}
+                    <div className="text-xs font-mono truncate">
+                      {job.job_id}
+                      {job.name && <span className="text-subtle ml-1.5">{job.name}</span>}
+                    </div>
+                    <div className={`text-[10px] ${stateColor(job.state)}`}>
+                      {job.state}
+                      {elapsed && <span className="ml-1 text-subtle">· {elapsed}</span>}
+                      {job.partition && <span className="ml-1 text-subtle">· {job.partition}</span>}
                     </div>
                   </div>
-                  <span
-                    role="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      unregister(job.job_id);
-                    }}
-                    className="p-1 rounded hover:bg-elevated"
-                    title="Stop watching"
-                  >
-                    <Trash2 className="w-3 h-3 text-muted" />
-                  </span>
+                  {!terminal && (
+                    <span
+                      role="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cancel(job.job_id);
+                      }}
+                      className="p-1 rounded hover:bg-elevated"
+                      title="Cancel job (scancel)"
+                    >
+                      <XCircle className="w-3 h-3 text-muted" />
+                    </span>
+                  )}
                 </button>
                 {isExpanded && (
-                  <div className="px-3 pb-2 text-[10px] text-muted font-mono space-y-0.5 max-h-48 overflow-y-auto">
-                    {(events[job.job_id] ?? []).slice(-30).map((ev, i) => (
-                      <div key={i} className="truncate">
-                        <span className="text-subtle">
-                          {new Date(ev.ts).toLocaleTimeString()}
-                        </span>{' '}
-                        <span className={stateColor(ev.state)}>{ev.type}</span>
-                        {ev.state && ` ${ev.state}`}
-                        {ev.action && ev.action !== 'none' && ` → ${ev.action}`}
-                        {ev.resubmitted_as && ` #${ev.resubmitted_as}`}
-                      </div>
-                    ))}
-                    {(events[job.job_id] ?? []).length === 0 && (
-                      <div className="text-subtle italic">no events yet</div>
-                    )}
+                  <div className="px-3 pb-2 space-y-1">
+                    <div className="text-[10px] text-muted space-y-0.5">
+                      {job.reason && (
+                        <div>
+                          <span className="text-subtle">reason </span>
+                          {job.reason}
+                        </div>
+                      )}
+                      {job.exit_code && (
+                        <div>
+                          <span className="text-subtle">exit </span>
+                          {job.exit_code}
+                        </div>
+                      )}
+                      {job.ended_at && (
+                        <div>
+                          {/* Cluster-local wall clock, exactly as sacct reported
+                              it — not reinterpreted in the viewer's timezone. */}
+                          <span className="text-subtle">ended </span>
+                          {job.ended_at.replace('T', ' ')}
+                        </div>
+                      )}
+                      <div className="text-subtle">via {job.source}</div>
+                    </div>
+                    <pre className="text-[10px] text-muted font-mono whitespace-pre-wrap break-all max-h-48 overflow-y-auto bg-surface/50 rounded px-2 py-1">
+                      {logLoading === job.job_id
+                        ? 'reading log…'
+                        : logErrors[job.job_id]
+                          ? `(${logErrors[job.job_id]})`
+                          : logs[job.job_id] || '(no log output)'}
+                    </pre>
                   </div>
                 )}
               </div>

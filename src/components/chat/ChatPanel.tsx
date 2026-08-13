@@ -1280,6 +1280,10 @@ export function ChatPanel() {
   const sessionStartTime = useRef<number>(0);
   const [elapsedMinutes, setElapsedMinutes] = useState<number>(0);
   const reconnectAttempts = useRef<number>(0);
+  // When the last auto-reconnect was fired. The attempt budget is only refilled
+  // once a reconnect has proven stable for RECONNECT_STABILITY_MS — see the
+  // event listener. 0 means "no reconnect pending validation".
+  const lastReconnectAt = useRef<number>(0);
   const reconnectInFlight = useRef<boolean>(false);
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   /** Stable read of sessionId for the NDJSON handler, which is created once per
@@ -1304,6 +1308,8 @@ export function ChatPanel() {
   // Claude Code allocates its maximum extended-thinking budget. Off by default.
   const [ultrathink, setUltrathink] = useState(false);
   const [pendingCompletions, setPendingCompletions] = useState<PendingCompletion[]>([]);
+  /** Profiles whose cluster has no `sacct`, so completions can never surface. */
+  const [noAccountingProfiles, setNoAccountingProfiles] = useState<string[]>([]);
   // Token-usage state — `contextTokens` is the input_tokens from the latest
   // assistant turn, which equals "tokens the model saw on this turn" =
   // current context-window-fullness.
@@ -1803,16 +1809,25 @@ export function ChatPanel() {
     }).then((u) => unlisteners.push(u));
 
     // Poll for SLURM job completions (every 30s while the chat panel is mounted).
-    // Picks up terminal events written by the remote watchdog daemon; on first
+    // Asks sacct for the state of jobs this install registered locally; on first
     // sighting we bounce the dock so the user notices even if Operon isn't focused.
     let pollHandle: ReturnType<typeof setInterval> | null = null;
     let seenKeys = new Set<string>();
+    // Guards against overlapping invocations: the scan is one SSH round-trip per
+    // profile, and an unreachable profile can outlast the 30s interval.
+    let pollInFlight = false;
     const poll = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
-        const fresh = await listPendingCompletions();
+        const res = await listPendingCompletions();
+        const fresh = res.completions;
         const newKeys = new Set(fresh.map((c) => `${c.profile_id}::${c.job_id}::${c.terminal_at_ms}`));
         const justArrived = [...newKeys].some((k) => !seenKeys.has(k));
         setPendingCompletions(fresh);
+        // A cluster with no `sacct` can never report a completion. Say so once
+        // rather than letting a dead feature look like "nothing has finished".
+        setNoAccountingProfiles(res.profiles_without_accounting);
         if (justArrived && seenKeys.size > 0) {
           // Don't bounce on the very first poll after mount (those are completions
           // the user already knew about from the previous session).
@@ -1821,6 +1836,8 @@ export function ChatPanel() {
         seenKeys = newKeys;
       } catch {
         // Network blip — ignore, next tick will retry
+      } finally {
+        pollInFlight = false;
       }
     };
     poll();
@@ -1893,6 +1910,7 @@ export function ChatPanel() {
       setStreamStalled(false);
       setReconnecting(false);
       reconnectAttempts.current = 0;
+      lastReconnectAt.current = 0;
     });
     return () => { unlisten.then((u) => u()); };
   }, [resetChat]);
@@ -2109,6 +2127,13 @@ export function ChatPanel() {
   // tail is a separate SSH channel; ask/report modes use a single SSH stream.
   const MAX_RECONNECTS = 3;
   const STALL_THRESHOLD_MS = 60_000; // > 2x heartbeat interval — SSH-side stall
+  // How long a reconnected stream must keep delivering before we call it healthy
+  // and refill the attempt budget. This must be longer than the stall threshold:
+  // every fresh tail emits a heartbeat as its FIRST line, so resetting the
+  // counter on "any line received" made MAX_RECONNECTS unreachable — a flaky link
+  // reconnected forever, and each attempt left another 12h `tail -f` on the login
+  // node. The budget now only refills on sustained liveness, not on arrival.
+  const RECONNECT_STABILITY_MS = 120_000;
   // Agent-content stall: heartbeats keep the SSH-side counter green forever, so
   // we need a longer, separate threshold for "no real content from the agent
   // itself." Three minutes is generous enough to cover legitimate long thinks
@@ -2121,6 +2146,7 @@ export function ChatPanel() {
       setReconnecting(false);
       setAgentUnresponsive(false);
       reconnectAttempts.current = 0;
+      lastReconnectAt.current = 0;
       reconnectInFlight.current = false;
       return;
     }
@@ -2158,6 +2184,7 @@ export function ChatPanel() {
       // Attempt auto-reconnect
       reconnectInFlight.current = true;
       reconnectAttempts.current += 1;
+      lastReconnectAt.current = Date.now();
       setReconnecting(true);
       invoke('reconnect_tail', {
         sessionId,
@@ -2199,11 +2226,20 @@ export function ChatPanel() {
       lastEventTime.current = Date.now();
       setStreamStalled(false);
       const line = event.payload.line;
-      // Receiving any line — including a heartbeat — proves the SSH stream is
-      // healthy, so clear the auto-reconnect attempt counter. Heartbeats then
-      // skip JSON parsing / message rendering entirely.
-      reconnectAttempts.current = 0;
+      // Receiving a line proves the SSH stream is delivering, so drop the
+      // "reconnecting" banner. The attempt COUNTER is a different question: a
+      // fresh tail's first line is always a heartbeat, so clearing the budget
+      // here unconditionally meant MAX_RECONNECTS could never be reached and a
+      // flaky link stacked one 12h login-node tail per attempt, forever. Only
+      // refill once the reconnected stream has held up for a stability window.
       setReconnecting(false);
+      if (
+        lastReconnectAt.current === 0 ||
+        Date.now() - lastReconnectAt.current > RECONNECT_STABILITY_MS
+      ) {
+        reconnectAttempts.current = 0;
+        lastReconnectAt.current = 0;
+      }
       if (line.includes('"type":"heartbeat"')) return;
       // A stall warning is the tail telling us the agent has produced nothing for
       // five minutes. It is emphatically NOT content: treating it as such would
@@ -2243,7 +2279,6 @@ export function ChatPanel() {
               sessionName: `Job ${jobId}`,
               jobName: null,
               expectedOutput: null,
-              sbatchPath: null,
             }).catch((e) => {
               // Let a later chunk retry — a transient MFA/mux blip must not
               // permanently lose the registration.
@@ -3322,11 +3357,11 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
 - **Batch (submit via sbatch):** Anything expected to take more than 60 seconds — package installation (pip install, R install.packages, conda install), compilation, data processing, analysis pipelines, long-running scripts, file downloads (wget/curl for large files).
 
 ## How to Submit Batch Jobs
-1. Write a SLURM batch script (.sh) with proper headers using the server_config values (partition, account, conda env).
+1. Write a SLURM batch script (.sh) with proper headers using the server_config values (partition, account, conda env). If server_config has \`notify_email\`, also add \`#SBATCH --mail-user=<that address>\` and \`#SBATCH --mail-type=\` set to \`notify_events\` (or \`END,FAIL\` when that key is absent), so the user is told when the job finishes even if Operon is closed.
 2. Submit with \`sbatch script.sh\` and capture the job ID.
-3. Poll completion with \`squeue -j JOBID\` or \`sacct -j JOBID --format=JobID,State,ExitCode -n\`.
-4. Once the job completes, check its output/error logs (slurm-JOBID.out) before proceeding.
-5. Do NOT use \`sleep\` loops to wait — use \`sacct\` polling instead.
+3. For a SHORT job (under ~10 min) you may check state with a single \`squeue -j JOBID\` or \`sacct -j JOBID --format=JobID,State,ExitCode -n\`.
+4. For anything longer, hand off instead of waiting: report the job id and what it will produce, then END YOUR TURN. Never write a \`while\`/\`sleep\` loop around squeue or sacct — it burns tokens for hours and dies when the app closes.
+5. When the job has finished, check its output/error logs (slurm-JOBID.out) before proceeding.
 
 ## Package Installation
 - NEVER run \`install.packages()\`, \`pip install\`, or \`conda install\` interactively. These can take 10-30 minutes and will block the session.
@@ -3958,6 +3993,16 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           );
         })()}
       </div>
+
+      {/* A cluster with no `sacct` cannot report completions at all — say so
+          instead of leaving a dead feature indistinguishable from a quiet one. */}
+      {noAccountingProfiles.length > 0 && (
+        <div className="px-3 py-1.5 text-[11px] text-muted bg-surface/60 border-b border-border-default shrink-0">
+          This cluster has no SLURM accounting (<code>sacct</code>), so Operon cannot
+          detect when your jobs finish. Set a Notification Email on the server profile
+          and SLURM will email you directly.
+        </div>
+      )}
 
       {/* Job completion banners (one per pending) */}
       {pendingCompletions.length > 0 && (
@@ -4767,6 +4812,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <button
                   onClick={() => {
                     setStreamStalled(false);
+                    // Reset the auto-reconnect budget too. Without this the
+                    // counter is still at MAX from the attempts that produced
+                    // this banner, so the 10s liveness tick re-raises it at once
+                    // and no auto-retry happens for the next two minutes.
+                    reconnectAttempts.current = 0;
+                    lastReconnectAt.current = 0;
+                    lastEventTime.current = Date.now();
                     invoke('reconnect_tail', {
                       sessionId,
                       remote: { profileId: remoteInfo.profileId, remotePath: remoteInfo.remotePath },

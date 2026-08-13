@@ -38,8 +38,16 @@ export function formatElapsed(seconds: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-export async function listPendingCompletions(): Promise<PendingCompletion[]> {
-  return invoke<PendingCompletion[]>('list_pending_completions');
+export interface PendingCompletionsResult {
+  completions: PendingCompletion[];
+  /** Profiles whose cluster has no usable `sacct`. Completion tracking cannot
+   *  work there at all, so the UI can say so once rather than looking like
+   *  nothing has finished. */
+  profiles_without_accounting: string[];
+}
+
+export async function listPendingCompletions(): Promise<PendingCompletionsResult> {
+  return invoke<PendingCompletionsResult>('list_pending_completions');
 }
 
 export async function markCompletionSeen(
@@ -65,7 +73,6 @@ export async function registerSlurmJob(params: {
   sessionName: string;
   jobName?: string | null;
   expectedOutput?: string | null;
-  sbatchPath?: string | null;
 }): Promise<void> {
   return invoke('register_slurm_job_metadata', {
     profileId: params.profileId,
@@ -74,6 +81,5 @@ export async function registerSlurmJob(params: {
     sessionName: params.sessionName,
     jobName: params.jobName ?? null,
     expectedOutput: params.expectedOutput ?? null,
-    sbatchPath: params.sbatchPath ?? null,
   });
 }

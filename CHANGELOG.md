@@ -4,6 +4,103 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] — 2026-08-13
+
+### Removed
+- **The HPC job watchdog daemon is gone.** Operon used to upload
+  `operon-watchdog.sh` to the remote host and launch it detached (tmux, or
+  `nohup … & disown`) so it outlived the app, polling SLURM every 30s forever
+  from the **login node**. HPC sites reap exactly that: UCI RCIC terminated it by
+  name — its matcher hit the substring `watch` in the filename — and emailed the
+  account owner each time. Because it was re-bootstrapped on every SSH connect,
+  the kill/restart cycle repeated indefinitely.
+
+  The loop had no exit condition — no wall-clock cap, no idle timeout, no exit
+  when the watchlist emptied — and its `squeue` self-discovery ran *before* the
+  empty-watchlist guard, so it queried the scheduler every 30s even with zero
+  jobs while the watchlist only ever grew.
+
+  Its one stateful feature, auto-resubmit on TIMEOUT/OOM, **never worked**:
+  `slurm_resubmit` re-ran the *identical* script, and the
+  `on_timeout_walltime_mult` / `on_oom_mem_mult` knobs shown in the Jobs panel
+  were read by nothing. A TIMEOUT was resubmitted with the same walltime and
+  timed out again — burning the allocation to reproduce the failure.
+
+  Also removed with it: `~/.operon/jobs/*.jsonl` event logs, `~/.operon/watchlist`,
+  `~/.operon/policy.json`, the auto-resubmit policy UI, and the login-node
+  `tail -f` job-event stream (`start_job_tail` / `stop_job_tail`).
+
+### Added
+- **On-demand cluster job querying.** `list_cluster_jobs` merges live `squeue`
+  rows with `sacct` history (7-day window) in one SSH round-trip, issued only
+  while the Jobs panel is open. `read_job_log_tail` reads a job's log on request,
+  bounded by both lines and bytes. Job tracking leaves nothing resident on the
+  cluster. (An active HPC *chat* session still opens a bounded `tail -f` on the
+  login node to stream agent output — that is a separate mechanism, capped at
+  12h, and it dies with the session.)
+- **Optional per-server SLURM mail.** A Notification Email and event list on each
+  SSH profile, injected as `--mail-user` / `--mail-type` into generated sbatch
+  scripts and offered to the agent for scripts it writes. This is the only
+  notification path that works while Operon is closed, and it needs nothing of
+  ours running. Blank by default — no email unless you ask for one.
+- **One-time legacy sweep.** On first connect per profile, Operon kills and
+  removes any `operon-watchdog.sh` left over from an older build. Upgrading alone
+  would not have stopped the copy already running on the user's login node, so
+  without this the kill notices would have continued after the feature was gone.
+  The sweep verifies a pid actually belongs to the watchdog before signalling it,
+  so a stale pid file whose number has been recycled cannot hit an unrelated
+  process of yours.
+- **New protocol: BD Rhapsody Sequence Analysis Pipeline** — installing and
+  running the v3.0 pipeline on a shared cluster with no root and no container
+  runtime, covering the install bundle, reference archives, FASTQ manifests,
+  per-library YML generation, SLURM array execution, sample-tag demultiplexing,
+  and the failure modes that cost hours.
+
+### Upgrade notes
+- **Direct-mode chat is now refused on a SLURM login node** when "Restrict Claude
+  to interactive / compute nodes" is on — and that setting **defaults to on**. If
+  a workflow that previously ran in Direct mode stops with a refusal, either get
+  an allocation and use Terminal mode, or turn the setting off in Settings. This
+  is the change most likely to surprise you.
+- **The Jobs-panel row action is now destructive.** Where the trailing icon used
+  to be "stop watching" (harmless bookkeeping), it is now **Cancel job**, which
+  runs `scancel`, in the same position and without a confirmation step. Adjust
+  your muscle memory before clicking it on a running job.
+
+### Fixed
+- The agent's system prompt no longer tells users a remote watcher survives the
+  app closing, nor to "feel free to close Operon". It was appended to *every*
+  session, including local ones, and contradicted the polling instructions in the
+  HPC guidelines block.
+- Array and heterogeneous jobs never produced a completion notification:
+  `sbatch --array` registers `12345` but `sacct` reports `12345_1`, `12345_2`, …
+  and the lookup compared ids exactly. Task rows now resolve to their base job,
+  aggregate to one card (a failing task wins over a completed one), and the
+  registry entry is prunable again instead of immortal.
+- Chat-session tail helpers could orphan on the login node. `trap '' HUP PIPE`
+  set SIG_IGN, which children inherit *and* which survives `exec`, so a stranded
+  `tail -f` ignored both the HUP it gets when the session ends and the SIGPIPE it
+  gets when its stdout closes. Children now reset both before exec.
+- The auto-reconnect budget could never be exhausted: every fresh tail emits a
+  heartbeat first, and any line reset the counter, so `MAX_RECONNECTS` was
+  unreachable and a flaky link stacked one 12h login-node tail per attempt. The
+  budget now refills only after a reconnect has held for 120s.
+- Cluster job queries lost the username guard the daemon had. With `$USER` unset
+  (ForceCommand, restricted shells) `squeue -u ""` applies *no* filter and would
+  have listed the whole cluster, every row with a working Cancel button.
+- Direct-mode remote chat is refused on a SLURM login node when
+  "Restrict Claude to interactive / compute nodes" is on. It previously ran the
+  full agent there with no `srun`/`salloc` and no settings check.
+- The `remote_claude_login` command bounds its backgrounded `claude login` with
+  `timeout` and reaps it on failure. Note this command is not currently reachable
+  from the UI — the live flow types `claude login` into a terminal tab, which is
+  still unbounded — so this hardens a path rather than fixing one users hit.
+- Reduced remote load: chat-session supervision loops poll at 2s with a `ps`
+  every third pass (was 0.5s with a `ps` every pass — roughly 4 process spawns
+  per second on a shared login node); SSH health probe 5s → 15s; queue polls
+  10s/15s → 30s; the Jobs-panel query passes `sacct`'s end time through as a
+  string instead of forking `date` once per row.
+
 ## [1.0.4] — 2026-08-01
 
 ### Security

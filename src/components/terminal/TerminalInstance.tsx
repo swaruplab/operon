@@ -379,22 +379,18 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
       const data = event.payload.output;
       term.write(data);
 
-      // --- sbatch auto-register (HPC watchdog, SSH terminals only) ---
+      // --- sbatch auto-register (SSH terminals only) ---
       if (sshProfileId) {
         sbatchBuffer = (sbatchBuffer + data.replace(ANSI_REGEX, '')).slice(-4096);
         const ids = parseSbatchIds(sbatchBuffer);
         for (const id of ids) {
           if (registered.has(id) || registerInFlight.has(id)) continue;
           // Only commit to `registered` on SUCCESS. A dropped registration —
-          // e.g. a transient MFA/mux blip where the watchdog's non-interactive
-          // ssh can't authenticate — must be retried on the next output chunk,
-          // not silently lost the way `registered.add()` before the call did.
+          // must be retried on the next output chunk, not silently lost the
+          // way `registered.add()` before the call did.
           registerInFlight.add(id);
-          // registerSlurmJob, not registerWatchedJob: it writes the local
-          // registry entry that completion notifications are driven from and
-          // THEN delegates to register_watched_job, so the watchdog behaviour is
-          // unchanged while jobs scraped out of the terminal finally become
-          // notifiable. Previously nothing in the app ever wrote that registry.
+          // Writes the LOCAL registry that completion notifications read.
+          // Nothing is written on the cluster.
           registerSlurmJob({
             profileId: sshProfileId,
             jobId: id,
@@ -402,19 +398,14 @@ export function TerminalInstance({ terminalId, isVisible, initialCommand, comman
             sessionName: `Job ${id}`,
             jobName: null,
             expectedOutput: null,
-            sbatchPath: null,
           })
             .then(() => {
               registered.add(id);
             })
-            .catch((e) => {
-              // Surface the drop so the Jobs panel can flag it; leaving `id` out
-              // of `registered` lets the next chunk retry once auth recovers.
-              emit('watchdog-register-failed', {
-                profileId: sshProfileId,
-                jobId: id,
-                error: String(e),
-              });
+            .catch(() => {
+              // Leaving `id` out of `registered` is the retry: the next output
+              // chunk tries again. Registration is local-only now, so this can
+              // only be a disk error, and there is no listener to notify.
             })
             .finally(() => {
               registerInFlight.delete(id);

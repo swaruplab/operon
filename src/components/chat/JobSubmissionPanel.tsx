@@ -39,6 +39,8 @@ interface FormState {
   gpuCount: string;
   jobName: string;
   outputDir: string;
+  mailUser: string;
+  mailType: string;
   command: string;
 }
 
@@ -53,6 +55,8 @@ const EMPTY_FORM: FormState = {
   gpuCount: '',
   jobName: '',
   outputDir: '',
+  mailUser: '',
+  mailType: '',
   command: '',
 };
 
@@ -85,6 +89,8 @@ function toSpec(form: FormState, profileId: string): SlurmJobSpec {
     gpu_count: num(form.gpuCount),
     job_name: text(form.jobName),
     output_dir: text(form.outputDir),
+    mail_user: text(form.mailUser),
+    mail_type: text(form.mailType),
     command: form.command,
   };
 }
@@ -131,6 +137,8 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
       partition: prev.partition || selectedProfile.server_config.slurm_partition || '',
       gpuType: prev.gpuType || selectedProfile.server_config.slurm_gpu_type || '',
       outputDir: prev.outputDir || selectedProfile.server_config.work_dir || '',
+      mailUser: prev.mailUser || selectedProfile.server_config.notify_email || '',
+      mailType: prev.mailType || selectedProfile.server_config.notify_events || '',
     }));
   }, [selectedProfile]);
 
@@ -148,15 +156,19 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
     }
   }, [profileId]);
 
-  // Initial fetch + poll every 10s while there are user jobs
+  // Initial fetch + periodic refresh while the panel is open.
+  //
+  // 30s, not 10s: every tick is a `squeue` on the cluster's login node, and
+  // scheduler polling is something HPC sites actively police (RCIC's login-node
+  // reaper matches `watch`-style poll loops for exactly this reason). Queue state
+  // does not change fast enough for 10s to buy the user anything real.
   useEffect(() => {
     if (!profileId) return;
     fetchJobs();
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(() => {
-      // Only poll if the panel has live data — keep the queue fresh while running.
       fetchJobs();
-    }, 10_000);
+    }, 30_000);
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
@@ -165,7 +177,26 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
 
   const spec = useMemo(() => toSpec(form, profileId), [form, profileId]);
   const preview = useMemo(() => buildSbatchPreview(spec), [spec]);
-  const canSubmit = !!profileId && form.command.trim().length > 0 && !submitting;
+
+  // sbatch rejects an unknown --mail-type outright, and the error points nowhere
+  // near this field. Catch it before the job is queued.
+  const mailTypeError = useMemo(() => {
+    const v = form.mailType.trim();
+    if (!v) return null;
+    const VALID = new Set([
+      'NONE', 'BEGIN', 'END', 'FAIL', 'REQUEUE', 'ALL', 'INVALID_DEPEND',
+      'STAGE_OUT', 'TIME_LIMIT', 'TIME_LIMIT_90', 'TIME_LIMIT_80',
+      'TIME_LIMIT_50', 'ARRAY_TASKS',
+    ]);
+    const bad = v
+      .split(',')
+      .map((t) => t.trim().toUpperCase())
+      .filter((t) => t && !VALID.has(t));
+    return bad.length ? `Unknown --mail-type value(s): ${bad.join(', ')}` : null;
+  }, [form.mailType]);
+
+  const canSubmit =
+    !!profileId && form.command.trim().length > 0 && !submitting && !mailTypeError;
 
   // ── Pre-submit review ───────────────────────────────────────────────────
   // The highest-leverage moment in the app: a few seconds of Sonnet against
@@ -244,8 +275,9 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
         sessionId: `sbatch-${jobId}`,
         sessionName: spec.job_name?.trim() || `Job ${jobId}`,
         jobName: spec.job_name ?? null,
-        expectedOutput: spec.output_dir ?? null,
-        sbatchPath: null,
+        // Deliberately null: output_dir is a directory that existed before the
+        // job ran, and the banner renders this as "<x> is ready".
+        expectedOutput: null,
       }).catch((e) => console.error('job registration failed', e));
       // Refresh queue shortly after — give the scheduler a moment to register the job.
       window.setTimeout(fetchJobs, 1200);
@@ -435,6 +467,41 @@ export function JobSubmissionPanel({ initialProfileId }: JobSubmissionPanelProps
               placeholder="/scratch/$USER/jobs"
             />
           </Field>
+
+          {/* Mail. Prefilled from the profile but editable per job — clearing
+              the address here really does submit with no --mail-user, which is
+              the whole point of the setting being optional. */}
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Notify email (optional)">
+              <input
+                type="text"
+                value={form.mailUser}
+                onChange={(e) => update('mailUser', e.target.value)}
+                className={`${inputCls} font-mono`}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="blank = no email"
+              />
+            </Field>
+            <Field label="Notify on">
+              <input
+                type="text"
+                value={form.mailType}
+                onChange={(e) => update('mailType', e.target.value)}
+                className={`${inputCls} font-mono`}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="END,FAIL"
+              />
+            </Field>
+          </div>
+          {mailTypeError && (
+            <div className="text-[11px] text-red-600 dark:text-red-400 -mt-1">
+              {mailTypeError}
+            </div>
+          )}
 
           <Field label="Command">
             <textarea

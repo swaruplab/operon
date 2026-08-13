@@ -78,9 +78,9 @@
   <text x="562" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">Anthropic ↔ OpenAI</text>
 
   <rect x="628" y="212" width="104" height="72" rx="4" fill="#3b1f0b" stroke="#f97316" stroke-width="0.8" opacity="0.85"/>
-  <text x="680" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Watchdog</text>
+  <text x="680" y="235" text-anchor="middle" fill="#fdba74" font-size="10" font-weight="500">Job Query</text>
   <text x="680" y="249" text-anchor="middle" fill="#64748b" font-size="8">HPC Jobs</text>
-  <text x="680" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">SLURM · PBS</text>
+  <text x="680" y="263" text-anchor="middle" fill="#64748b" font-size="7.5">squeue · sacct</text>
 
   <!-- Arrows Core to Services -->
   <line x1="330" y1="300" x2="330" y2="355" stroke="#71717a" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
@@ -140,8 +140,6 @@
   <text x="529" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">tmux</text>
   <rect x="574" y="502" width="70" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
   <text x="609" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">Claude CLI</text>
-  <rect x="654" y="502" width="70" height="28" rx="3" fill="#2d1a4e" stroke="#7c3aed" stroke-width="0.5"/>
-  <text x="689" y="520" text-anchor="middle" fill="#a78bfa" font-size="8">Watchdog</text>
   <text x="606" y="556" text-anchor="middle" fill="#64748b" font-size="7.5">GPU/CPU jobs · conda · user aliases</text>
 
   <!-- HPC internal arrows -->

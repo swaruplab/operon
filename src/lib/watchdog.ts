@@ -1,139 +1,120 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-export interface WatchedJob {
-  profile_id: string;
+/**
+ * HPC job tracking.
+ *
+ * Operon used to run a bash daemon (`operon-watchdog.sh`) on the cluster's LOGIN
+ * node that polled SLURM forever so job state stayed fresh while the app was
+ * closed. HPC sites reap exactly that kind of process — UCI RCIC terminated ours
+ * and emailed the account owner — and it was re-bootstrapped on every SSH
+ * connect, so the kill/restart cycle never ended.
+ *
+ * There is no daemon now. The panel asks the scheduler directly, only while it
+ * is open: {@link listClusterJobs} for state, {@link readJobLogTail} for logs.
+ * For "tell me when it finishes even though Operon is closed", set the optional
+ * notification email in the SSH profile's server settings — SLURM mails you
+ * itself, which needs nothing of ours to be running.
+ */
+
+/** A job as the Jobs panel sees it — a live `squeue` row or an `sacct` record. */
+export interface ClusterJob {
   job_id: string;
-  scheduler: string;
-  submit_ts: number;
-  sbatch_path: string | null;
-  retries_left: number;
+  name: string;
+  state: string;
+  partition: string;
+  /** Human elapsed from squeue ("1:23:45"); empty for historical rows. */
+  elapsed: string;
+  /** Seconds from sacct; 0 when unknown. */
+  elapsed_seconds: number;
+  /** squeue's NODELIST(REASON) — why it's pending, or where it runs. */
+  reason: string;
+  /** sacct ExitCode ("0:0"); empty while running. */
+  exit_code: string;
+  /** End time exactly as sacct reported it, in the cluster's local time
+   *  ("2026-08-13T07:20:03"); empty while running or unknown. Deliberately not
+   *  an epoch — converting cost a `date` fork per row on the login node. */
+  ended_at: string;
+  source: 'squeue' | 'sacct';
 }
 
-export interface JobPolicy {
-  max_retries: number;
-  on_timeout_walltime_mult: number;
-  on_oom_mem_mult: number;
+export interface ClusterJobsResult {
+  jobs: ClusterJob[];
+  /** False when the remote shell could resolve neither $USER nor `id -un`, so
+   *  the query was skipped rather than run unfiltered (which would list the
+   *  whole cluster, each row with a working Cancel button). */
+  user_resolved: boolean;
+  /**
+   * False when the cluster has no usable SLURM accounting. Without `sacct` a job
+   * simply vanishes from `squeue` when it ends and there is no record left to
+   * read, so the panel must say so rather than imply the job never existed.
+   */
+  accounting: boolean;
 }
 
-export interface WatchdogStatus {
-  installed: boolean;
-  running: boolean;
-  tmux_session: string | null;
-  scheduler: string | null;
-  watchlist_len: number;
+/** SLURM states that mean the job is over. Mirrors `is_terminal_state` in slurm.rs. */
+const TERMINAL = new Set([
+  'COMPLETED',
+  'FAILED',
+  'TIMEOUT',
+  'OUT_OF_MEMORY',
+  'NODE_FAIL',
+  'BOOT_FAIL',
+  'DEADLINE',
+  'PREEMPTED',
+  'REVOKED',
+  'SPECIAL_EXIT',
+]);
+
+export function isTerminalState(state: string): boolean {
+  const s = (state || '').trim().toUpperCase().split(/\s+/)[0] || '';
+  return TERMINAL.has(s) || s.startsWith('CANCELLED');
 }
 
-/** One NDJSON event as written by scripts/operon-watchdog.sh. */
-export interface JobEvent {
-  ts: number;
-  type: string; // "poll" | "terminal" | "registered" | "watchdog_start" | "watchdog_stop"
-  state?: string;
-  action?: string;
-  resubmitted_as?: string;
-  raw?: string;
-  from_job?: string;
-  retries_left?: number;
-  [k: string]: unknown;
+/**
+ * Query the cluster for this user's jobs — live plus recent history — in one
+ * round-trip.
+ *
+ * @param since       SLURM time expression; defaults to `now-7days`.
+ */
+export async function listClusterJobs(
+  profileId: string,
+  since?: string,
+): Promise<ClusterJobsResult> {
+  return invoke('list_cluster_jobs', { profileId, since: since || null });
 }
 
-// ── install / lifecycle ──────────────────────────────────────────────────
-
-export async function detectScheduler(profileId: string): Promise<string> {
-  return invoke('detect_scheduler', { profileId });
-}
-
-export async function installWatchdog(profileId: string): Promise<void> {
-  return invoke('install_watchdog', { profileId });
-}
-
-export async function startWatchdog(profileId: string): Promise<void> {
-  return invoke('start_watchdog', { profileId });
-}
-
-/** Detect + install + start in one idempotent call — used by the
- * auto-bootstrap-on-connect flow. Returns the detected scheduler
- * ("slurm" when it bootstrapped, otherwise e.g. "none"). */
-export async function bootstrapWatchdog(profileId: string): Promise<string> {
-  return invoke('bootstrap_watchdog', { profileId });
-}
-
-export async function stopWatchdog(profileId: string): Promise<void> {
-  return invoke('stop_watchdog', { profileId });
-}
-
-export async function watchdogStatus(profileId: string): Promise<WatchdogStatus> {
-  return invoke('watchdog_status', { profileId });
-}
-
-// ── watchlist + policy ───────────────────────────────────────────────────
-
-export async function registerWatchedJob(
+/** Read the tail of a job's stdout log on demand (no `tail -f` left running). */
+export async function readJobLogTail(
   profileId: string,
   jobId: string,
-  scheduler: string | null = 'slurm',
-  sbatchPath: string | null = null,
-): Promise<void> {
-  return invoke('register_watched_job', {
+  logPath?: string | null,
+  lines?: number,
+): Promise<string> {
+  return invoke('read_job_log_tail', {
     profileId,
     jobId,
-    scheduler,
-    sbatchPath,
+    logPath: logPath || null,
+    lines: lines ?? null,
   });
 }
 
-export async function unregisterWatchedJob(profileId: string, jobId: string): Promise<void> {
-  return invoke('unregister_watched_job', { profileId, jobId });
+
+export interface LegacyCleanupResult {
+  /** True only when a leftover daemon or its files were actually found. */
+  removed: boolean;
+  details: string;
 }
 
-export async function listWatchedJobs(profileId: string): Promise<WatchedJob[]> {
-  return invoke('list_watched_jobs', { profileId });
-}
-
-export async function getJobPolicy(profileId: string): Promise<JobPolicy> {
-  return invoke('get_job_policy', { profileId });
-}
-
-export async function setJobPolicy(profileId: string, policy: JobPolicy): Promise<void> {
-  return invoke('set_job_policy', { profileId, policy });
-}
-
-// ── event tail ───────────────────────────────────────────────────────────
-
-export async function readJobEvents(profileId: string, jobId: string): Promise<JobEvent[]> {
-  const raw: string = await invoke('read_job_events', { profileId, jobId });
-  return raw
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .map((l) => {
-      try {
-        return JSON.parse(l) as JobEvent;
-      } catch {
-        return { ts: 0, type: 'parse-error', raw: l } as JobEvent;
-      }
-    });
-}
-
-export async function startJobTail(profileId: string, jobId: string): Promise<void> {
-  return invoke('start_job_tail', { profileId, jobId });
-}
-
-export async function stopJobTail(profileId: string, jobId: string): Promise<void> {
-  return invoke('stop_job_tail', { profileId, jobId });
-}
-
-export async function onJobEvent(
-  jobId: string,
-  handler: (ev: JobEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<string>(`job-event-${jobId}`, (e) => {
-    try {
-      handler(JSON.parse(e.payload) as JobEvent);
-    } catch {
-      /* tolerate malformed lines */
-    }
-  });
+/**
+ * Kill and delete any `operon-watchdog.sh` daemon left over from an older
+ * Operon. Idempotent and safe on hosts that never had one.
+ *
+ * Needed because upgrading does not stop a daemon that is already running on the
+ * user's login node — without this sweep they would keep receiving kill notices
+ * from their site long after the feature was removed.
+ */
+export async function cleanupLegacyWatchdog(profileId: string): Promise<LegacyCleanupResult> {
+  return invoke('cleanup_legacy_watchdog', { profileId });
 }
 
 // ── auto-register helper ─────────────────────────────────────────────────
@@ -142,8 +123,7 @@ const SBATCH_RE = /Submitted batch job\s+(\d+)/g;
 
 /**
  * Scan a chunk of terminal output for `Submitted batch job NNNN` and return
- * any fresh job ids. Caller is responsible for dedupe + calling
- * `registerWatchedJob` for each hit.
+ * any job ids found. Caller dedupes and calls `registerSlurmJob` for each hit.
  */
 export function parseSbatchIds(text: string): string[] {
   // Global match, and over the whole text rather than line-by-line: agent output

@@ -305,6 +305,67 @@ fn claude_shell() -> Result<String, String> {
     crate::platform::posix_shell()
 }
 
+/// True when the remote host has a SLURM scheduler installed but we are NOT
+/// inside an allocation — i.e. an interactive shell on a login/head node.
+///
+/// Deliberately three-way rather than "is SLURM present": a plain remote server
+/// with no scheduler must stay usable in Direct mode, and a session that already
+/// holds an allocation (`$SLURM_JOB_ID` set) is running on a compute node, which
+/// is exactly where we want the agent. Failure to probe returns false — a
+/// transport error should not block work the user asked for.
+///
+/// The `sinfo` cross-check matters: SSH-ing straight to a compute node you hold
+/// an allocation on gives a shell with no `$SLURM_JOB_ID`, so the env test alone
+/// would call a compute node a login node and refuse work that is entirely
+/// legitimate. A host SLURM lists as a node is a compute node whatever the
+/// environment says.
+/// A host's role does not change between messages, so the verdict is cached for
+/// the life of the app. Without this every single `start_claude_session` paid an
+/// extra blocking SSH round-trip — and on a 'compute' verdict, an `sinfo` RPC
+/// against slurmctld — while the frontend raced a 60s session-start timeout.
+static LOGIN_NODE_VERDICTS: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
+
+fn remote_is_slurm_login_node(profile: &super::ssh::SSHProfile) -> bool {
+    if let Ok(cache) = LOGIN_NODE_VERDICTS.lock() {
+        if let Some(hit) = cache.as_ref().and_then(|m| m.get(&profile.id)).copied() {
+            return hit;
+        }
+    }
+
+    // `hostname -s` is absent on BusyBox/minimal images; an empty result makes
+    // the grep pattern empty, match nothing, and fall through to "login" —
+    // refusing a real compute node. Under pam_slurm_adopt an SSH into an
+    // allocated node has no $SLURM_JOB_ID, so this cross-check is the ONLY
+    // compute-node signal there. Fail open on an unknown hostname specifically
+    // (not on a failed sinfo, which must stay closed).
+    // `grep -qxF` because a hostname is a literal, not a regex.
+    let probe = r#"
+_h=$(hostname -s 2>/dev/null || hostname 2>/dev/null | cut -d. -f1)
+if [ -n "${SLURM_JOB_ID:-}" ]; then echo operon_node=compute
+elif ! command -v sbatch >/dev/null 2>&1 && ! command -v squeue >/dev/null 2>&1; then echo operon_node=plain
+elif [ -z "$_h" ]; then echo operon_node=plain
+elif command -v sinfo >/dev/null 2>&1 && sinfo -h -N -o '%N' 2>/dev/null | grep -qxF "$_h"; then echo operon_node=compute
+else echo operon_node=login
+fi
+"#;
+    // Match a tagged line rather than the whole trimmed output: ssh_exec can
+    // carry MOTD text and post-quantum key-exchange warnings alongside it.
+    // A transport error returns false — it should not block work the user asked
+    // for — and is deliberately NOT cached, so the next attempt re-probes.
+    match super::ssh::ssh_exec(profile, probe) {
+        Ok(out) => {
+            let verdict = out.lines().any(|l| l.trim() == "operon_node=login");
+            if let Ok(mut cache) = LOGIN_NODE_VERDICTS.lock() {
+                cache
+                    .get_or_insert_with(HashMap::new)
+                    .insert(profile.id.clone(), verdict);
+            }
+            verdict
+        }
+        Err(_) => false,
+    }
+}
+
 /// Guarantee a sane baseline PATH for any local bash login-shell we spawn.
 ///
 /// When Operon is launched from Finder/Spotlight, launchd hands it a very
@@ -2018,12 +2079,21 @@ touch "$LOGFILE"
 # Use `script` to provide a pseudo-TTY for claude login, which needs
 # interactive output to display the OAuth URL.
 # Linux (util-linux) and macOS/BSD have different `script` flag syntax.
+#
+# Wrapped in `timeout` so an abandoned OAuth flow cannot leave a `claude`
+# process running on the login node indefinitely — this is a backgrounded
+# process nothing ever reaps (the PID we print below has no consumer), and
+# sites that auto-kill login-node `.claude` processes will email the user
+# about it. A completed login exits long before the cap; 15 min is far more
+# than any real browser round-trip needs. Unset if `timeout` is missing so
+# behaviour is unchanged on hosts without coreutils.
+if command -v timeout >/dev/null 2>&1; then TMO="timeout 900"; else TMO=""; fi
 if script -V 2>&1 | grep -qi 'util-linux' || [ "$(uname)" = "Linux" ]; then
   # Linux: script -q -c 'cmd' outfile
-  script -q -c 'TERM=dumb {claude_bin} login 2>&1' "$LOGFILE" </dev/null &
+  $TMO script -q -c 'TERM=dumb {claude_bin} login 2>&1' "$LOGFILE" </dev/null &
 else
   # macOS / BSD: script -q outfile cmd...
-  script -q "$LOGFILE" bash -c 'TERM=dumb {claude_bin} login 2>&1' </dev/null &
+  $TMO script -q "$LOGFILE" bash -c 'TERM=dumb {claude_bin} login 2>&1' </dev/null &
 fi
 LOGIN_PID=$!
 
@@ -2040,7 +2110,14 @@ for i in $(seq 1 60); do
   sleep 0.5
 done
 
-# Timeout — dump whatever we got (strip ANSI for readability)
+# Timeout — no OAuth URL in 30s. Reap the backgrounded login before reporting:
+# without a URL there is nothing for the user to complete, so leaving it running
+# only strands a `claude` process on the login node. Children first, so killing
+# `script` doesn't orphan the `claude` underneath it.
+pkill -P "$LOGIN_PID" 2>/dev/null
+kill "$LOGIN_PID" 2>/dev/null
+
+# Dump whatever we got (strip ANSI for readability)
 echo "TIMEOUT"
 CLEANED=$(sed 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b\][^\x07]*\x07//g; s/\x1b[()][A-Z0-9]//g; s/\r//g' "$LOGFILE" 2>/dev/null | tr -d '\000' | head -30)
 if [ -n "$CLEANED" ]; then
@@ -3342,21 +3419,27 @@ pub async fn start_claude_session(
         claude_cmd.push_str(&format!(" --resume '{}'", resume.replace('\'', "'\\''")));
     }
 
-    // Persistent-job-watcher hand-off rule. Tells the agent to register any
-    // long-running SLURM job with Operon and end the turn, rather than poll
-    // it inside the conversation (which dies when Operon closes and costs
-    // tokens while alive). Operon will surface the completion as a banner
-    // and the user can resume on demand.
-    let slurm_rule = "PERSISTENT JOB WATCHER (Operon):\\n\
-        After submitting a SLURM job that you expect to take more than 10 minutes (any sbatch with --time > 00:10:00, or anything you cannot reasonably wait on inline), DO NOT enter a polling loop. Operon runs a remote watchdog that survives the app being closed and will notify the user when the job completes.\\n\
+    // Long-job hand-off rule. Ending the turn beats polling inside the
+    // conversation: an inline `while squeue` loop burns tokens for hours and
+    // dies the moment Operon closes anyway.
+    //
+    // What this rule must NOT do is promise notification that doesn't exist.
+    // It previously said "Operon runs a remote watchdog that survives the app
+    // being closed" and told the agent to say "feel free to close Operon" —
+    // both written for a login-node daemon that has since been removed (HPC
+    // sites reap it; see watchdog.rs). Operon shows a completion card, but only
+    // while it is running. The one mechanism that survives the app closing is
+    // SLURM's own mail, which is why step 2 points at it.
+    let slurm_rule = "LONG-RUNNING JOB HAND-OFF (Operon):\\n\
+        After submitting a SLURM job you expect to take more than 10 minutes (any sbatch with --time > 00:10:00, or anything you cannot reasonably wait on inline), DO NOT enter a polling loop — no `while` over squeue/sacct, no sleep. It would burn tokens for hours and end when the app closes.\\n\
         \\n\
         Instead:\\n\
         1. Capture the job id from the sbatch output (e.g. \\\"Submitted batch job 52805324\\\").\\n\
-        2. Tell the user: 'Submitted job <id>. Watcher will notify you when it completes — feel free to close Operon.'\\n\
+        2. Tell the user: 'Submitted job <id>. Operon will show a completion card when it finishes, as long as it is open. To be notified with Operon closed, add #SBATCH --mail-user=<address> and --mail-type=END,FAIL (the Notification Email in this server's settings).'\\n\
         3. State what file or condition you expect the job to produce (e.g. 'expected output: config/array_index.tsv').\\n\
         4. END YOUR TURN. Do not loop on squeue/sacct. Do not sleep. Do not poll.\\n\
         \\n\
-        The user will resume the conversation with the job result when ready.";
+        The user will resume the conversation with the job result when ready. A single `squeue -j <id>` or `sacct -j <id>` to check state once, when the user asks, is fine — it is the LOOP that is forbidden.";
     // POSIX-escape the rule before wrapping in outer single quotes. The rule
     // contains inner single quotes ("Submitted job <id>. ...") and angle
     // brackets — without this, the inner ' closes the outer quote and bash
@@ -3795,10 +3878,24 @@ pub async fn start_claude_session(
             //   3. Read any remaining lines after tail exits (tail -f may miss the last write).
             // Hardened so it can never become a long-lived orphan on the (login) host:
             //   - `trap '' HUP PIPE` so a dropped SSH connection doesn't kill the script
-            //     before it can clean up its own `tail`/heartbeat children;
-            //   - every loop iteration re-checks our PPID — once it becomes 1 the SSH
-            //     parent is gone, so kill the children and exit immediately (<0.5s);
+            //     before it can clean up its own `tail`/heartbeat children. Each child
+            //     resets those two to default first (`trap - HUP PIPE`): SIG_IGN is
+            //     inherited across fork AND survives exec, so without the reset an
+            //     orphaned `tail -f` ignores both the HUP it gets when the session ends
+            //     and the SIGPIPE it gets when its stdout closes — i.e. it lives forever
+            //     on the login node, which is exactly what we're trying to prevent;
+            //   - the loop re-checks our PPID — once it becomes 1 the SSH parent is
+            //     gone, so kill the children and exit (within ~6s);
             //   - a hard 12h wall-clock cap as a last-resort backstop.
+            //
+            // Cadence is deliberate. `[ ! -f … ]` is a shell builtin and costs
+            // nothing, but `sleep` and `ps` each fork. Polling every 0.5s with a
+            // `ps` on every pass meant ~4 process spawns/second — ~115k over an
+            // 8h session, on a SHARED LOGIN NODE. That is the kind of load a site
+            // reaper notices, and it bought nothing: this loop only detects
+            // *termination*, while output streaming is `tail -f` pushing
+            // continuously. 2s + `ps` every 3rd pass is ~0.67 spawns/second, and
+            // the worst case is noticing a finished session ~2s later.
             // Early heartbeat + heartbeats during the file-wait loop so the
             // frontend's auto-reconnect watchdog doesn't fire while we're
             // legitimately waiting for the remote shell to create the output file
@@ -3812,9 +3909,9 @@ pub async fn start_claude_session(
                  i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
                  if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
                  if command -v stdbuf >/dev/null 2>&1; then TAIL_CMD=\"stdbuf -oL tail -f '{out_esc}'\"; else TAIL_CMD=\"tail -f '{out_esc}'\"; fi; \
-                 eval $TAIL_CMD & TAIL_PID=$!; \
-                 ( _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
-                 _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
+                 ( trap - HUP PIPE; eval exec $TAIL_CMD ) & TAIL_PID=$!; \
+                 ( trap - HUP PIPE; _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
+                 _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 2; _n=$((_n+1)); [ \"$_n\" -ge 21600 ] && {{ _capped=1; break; }}; if [ $((_n % 3)) -eq 0 ]; then _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; fi; done; \
                  sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
                  [ \"$_capped\" = \"1\" ] && exit 0; \
                  cat '{out_esc}'",
@@ -3961,6 +4058,43 @@ pub async fn start_claude_session(
                 .cloned()
                 .ok_or_else(|| format!("SSH profile {} not found", ctx.profile_id))?
         };
+
+        // Direct mode runs the FULL agent — Claude plus every tool it spawns —
+        // on whatever host the profile points at, with no srun/salloc anywhere in
+        // this path. On a cluster that host is the login node, which is precisely
+        // what `hpc_restrict_login_node` exists to prevent; until now the setting
+        // only suppressed the auth/dependency probes and this much larger process
+        // walked straight through it.
+        //
+        // Scoped to actual SLURM login nodes so a plain remote server (lab box,
+        // VM, workstation) is unaffected by a setting that defaults to on.
+        //
+        // Scope of this guard, stated honestly: it covers the Direct path only.
+        // Terminal mode returns long before here and writes into whatever shell
+        // the SSH terminal holds. That is NOT an oversight to "fix" by calling
+        // the probe on the terminal path — the probe goes through `ssh_exec`,
+        // i.e. a NEW connection to profile.host, which is always the login node,
+        // so it would refuse every Terminal session including correctly
+        // allocated ones. Real enforcement needs an in-pane `$SLURM_JOB_ID`
+        // check, which is a feature rather than a fix.
+        let restrict_login_node = {
+            let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
+            s.hpc_restrict_login_node
+        };
+        if restrict_login_node && remote_is_slurm_login_node(&profile) {
+            return Err(
+                "This server is an HPC login node, and Operon is set to keep Claude off \
+                 login nodes (Settings → HPC login-node policy). Direct mode would run \
+                 the agent and all of its tools there.\n\n\
+                 Get an allocation first — `srun --pty ... bash -l`, or set an Interactive \
+                 Node Command on this server profile so Operon acquires one on connect — \
+                 then use Terminal mode, which runs the agent inside whatever session your \
+                 SSH terminal is in.\n\n\
+                 To run here anyway, turn off \"Restrict Claude to interactive / compute \
+                 nodes\" in Settings."
+                    .to_string(),
+            );
+        }
 
         // Step 1: Figure out how to invoke claude on the remote server.
         // It might be: a binary in PATH, an alias (e.g. alias claude='npx @anthropic-ai/claude-code'),
@@ -4886,6 +5020,8 @@ pub async fn reconnect_session(
         // Tail script: first cat any existing content, then tail -f for new lines
         // If done file already exists, just cat and exit (session already finished).
         // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
+        // Polls at 2s with a `ps` every 3rd pass — see the main start path for why the
+        // fork rate of this loop matters on a shared login node.
         // Wait up to 5 min for the file (same as the main start path) before
         // declaring it missing — covers NFS attribute-cache lag and slow startup.
         // Heartbeats during the wait prevent the frontend's auto-reconnect from
@@ -4896,8 +5032,8 @@ pub async fn reconnect_session(
              if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
              i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
              if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start. Check the terminal for errors.\"}}}}'; exit 1; fi; \
-             cat '{out}'; tail -f -n +$(wc -l < '{out}' | tr -d ' ') '{out}' & TAIL_PID=$!; \
-             _n=0; while [ ! -f '{donef}' ]; do sleep 1; _n=$((_n+1)); [ \"$_n\" -ge 43200 ] && break; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID 2>/dev/null; exit 0; }}; done; \
+             cat '{out}'; ( trap - HUP PIPE; exec tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' ) & TAIL_PID=$!; \
+             _n=0; while [ ! -f '{donef}' ]; do sleep 2; _n=$((_n+1)); [ \"$_n\" -ge 21600 ] && break; if [ $((_n % 3)) -eq 0 ]; then _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID 2>/dev/null; exit 0; }}; fi; done; \
              sleep 1; kill $TAIL_PID 2>/dev/null; wait $TAIL_PID 2>/dev/null",
             donef = done_file, out = output_file,
         );
@@ -5021,6 +5157,8 @@ pub async fn reconnect_tail(
     // If the done file already exists the session finished while we were stalled — just cat.
     // Uses stdbuf -oL to force line-buffered output and prevent SSH pipe buffering.
     // Hardened against orphaning: trap HUP/PIPE, self-destruct once PPID==1, 12h cap.
+    // Polls at 2s with a `ps` every 3rd pass — see the main start path for why the
+    // fork rate of this loop matters on a shared login node.
     // Wait up to 5 min for the file before declaring it missing — covers NFS
     // attribute-cache lag and slow startup. Heartbeats during the wait keep the
     // frontend's auto-reconnect watchdog quiet so it doesn't kill THIS tail and
@@ -5031,9 +5169,9 @@ pub async fn reconnect_tail(
          if [ -f '{donef}' ]; then cat '{out}'; exit 0; fi; \
          i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
          if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start, or the file was cleaned up. Check the terminal for errors.\"}}}}'; exit 1; fi; \
-         if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; else cat '{out}'; tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' & TAIL_PID=$!; fi; \
-         ( _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
-         _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 0.5; _n=$((_n+1)); [ \"$_n\" -ge 86400 ] && {{ _capped=1; break; }}; _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; done; \
+         if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; ( trap - HUP PIPE; exec stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' ) & TAIL_PID=$!; else cat '{out}'; ( trap - HUP PIPE; exec tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' ) & TAIL_PID=$!; fi; \
+         ( trap - HUP PIPE; _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
+         _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 2; _n=$((_n+1)); [ \"$_n\" -ge 21600 ] && {{ _capped=1; break; }}; if [ $((_n % 3)) -eq 0 ]; then _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; fi; done; \
          sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
          [ \"$_capped\" = \"1\" ] && exit 0; \
          cat '{out}'",
@@ -5486,7 +5624,8 @@ pub async fn teardown_remote_footprint(
     let mut script = String::from(
         "_self=$$\n\
          for _p in $(pgrep -f 'tail.*-f.*\\.operon-' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || kill \"$_p\" 2>/dev/null; done\n\
-         for _p in $(pgrep -f 'base64 -d.*bash' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || { pkill -P \"$_p\" 2>/dev/null; kill \"$_p\" 2>/dev/null; }; done\n",
+         for _p in $(pgrep -f 'base64 -d.*bash' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || { pkill -P \"$_p\" 2>/dev/null; kill \"$_p\" 2>/dev/null; }; done\n\
+         for _p in $(pgrep -f 'operon-[w]atchdog\\.sh' 2>/dev/null); do [ \"$_p\" = \"$_self\" ] || kill \"$_p\" 2>/dev/null; done\n",
     );
 
     // Remove leftover .operon-* scratch files for this profile's sessions.

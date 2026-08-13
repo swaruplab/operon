@@ -32,12 +32,12 @@ import {
   addKeyPassphrase,
 } from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
-import { bootstrapWatchdog } from '../../lib/watchdog';
+import { cleanupLegacyWatchdog } from '../../lib/watchdog';
 
-// Profiles whose HPC watchdog we've already auto-bootstrapped this session.
+// Profiles already swept for the retired watchdog daemon this app run.
 // Module-level (not component state) so it survives the sidebar unmounting when
-// the panel is toggled, and so we don't re-upload/re-start on every reconnect.
-const watchdogBootstrapped = new Set<string>();
+// the panel is toggled, and so we don't re-run the sweep on every reconnect.
+const watchdogCleaned = new Set<string>();
 
 // ── Interactive-node auto-acquire helpers ──────────────────────────────────
 
@@ -593,17 +593,20 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     });
     onConnectSSH?.(profile.id, terminalId);
 
-    // Auto-bootstrap the HPC job watchdog once per session. Idempotent on the
-    // remote; delayed so it rides the just-authenticated ControlMaster instead
-    // of racing a fresh (MFA-incapable) connection. Quietly no-ops on non-SLURM
-    // hosts, so a plain server never gets a stray ~/.operon or daemon.
-    if (!watchdogBootstrapped.has(profile.id)) {
-      watchdogBootstrapped.add(profile.id);
+    // Sweep away the retired watchdog daemon, once per profile per app run.
+    //
+    // Operon used to install and start `operon-watchdog.sh` here on every
+    // connect. That daemon is gone, but upgrading doesn't stop the copy already
+    // running on the user's login node — and their site will keep killing it and
+    // emailing them until something does. This is the something. One command,
+    // idempotent, no daemon; delayed so it rides the just-authenticated
+    // ControlMaster rather than racing a fresh (MFA-incapable) connection.
+    if (!watchdogCleaned.has(profile.id)) {
+      watchdogCleaned.add(profile.id);
       setTimeout(() => {
-        bootstrapWatchdog(profile.id).catch(() => {
-          // No live master yet / not SLURM — clear the guard so the next
-          // connect retries. The Jobs panel's Install/Start remain available.
-          watchdogBootstrapped.delete(profile.id);
+        cleanupLegacyWatchdog(profile.id).catch(() => {
+          // No live master yet — clear the guard so the next connect retries.
+          watchdogCleaned.delete(profile.id);
         });
       }, 6000);
     }
@@ -1207,6 +1210,33 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
                       leaves your shell on the login node.
                     </span>
                   </label>
+                </div>
+
+                {/* Job notifications (SLURM's own mail) */}
+                <div>
+                  <span className="text-[10px] text-muted font-medium uppercase tracking-wider">Job Notifications</span>
+                  <div className="mt-1 space-y-1.5">
+                    {SERVER_CONFIG_FIELDS.filter(f => f.group === 'notifications').map(field => (
+                      <div key={field.key}>
+                        <label className="block text-[10px] text-subtle mb-0.5">{field.label}</label>
+                        <input
+                          value={serverConfig[field.key] || ''}
+                          onChange={(e) => setServerConfig(prev => ({ ...prev, [field.key]: e.target.value }))}
+                          placeholder={field.placeholder}
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          className="w-full px-2 py-1 bg-surface border border-border-strong rounded text-xs text-primary placeholder:text-subtle outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
+                    Adds <code>--mail-user</code> / <code>--mail-type</code> to jobs Operon submits,
+                    and the agent uses it in scripts it writes. The scheduler sends these itself, so
+                    they arrive whether or not Operon is running — and they work on clusters with no{' '}
+                    <code>sacct</code> accounting, where completion tracking is otherwise unavailable.
+                  </p>
                 </div>
 
                 {/* Environment */}

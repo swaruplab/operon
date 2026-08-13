@@ -84,3 +84,9 @@ src-tauri/protocols/*/repo/dataset/
 # Specific large vector-DB + corpora that some upstream skills ship
 **/chroma_squidpy_db/
 **/data_level0.bin
+
+# Workshop operations — contains personal data (names, emails, accessibility needs).
+# Must never reach a public repo.
+docs/*Registrants*.xlsx
+# Local-only build config (machine-specific signing identity / paths).
+src-tauri/tauri.local.conf.json

@@ -18,7 +18,7 @@ const items = [
   { id: "search", icon: Search, label: "Search", shortcut: undefined, description: "Search across files" },
   { id: "git", icon: GitBranch, label: "Git & GitHub", shortcut: undefined, description: "Version control and GitHub" },
   { id: "ssh", icon: MonitorSmartphone, label: "Remote SSH", shortcut: undefined, description: "Connect to remote servers" },
-  { id: "jobs", icon: Activity, label: "HPC Jobs", shortcut: undefined, description: "Watch HPC jobs and auto-resubmit on failure" },
+  { id: "jobs", icon: Activity, label: "HPC Jobs", shortcut: undefined, description: "Queue and recent jobs from squeue/sacct, refreshed while the panel is open" },
   { id: "submit", icon: Send, label: "Submit Job", shortcut: undefined, description: "Submit SLURM/PBS jobs to a remote scheduler" },
   { id: "extensions", icon: Blocks, label: "Extensions", shortcut: undefined, description: "Manage extensions" },
   { id: "protocols", icon: BookOpen, label: "Protocols", shortcut: undefined, description: "Analysis protocols" },

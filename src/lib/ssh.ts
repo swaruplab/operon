@@ -27,7 +27,7 @@ export const SERVER_CONFIG_FIELDS: Array<{
   key: string;
   label: string;
   placeholder: string;
-  group: 'slurm' | 'interactive' | 'environment' | 'paths';
+  group: 'slurm' | 'interactive' | 'notifications' | 'environment' | 'paths';
 }> = [
   { key: 'slurm_account', label: 'SLURM Account', placeholder: 'e.g. swarup_lab', group: 'slurm' },
   { key: 'slurm_partition', label: 'CPU Partition', placeholder: 'e.g. standard, free', group: 'slurm' },
@@ -47,6 +47,21 @@ export const SERVER_CONFIG_FIELDS: Array<{
     label: 'Interactive Account',
     placeholder: 'allocation charged for the interactive node (defaults to SLURM Account)',
     group: 'interactive',
+  },
+  // SLURM's own mail. This is the notification path that does NOT depend on
+  // Operon running, on a polling daemon, or on the cluster having SLURM
+  // accounting (sacct) enabled — the scheduler sends it directly.
+  {
+    key: 'notify_email',
+    label: 'Notification Email',
+    placeholder: 'you@uci.edu — SLURM emails you when a job ends or fails',
+    group: 'notifications',
+  },
+  {
+    key: 'notify_events',
+    label: 'Notify On',
+    placeholder: 'END,FAIL (default) — also BEGIN, TIME_LIMIT_80, ARRAY_TASKS, ALL, NONE',
+    group: 'notifications',
   },
   { key: 'conda_env', label: 'Default Conda Env', placeholder: 'e.g. scanpy_env', group: 'environment' },
   { key: 'modules', label: 'Default Modules', placeholder: 'e.g. python/3.10, cuda/12.0', group: 'environment' },

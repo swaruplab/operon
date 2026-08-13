@@ -14,6 +14,10 @@ export interface SlurmJobSpec {
   gpu_count?: number;
   job_name?: string;
   output_dir?: string;
+  /** SLURM `--mail-user`. Defaults to the profile's `notify_email` server config. */
+  mail_user?: string;
+  /** SLURM `--mail-type`. Defaults to `END,FAIL` whenever mail_user is set. */
+  mail_type?: string;
   command: string;
 }
 
@@ -70,6 +74,14 @@ export function buildSbatchPreview(spec: SlurmJobSpec): string {
   if (dir) {
     push('output', `${dir}/slurm-%j.out`);
     push('error', `${dir}/slurm-%j.err`);
+  }
+  // Mail. A value containing whitespace would inject extra lines into the
+  // header, so anything malformed is dropped rather than emitted.
+  const mail = spec.mail_user?.trim();
+  if (mail && !/\s/.test(mail)) {
+    push('mail-user', mail);
+    const mt = spec.mail_type?.trim().replace(/\s+/g, '');
+    push('mail-type', mt || 'END,FAIL');
   }
   lines.push('');
   lines.push((spec.command || '').replace(/\s+$/, ''));

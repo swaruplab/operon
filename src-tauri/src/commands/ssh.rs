@@ -207,18 +207,18 @@ fn ensure_control_master(profile: &SSHProfile) -> Result<bool, String> {
     }
 }
 
-/// Preflight for non-interactive (BatchMode) callers like the HPC job watchdog:
-/// confirm we can reach `profile` WITHOUT an interactive prompt, or return an
-/// actionable error.
+/// Preflight for non-interactive (BatchMode) background callers — cluster job
+/// queries, the legacy-daemon sweep: confirm we can reach `profile` WITHOUT an
+/// interactive prompt, or return an actionable error.
 ///
-/// Every watchdog SSH call ultimately runs under `BatchMode=yes`, which disables
-/// keyboard-interactive auth. On a Duo/MFA cluster that can only succeed by
-/// riding a ControlMaster the user already authenticated from an interactive
-/// terminal. Without this preflight the failure surfaces as an opaque
-/// "transient SSH error"; with it, the watchdog can tell the user exactly what
-/// to do. Returns `Ok` when a live master exists (or we can cold-start one with
-/// a key), and a human-readable `Err` otherwise. No-op (Ok) on Windows, whose
-/// persistent `WinSshExecChannel` manages its own connection lifecycle.
+/// These SSH calls run under `BatchMode=yes`, which disables keyboard-interactive
+/// auth. On a Duo/MFA cluster that can only succeed by riding a ControlMaster the
+/// user already authenticated from an interactive terminal. Without this
+/// preflight the failure surfaces as an opaque "transient SSH error"; with it we
+/// can tell the user exactly what to do. Returns `Ok` when a live master exists
+/// (or we can cold-start one with a key), and a human-readable `Err` otherwise.
+/// No-op (Ok) on Windows, whose persistent `WinSshExecChannel` manages its own
+/// connection lifecycle.
 pub(crate) fn ensure_live_connection(profile: &SSHProfile) -> Result<(), String> {
     if !crate::platform::supports_ssh_mux() {
         return Ok(());

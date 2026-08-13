@@ -86,7 +86,9 @@ pub use settings::{
     detect_custom_models, get_settings, start_dictation, stop_dictation, test_custom_endpoint,
     test_custom_endpoint_via_proxy, update_settings,
 };
-pub use slurm::{slurm_cancel_job, slurm_query_jobs, slurm_submit_job};
+pub use slurm::{
+    list_cluster_jobs, read_job_log_tail, slurm_cancel_job, slurm_query_jobs, slurm_submit_job,
+};
 pub use ssh::{
     batch_delete_remote_files, check_control_master, clear_ssh_cache, create_remote_directory,
     delete_remote_file, delete_ssh_profile, detect_server_config, get_remote_home,
@@ -100,11 +102,7 @@ pub use ssh::{
 pub use terminal::{
     get_terminal_cwd, kill_terminal, resize_terminal, spawn_terminal, write_terminal,
 };
-pub use watchdog::{
-    bootstrap_watchdog, detect_scheduler, get_job_policy, install_watchdog, list_watched_jobs,
-    read_job_events, register_watched_job, set_job_policy, start_job_tail, start_watchdog,
-    stop_job_tail, stop_watchdog, unregister_watched_job, watchdog_status,
-};
+pub use watchdog::cleanup_legacy_watchdog;
 
 #[tauri::command]
 pub fn greet(name: &str) -> String {

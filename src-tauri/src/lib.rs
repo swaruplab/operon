@@ -8,8 +8,6 @@ use commands::{
     batch_delete_remote_files,
     batch_read_file_previews,
     batch_read_remote_file_previews,
-    // Watchdog (Operon 0.6.1 — HPC job monitoring)
-    bootstrap_watchdog,
     browse_extensions_by_category,
     check_auth_status,
     // Claude Code
@@ -29,6 +27,7 @@ use commands::{
     check_remote_ripgrep,
     check_session_files,
     check_ssh_available,
+    cleanup_legacy_watchdog,
     clear_session_state,
     clear_ssh_cache,
     create_directory,
@@ -41,7 +40,6 @@ use commands::{
     delete_session,
     delete_ssh_profile,
     detect_custom_models,
-    detect_scheduler,
     detect_server_config,
     disable_extension,
     disable_mcp_server,
@@ -70,7 +68,6 @@ use commands::{
     get_extension_reviews,
     get_extension_settings,
     get_home_dir,
-    get_job_policy,
     get_latest_claude_code_version,
     // MCP
     get_mcp_catalog,
@@ -129,10 +126,11 @@ use commands::{
     install_remote_extension,
     install_remote_mcp_server,
     install_remote_ripgrep,
-    install_watchdog,
     install_xcode_cli,
     kill_terminal,
     launch_claude_login,
+    // SLURM/PBS submission
+    list_cluster_jobs,
     // Files
     list_directory,
     list_files_matching_regex,
@@ -149,7 +147,6 @@ use commands::{
     list_sessions,
     list_ssh_config_hosts,
     list_ssh_profiles,
-    list_watched_jobs,
     load_session_state,
     mark_completion_seen,
     open_url,
@@ -158,7 +155,7 @@ use commands::{
     read_extension_theme,
     read_file,
     read_file_base64,
-    read_job_events,
+    read_job_log_tail,
     read_plan_history_entry,
     read_protocol,
     read_remote_file,
@@ -171,7 +168,6 @@ use commands::{
     refresh_models_if_stale,
     refresh_portkey_presets,
     register_slurm_job_metadata,
-    register_watched_job,
     remote_claude_login,
     remove_mcp_server,
     rename_path,
@@ -207,7 +203,6 @@ use commands::{
     // Knowledge Base
     search_pubmed,
     send_lsp_message,
-    set_job_policy,
     set_review_marker,
     setup_ssh_key,
     sftp_dir_download_with_progress,
@@ -216,7 +211,6 @@ use commands::{
     singularity_action,
     singularity_list_images,
     singularity_list_instances,
-    // SLURM/PBS submission
     slurm_cancel_job,
     slurm_query_jobs,
     slurm_submit_job,
@@ -224,19 +218,15 @@ use commands::{
     spawn_terminal,
     start_claude_session,
     start_dictation,
-    start_job_tail,
     start_language_server,
     start_remote_language_server,
     // Translation proxy (Anthropic ↔ OpenAI)
     start_translation_proxy,
-    start_watchdog,
     stop_claude_session,
     stop_control_master,
     stop_dictation,
-    stop_job_tail,
     stop_language_server,
     stop_translation_proxy,
-    stop_watchdog,
     store_api_key,
     teardown_remote_footprint,
     test_custom_endpoint,
@@ -244,7 +234,6 @@ use commands::{
     test_ssh_connection,
     translation_proxy_status,
     uninstall_extension,
-    unregister_watched_job,
     update_extension_settings,
     update_mcp_server_env,
     update_remote_claude,
@@ -252,7 +241,6 @@ use commands::{
     update_session_status,
     update_settings,
     validate_extension_install,
-    watchdog_status,
     write_file,
     write_remote_file,
     write_terminal,
@@ -272,7 +260,6 @@ use commands::sshauth::{
     key_needs_passphrase, set_ssh_key_passphrase,
 };
 use commands::terminal::TerminalManager;
-use commands::watchdog::WatchdogManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -287,7 +274,6 @@ pub fn run() {
         .manage(SettingsManager::new())
         .manage(ExtensionManager::new())
         .manage(ProxyManager::new())
-        .manage(WatchdogManager::new())
         .manage(JobNotifyManager::new())
         .manage(SessionStateManager::new())
         .setup(|app| {
@@ -551,21 +537,9 @@ pub fn run() {
             review_code,
             read_review_events,
             set_review_marker,
-            // Watchdog (Operon 0.6.1)
-            bootstrap_watchdog,
-            detect_scheduler,
-            install_watchdog,
-            start_watchdog,
-            stop_watchdog,
-            watchdog_status,
-            register_watched_job,
-            unregister_watched_job,
-            list_watched_jobs,
-            get_job_policy,
-            set_job_policy,
-            read_job_events,
-            start_job_tail,
-            stop_job_tail,
+            // HPC job tracking. The login-node watchdog daemon was removed; job
+            // state comes from list_cluster_jobs (squeue + sacct) on demand.
+            cleanup_legacy_watchdog,
             // Job completion notifications (0.6.8)
             register_slurm_job_metadata,
             list_pending_completions,
@@ -579,6 +553,8 @@ pub fn run() {
             slurm_submit_job,
             slurm_query_jobs,
             slurm_cancel_job,
+            list_cluster_jobs,
+            read_job_log_tail,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -595,8 +571,6 @@ pub fn run() {
                 // Kill all local Claude/node agent sessions (otherwise they
                 // orphan and keep running after the window closes).
                 window.state::<ClaudeManager>().kill_all();
-                // Kill all watchdog job tails (login-node tail helpers).
-                window.state::<WatchdogManager>().kill_all();
                 // Kill the translation proxy sidecar if running
                 let proxy = window.state::<ProxyManager>();
                 let _ = proxy.stop();
@@ -625,12 +599,7 @@ pub fn run() {
 #[cfg(test)]
 mod command_wiring_tests {
     /// Commands intentionally not invoked from `src/`. Keep the reason attached.
-    const CALLED_FROM_RUST_ONLY: &[(&str, &str)] = &[(
-        "register_watched_job",
-        "called from register_slurm_job_metadata (job_notify.rs) after it writes \
-         the local registry; the frontend deliberately goes through registerSlurmJob \
-         so notification metadata is never skipped",
-    )];
+    const CALLED_FROM_RUST_ONLY: &[(&str, &str)] = &[];
 
     /// Commands that were registered but never wired to the UI, found when this
     /// check was first written. They are recorded rather than silently tolerated:
