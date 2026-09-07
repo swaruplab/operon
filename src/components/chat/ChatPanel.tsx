@@ -76,7 +76,7 @@ function isVersionOlder(a: string, b: string): boolean {
   }
   return false;
 }
-import { getCachedModels, groupAndSort, supportedEffortLevels, type ModelInfo, type EffortLevel } from '../../lib/models';
+import { getCachedModels, groupAndSort, supportedEffortLevels, clampEffort, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import { copyText } from '../../lib/clipboard';
@@ -3898,6 +3898,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           {(() => {
             const grouped = groupAndSort(anthropicModels);
             const tiers: Array<[string, ModelInfo[]]> = [
+              ['Anthropic — Fable', grouped.fable],
               ['Anthropic — Opus', grouped.opus],
               ['Anthropic — Sonnet', grouped.sonnet],
               ['Anthropic — Haiku', grouped.haiku],
@@ -3955,7 +3956,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
           const currentModel = anthropicModels.find((m) => m.id === model);
           const levels = supportedEffortLevels(currentModel);
           if (levels.length === 0) return null;
-          const activeIdx = Math.max(0, levels.indexOf(effort));
+          // `effort` is global and persists across model switches, so it can be
+          // a level this model doesn't offer (stored `max`, then Sonnet 4.6
+          // selected). The backend drops `--effort` in that case, so show what
+          // will actually be sent rather than the stored value, and cycle from
+          // there — indexOf(-1) would otherwise make the first click skip the
+          // lowest level.
+          const shown = clampEffort(currentModel, effort) ?? levels[0];
+          const activeIdx = levels.indexOf(shown);
           const cycle = () => {
             const next = levels[(activeIdx + 1) % levels.length];
             setEffort(next);
@@ -3968,10 +3976,14 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <button
               type="button"
               onClick={cycle}
-              title={`Reasoning effort: ${effort}. Click to cycle (${levels.join(' → ')})`}
+              title={
+                shown === effort
+                  ? `Reasoning effort: ${shown}. Click to cycle (${levels.join(' → ')})`
+                  : `Reasoning effort: ${shown} — this model does not support ${effort}. Click to cycle (${levels.join(' → ')})`
+              }
               className="shrink-0 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium bg-surface hover:bg-elevated border border-border-strong text-secondary transition-colors"
             >
-              {effort}
+              {shown}
             </button>
           );
         })()}

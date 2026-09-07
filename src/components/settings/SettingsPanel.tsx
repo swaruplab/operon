@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { emit } from '@tauri-apps/api/event';
 import type { AppSettings } from '../../lib/settings';
 import { DEFAULT_SETTINGS, detectCustomModels, testCustomEndpoint, testCustomEndpointViaProxy, startTranslationProxy, stopTranslationProxy, translationProxyStatus, type ProxyStatus } from '../../lib/settings';
-import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, type ModelInfo } from '../../lib/models';
+import { getCachedModels, fetchAnthropicModels, groupAndSort, supportedEffortLevels, clampEffort, type ModelInfo } from '../../lib/models';
 import {
   listPortkeyPresets, fetchPortkeyModels,
   groupPortkeyModelsByFamily, familyLabel, pickBestPortkeyModel,
@@ -976,6 +976,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                     {(() => {
                       const grouped = groupAndSort(anthropicModels);
                       const groups: Array<[string, ModelInfo[]]> = [
+                        ['Fable', grouped.fable],
                         ['Opus', grouped.opus],
                         ['Sonnet', grouped.sonnet],
                         ['Haiku', grouped.haiku],
@@ -1018,6 +1019,11 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
               {(() => {
                 const currentModel = anthropicModels.find((m) => m.id === settings.model);
                 const levels = supportedEffortLevels(currentModel);
+                // A stored level the selected model doesn't offer would leave
+                // the <select> with no matching <option> (blank), while the run
+                // silently used something else. Show the level that will
+                // actually be sent, and say so.
+                const effective = clampEffort(currentModel, settings.effort);
                 return (
                   <label className="flex items-center justify-between">
                     <div>
@@ -1025,9 +1031,14 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       {levels.length === 0 && (
                         <div className="text-xs text-muted mt-0.5">Not supported by this model</div>
                       )}
+                      {effective !== null && effective !== settings.effort && (
+                        <div className="text-xs text-muted mt-0.5">
+                          {settings.effort} not supported by this model — using {effective}
+                        </div>
+                      )}
                     </div>
                     <select
-                      value={settings.effort}
+                      value={effective ?? settings.effort}
                       onChange={(e) => saveSettings({ ...settings, effort: e.target.value })}
                       disabled={levels.length === 0}
                       className="w-56 px-2 py-1 bg-surface border border-border-strong rounded text-sm text-primary outline-none disabled:opacity-40"
@@ -1237,7 +1248,12 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   const rid = settings.reviewer_model || 'claude-sonnet-5';
                   const rm = anthropicModels.find((m) => m.id === rid);
                   const levels = supportedEffortLevels(rm);
-                  const opts = levels.length ? levels : ['low'];
+                  // Reviewer models that take no effort flag (Haiku) still need
+                  // a value in the <select>; keep the stored one rather than
+                  // rewriting it to 'low' behind the user's back.
+                  const rEffort = settings.reviewer_effort || 'low';
+                  const rEffective = clampEffort(rm, rEffort) ?? rEffort;
+                  const opts: string[] = levels.length ? levels : [rEffective];
                   return (
                     <div className="flex gap-2">
                       <div className="flex-1 min-w-0">
@@ -1259,7 +1275,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                       <div className="w-24 shrink-0">
                         <label className="text-[10px] text-muted block mb-1">Effort</label>
                         <select
-                          value={settings.reviewer_effort || 'low'}
+                          value={rEffective}
                           disabled={settings.reviewer_enabled === false}
                           onChange={(e) => saveSettings({ ...settings, reviewer_effort: e.target.value })}
                           className="w-full bg-surface border border-border-strong rounded px-2 py-1 text-xs text-primary disabled:opacity-50"

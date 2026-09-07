@@ -29,10 +29,13 @@ pub struct EffortCapability {
     pub medium: CapabilitySupport,
     #[serde(default)]
     pub high: CapabilitySupport,
-    #[serde(default)]
-    pub max: CapabilitySupport,
+    // Canonical order is low < medium < high < xhigh < max: `xhigh` sits
+    // BETWEEN `high` and `max`. Declared in that order so the struct, the
+    // serialized cache and `src/lib/models.ts` all read the same way.
     #[serde(default)]
     pub xhigh: CapabilitySupport,
+    #[serde(default)]
+    pub max: CapabilitySupport,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -98,19 +101,38 @@ fn bundled_models() -> Vec<ModelInfo> {
         low: yes.clone(),
         medium: yes.clone(),
         high: yes.clone(),
-        max: yes.clone(),
         xhigh: yes.clone(),
+        max: yes.clone(),
     };
     let sonnet_effort = EffortCapability {
         supported: true,
         low: yes.clone(),
         medium: yes.clone(),
         high: yes.clone(),
-        max: CapabilitySupport::default(),
         xhigh: CapabilitySupport::default(),
+        max: CapabilitySupport::default(),
     };
     let no_effort = EffortCapability::default();
     vec![
+        // Anthropic's most capable widely released model, and newer than Opus
+        // 5. Operon's default deliberately stays Opus 5 (see `DEFAULT_MODEL` in
+        // settings.rs) — Fable is offered, not forced.
+        //
+        // Fable gets its own tier in the dropdowns (`tierOf` in
+        // src/lib/models.ts), and both dropdowns render that tier first, so
+        // `created_at` does not decide its position against Opus 5 — it orders
+        // models WITHIN a tier, which is what will place a future Fable release
+        // above this one.
+        ModelInfo {
+            id: "claude-fable-5-1".to_string(),
+            display_name: "Claude Fable 5.1".to_string(),
+            created_at: "2026-08-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities {
+                effort: all_effort.clone(),
+            },
+        },
         ModelInfo {
             id: "claude-opus-5".to_string(),
             display_name: "Claude Opus 5".to_string(),
@@ -153,8 +175,11 @@ fn bundled_models() -> Vec<ModelInfo> {
                 effort: sonnet_effort,
             },
         },
+        // Current Anthropic model ids are complete as-is and carry no date
+        // suffix; the dated `claude-haiku-4-5-20251001` Operon used to ship is
+        // retired and is stripped from stale caches by [`RETIRED_MODEL_IDS`].
         ModelInfo {
-            id: "claude-haiku-4-5-20251001".to_string(),
+            id: "claude-haiku-4-5".to_string(),
             display_name: "Claude Haiku 4.5".to_string(),
             created_at: "2025-10-01T00:00:00Z".to_string(),
             max_input_tokens: 200_000,
@@ -162,6 +187,47 @@ fn bundled_models() -> Vec<ModelInfo> {
             capabilities: ModelCapabilities { effort: no_effort },
         },
     ]
+}
+
+/// Model ids Operon used to ship that Anthropic has since retired, each mapped
+/// to the id that supersedes it — the same model under its current name, or its
+/// successor where the model itself is gone. Current Anthropic ids are complete
+/// as they stand and never take a date suffix, so a dated id can only have come
+/// from an older Operon release (or from the `models_cache.json` one wrote).
+///
+/// This is the single source for BOTH halves of a retirement: `drop_retired_ids`
+/// evicts the id from the catalog, and `migrate_settings` (settings.rs) rewrites
+/// it wherever a user has one stored. Retiring another id is one line here.
+pub(crate) const RETIRED_MODEL_IDS: &[(&str, &str)] = &[
+    // Pure rename — same model, the date suffix was never part of the id.
+    ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+    // Genuinely retired; mapped to the successor in the same tier.
+    ("claude-opus-4-20250514", "claude-opus-5"),
+    ("claude-sonnet-4-20250514", "claude-sonnet-4-6"),
+];
+
+/// Drop entries from `models` whose id is retired **and** whose replacement
+/// will be in the final list — either already in `models` or about to be
+/// unioned in from `incoming` (the bundled catalog).
+///
+/// Without this, a returning user whose `models_cache.json` still holds
+/// `claude-haiku-4-5-20251001` gets BOTH it and `claude-haiku-4-5` unioned
+/// together: two identical-looking "Claude Haiku 4.5" rows in every dropdown,
+/// one of them a dead id the CLI would reject — and it's the dead one a
+/// returning user may still have selected.
+///
+/// A retired id whose replacement is nowhere to be found is deliberately KEPT:
+/// dropping it could empty the dropdown, which is worse than a stale row.
+fn drop_retired_ids(models: &mut Vec<ModelInfo>, incoming: &[ModelInfo], retired: &[(&str, &str)]) {
+    let present: std::collections::HashSet<String> = models
+        .iter()
+        .chain(incoming.iter())
+        .map(|m| m.id.clone())
+        .collect();
+    models.retain(|m| match retired.iter().find(|(old, _)| *old == m.id) {
+        Some((_, replacement)) => !present.contains(*replacement),
+        None => true,
+    });
 }
 
 /// Anthropic's `GET /v1/models` returns id / display_name / created_at but NOT
@@ -177,6 +243,10 @@ fn bundled_models() -> Vec<ModelInfo> {
 /// selectable with its full effort range regardless of the fetch path.
 fn enrich_fetched_models(mut fetched: Vec<ModelInfo>) -> Vec<ModelInfo> {
     let bundled = bundled_models();
+    // Before overlaying or unioning: evict ids Anthropic has retired, so a
+    // stale cache can't contribute a duplicate row for a model the bundled
+    // catalog already carries under its current id.
+    drop_retired_ids(&mut fetched, &bundled, RETIRED_MODEL_IDS);
     for m in fetched.iter_mut() {
         let Some(b) = bundled.iter().find(|b| b.id == m.id) else {
             continue;
@@ -312,8 +382,8 @@ pub fn model_supports_effort_level(model_id: &str, level: &str) -> bool {
         "low" => m.capabilities.effort.low.supported,
         "medium" => m.capabilities.effort.medium.supported,
         "high" => m.capabilities.effort.high.supported,
-        "max" => m.capabilities.effort.max.supported,
         "xhigh" => m.capabilities.effort.xhigh.supported,
+        "max" => m.capabilities.effort.max.supported,
         _ => false,
     }
 }
@@ -373,6 +443,169 @@ mod tests {
         assert!(o5.capabilities.effort.high.supported);
         assert!(o5.capabilities.effort.max.supported);
         assert!(o5.capabilities.effort.xhigh.supported);
+    }
+
+    #[test]
+    fn fable_5_1_is_bundled_first_with_full_effort() {
+        let models = bundled_models();
+        assert_eq!(
+            models[0].id, "claude-fable-5-1",
+            "Fable 5.1 leads the bundled catalog"
+        );
+        let f = &models[0];
+        assert_eq!(f.display_name, "Claude Fable 5.1");
+        assert_eq!(f.max_input_tokens, 1_000_000);
+        assert_eq!(f.max_tokens, 128_000);
+        assert!(f.capabilities.effort.supported);
+        assert!(f.capabilities.effort.low.supported);
+        assert!(f.capabilities.effort.medium.supported);
+        assert!(f.capabilities.effort.high.supported);
+        assert!(f.capabilities.effort.xhigh.supported);
+        assert!(f.capabilities.effort.max.supported);
+        // The claude command assembler gates `--effort` on this.
+        assert!(model_supports_effort_level("claude-fable-5-1", "xhigh"));
+        assert!(model_supports_effort_level("claude-fable-5-1", "max"));
+    }
+
+    #[test]
+    fn fable_5_1_sorts_above_opus_5() {
+        // The frontend orders each tier by `created_at` DESC as a plain string
+        // compare, so Fable's date has to be strictly greater than Opus 5's or
+        // the newer model lands below the older one in the dropdown.
+        let models = bundled_models();
+        let fable = models.iter().find(|m| m.id == "claude-fable-5-1").unwrap();
+        let opus5 = models.iter().find(|m| m.id == "claude-opus-5").unwrap();
+        assert!(
+            fable.created_at.as_str() > opus5.created_at.as_str(),
+            "{} must sort above {}",
+            fable.created_at,
+            opus5.created_at
+        );
+    }
+
+    #[test]
+    fn haiku_4_5_uses_the_undated_id_and_supports_no_effort() {
+        let models = bundled_models();
+        assert!(
+            !models.iter().any(|m| m.id.contains("20251001")),
+            "current Anthropic ids carry no date suffix"
+        );
+        let h = models
+            .iter()
+            .find(|m| m.id == "claude-haiku-4-5")
+            .expect("Haiku 4.5 bundled under its undated id");
+        assert_eq!(h.display_name, "Claude Haiku 4.5");
+        assert_eq!(h.created_at, "2025-10-01T00:00:00Z");
+        assert_eq!(h.max_input_tokens, 200_000);
+        assert_eq!(h.max_tokens, 64_000);
+        assert!(!h.capabilities.effort.supported);
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            assert!(
+                !model_supports_effort_level("claude-haiku-4-5", level),
+                "Haiku 4.5 supports no effort level, got {level}"
+            );
+        }
+    }
+
+    #[test]
+    fn opus_5_default_still_has_every_effort_level() {
+        // Fable 5.1 shipping alongside must not disturb the default model.
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            assert!(
+                model_supports_effort_level("claude-opus-5", level),
+                "Opus 5 must keep {level}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cache_with_the_retired_haiku_id_enriches_to_one_clean_haiku() {
+        // The upgrade shape: an existing models_cache.json still holds the dated
+        // id. Union alone would produce two identical-looking "Claude Haiku 4.5"
+        // rows, and the dead one is what a returning user may have selected.
+        let cached = vec![ModelInfo {
+            id: "claude-haiku-4-5-20251001".to_string(),
+            display_name: "Claude Haiku 4.5".to_string(),
+            created_at: "2025-10-01T00:00:00Z".to_string(),
+            max_input_tokens: 200_000,
+            max_tokens: 64_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        let enriched = enrich_fetched_models(cached);
+        let haikus: Vec<&ModelInfo> = enriched
+            .iter()
+            .filter(|m| m.display_name == "Claude Haiku 4.5")
+            .collect();
+        assert_eq!(haikus.len(), 1, "exactly one Haiku row survives");
+        assert_eq!(haikus[0].id, "claude-haiku-4-5");
+        assert!(!enriched.iter().any(|m| m.id.contains("20251001")));
+    }
+
+    #[test]
+    fn every_retired_id_is_evicted_when_its_replacement_ships() {
+        // The table drives both halves of a retirement, so each entry must
+        // actually resolve against the bundled catalog — a typo'd replacement
+        // would silently keep the dead id in every dropdown forever.
+        let bundled = bundled_models();
+        for (old, replacement) in RETIRED_MODEL_IDS {
+            assert!(
+                bundled.iter().any(|m| m.id == *replacement),
+                "{old} maps to {replacement}, which is not in the bundled catalog"
+            );
+            assert!(
+                !bundled.iter().any(|m| m.id == *old),
+                "{old} is retired but still shipped in bundled_models()"
+            );
+            let cached = vec![ModelInfo {
+                id: (*old).to_string(),
+                display_name: "stale".to_string(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                max_input_tokens: 0,
+                max_tokens: 0,
+                capabilities: ModelCapabilities::default(),
+            }];
+            let enriched = enrich_fetched_models(cached);
+            assert!(
+                !enriched.iter().any(|m| m.id == *old),
+                "{old} survived enrichment"
+            );
+            assert!(enriched.iter().any(|m| m.id == *replacement));
+        }
+    }
+
+    #[test]
+    fn a_retired_id_is_kept_when_its_replacement_is_missing() {
+        // Never silently empty a dropdown: if the replacement is in neither the
+        // cache nor the bundled catalog, the stale row is better than nothing.
+        let mut models = vec![ModelInfo {
+            id: "claude-opus-4-8".to_string(),
+            display_name: "Claude Opus 4.8".to_string(),
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        drop_retired_ids(&mut models, &[], &[("claude-opus-4-8", "claude-opus-4-9")]);
+        assert_eq!(models.len(), 1, "no replacement anywhere → keep the entry");
+
+        // ...and it IS dropped once the replacement is on offer.
+        let replacement = vec![ModelInfo {
+            id: "claude-opus-4-9".to_string(),
+            display_name: "Claude Opus 4.9".to_string(),
+            created_at: "2026-05-02T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        drop_retired_ids(
+            &mut models,
+            &replacement,
+            &[("claude-opus-4-8", "claude-opus-4-9")],
+        );
+        assert!(
+            models.is_empty(),
+            "replacement present → retired id evicted"
+        );
     }
 
     #[test]

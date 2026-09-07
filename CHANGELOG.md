@@ -4,6 +4,65 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] — 2026-09-06
+
+### Added
+- **Claude Fable 5.1 is selectable, with its full effort range.** Added to the
+  bundled model catalog (`claude-fable-5-1`, 1M context / 128K output, effort
+  `low` through `max` including `xhigh`) and given its own group at the top of
+  both model dropdowns. **Claude Opus 5 at effort `high` remains the default** —
+  Fable is offered, not forced, and no existing install is moved onto it.
+
+### Fixed
+- **Remote file operations no longer report failure as success.** Operon's
+  persistent SSH channel merges stderr into stdout, and the exec layer treated
+  any non-empty output as success — so a failed `cat` opened its own error
+  message as the file's contents, a failed rename or delete looked like a no-op,
+  and a failed save flashed "Saved". Transport and command failure are now
+  distinct: a non-zero exit from a file operation is an error carrying the
+  command's own diagnostic, surfaced in the explorer and next to the Save
+  button, with the editor tab left dirty.
+- **Saving a large file to a macOS remote no longer empties it.** The chunked
+  write ran `base64 -d -- tmp > target`, which truncates the target before the
+  decoder runs; BSD `base64` takes no path operand, so on a Mac remote every
+  save above ~75 KB left a zero-byte file and reported success. Decoding now
+  happens into a temp file beside the target and is copied in only on success,
+  preserving the target's inode and mode. A failed decode leaves the original
+  untouched; a failed copy keeps the decoded content and says where it is.
+- **Images, PDFs and Office files open from a macOS remote.** Reading a binary
+  file used the same non-portable `base64` form and returned the tool's usage
+  text as if it were the file's bytes, so every preview rendered blank.
+- **Remote listings survive unusual filenames and locales.** `ls` now runs under
+  a fixed locale, and the parser takes the filename verbatim instead of
+  rebuilding it from whitespace-split fields — names with two consecutive
+  spaces, an embedded ` -> `, or a trailing `@ * = |` produced paths that did
+  not exist.
+- **Remote search, the chat file manifest and report scanning work against a
+  macOS host.** These used GNU-only `find -printf` and installed a Linux
+  `ripgrep` binary without verifying it runs; both failed silently.
+- **The reasoning-effort control is ordered correctly and tells the truth.** The
+  levels ran `high → max → xhigh`; the canonical order is
+  `low < medium < high < xhigh < max`. The selector and the composer's cycle
+  button now also show the level that will actually be sent when the chosen
+  model does not support the stored one, instead of claiming a depth the run
+  silently drops.
+
+- **New protocol: FORGE.** The Swarup Lab's Nextflow pipeline for end-to-end
+  single-cell / single-nucleus multiome (RNA + ATAC) analysis is now in the
+  bundled protocol catalog — the pinned Nextflow version window and the
+  `NXF_VER` trap, the fifteen-second `-preview` pre-flight, the manifest CSV and
+  dataset config, the five Singularity containers, minimal versus full
+  references, adapting the `slurm_*` parameters to a non-UCI cluster, on-ramps,
+  and the failure modes that cost hours.
+
+### Changed
+- **Claude Haiku 4.5's id lost its date suffix** (`claude-haiku-4-5-20251001` →
+  `claude-haiku-4-5`); current Anthropic ids are complete as they stand. Retired
+  ids are now evicted from the cached catalog and rewritten in settings from one
+  shared table, so a stale `models_cache.json` can no longer show two
+  identical-looking Haiku rows, and a reviewer model pinned to a retired id is
+  repaired too.
+
 ## [1.0.5] — 2026-08-13
 
 ### Removed

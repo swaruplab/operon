@@ -2081,8 +2081,23 @@ pub async fn install_remote_extension(
     super::ssh::ssh_exec(&profile, &mkdir_cmd)
         .map_err(|e| format!("Failed to create remote dir: {}", e))?;
 
-    // SCP the VSIX file
-    let mut scp_args = vec!["-o".to_string(), "StrictHostKeyChecking=no".to_string()];
+    // SCP the VSIX file. BatchMode + ConnectTimeout keep a passwordful or
+    // unreachable host from hanging on an invisible prompt, and the live mux
+    // socket (when there is one) reuses the already-authenticated connection —
+    // same flags install_remote_ripgrep uses in files.rs.
+    let mut scp_args = vec![
+        "-o".to_string(),
+        "StrictHostKeyChecking=no".to_string(),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+        "-o".to_string(),
+        "ConnectTimeout=10".to_string(),
+    ];
+    let sock = crate::platform::ssh_socket_path(&profile.host, profile.port, &profile.user);
+    if sock.exists() {
+        scp_args.push("-o".to_string());
+        scp_args.push(format!("ControlPath={}", sock.to_string_lossy()));
+    }
     if profile.port != 22 {
         scp_args.push("-P".to_string());
         scp_args.push(profile.port.to_string());
@@ -2097,17 +2112,46 @@ pub async fn install_remote_extension(
     scp_args.push(tmp_path.to_string_lossy().to_string());
     scp_args.push(format!("{}:{}/{}.vsix", host_str, remote_ext_dir, ext_id));
 
-    hide_window(std::process::Command::new("scp").args(&scp_args))
+    let scp_out = hide_window(std::process::Command::new("scp").args(&scp_args))
         .output()
         .map_err(|e| format!("SCP failed: {}", e))?;
+    if !scp_out.status.success() {
+        // Without this the upload could fail (auth, unreachable host, bad
+        // path) and the extension still reported as installed.
+        let stderr = String::from_utf8_lossy(&scp_out.stderr);
+        let detail = stderr.trim();
+        return Err(format!(
+            "SCP of {}.vsix to {} failed{}",
+            ext_id,
+            profile.host,
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", detail)
+            }
+        ));
+    }
 
-    // Extract on remote
+    // Extract on remote. The sentinel is the only proof of success: the
+    // command ends with `rm -f`, so its exit status is always 0, and the SSH
+    // channel merges stderr into stdout, so unzip's error text alone would
+    // read as success.
     let extract_cmd = format!(
-        "cd {} && unzip -o {}.vsix -d . 2>/dev/null || python3 -c \"import zipfile; zipfile.ZipFile('{}.vsix').extractall('.')\" 2>/dev/null; rm -f {}.vsix",
-        remote_ext_dir, ext_id, ext_id, ext_id
+        "cd {dir} && {{ unzip -o {id}.vsix -d . 2>&1 || python3 -c \"import zipfile; zipfile.ZipFile('{id}.vsix').extractall('.')\" 2>&1; }} && echo OPERON_EXT_OK; rm -f {id}.vsix",
+        dir = remote_ext_dir,
+        id = ext_id
     );
-    super::ssh::ssh_exec(&profile, &extract_cmd)
+    let extract_out = super::ssh::ssh_exec(&profile, &extract_cmd)
         .map_err(|e| format!("Remote extraction failed: {}", e))?;
+    if !extract_out.contains("OPERON_EXT_OK") {
+        let detail = extract_out.trim();
+        let tail: Vec<&str> = detail.lines().rev().take(10).collect();
+        return Err(format!(
+            "Remote extraction of {} failed: {}",
+            ext_id,
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        ));
+    }
 
     // Clean up local temp
     let _ = std::fs::remove_file(&tmp_path);

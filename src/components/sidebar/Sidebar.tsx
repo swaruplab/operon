@@ -1175,6 +1175,7 @@ function SearchView({ sshConnection, remotePath }: SearchViewProps) {
       }, 80);
     } catch (err) {
       console.error('Failed to open search hit:', err);
+      setError(`Could not open ${hit.path}: ${err}`);
     }
   };
 

@@ -275,8 +275,9 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
           const content = await invoke<string>('read_file', { path });
           openFile(path, content);
         }
-      } catch {
-        // File might not exist yet or be binary — skip
+      } catch (err) {
+        // File might not exist yet or be binary — skip, but leave a trace
+        console.warn(`open-file: could not read ${path}:`, err);
       }
     });
     return () => { unlisten.then(u => u()); };

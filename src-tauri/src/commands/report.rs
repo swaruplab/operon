@@ -131,6 +131,25 @@ const DOC_EXTS: &[&str] = &["md", "txt", "json", "html", "htm", "yaml", "yml", "
 /// Source code and script files relevant for bioinformatics report context
 const CODE_EXTS: &[&str] = &["r", "rmd", "py", "ipynb", "sh", "bash", "nf", "smk", "wdl"];
 
+/// `find -name` patterns for a remote scan — the shell mirror of
+/// PDF_EXTS + IMAGE_EXTS + CSV_EXTS + DOC_EXTS + CODE_EXTS (find's `-name` is
+/// case-sensitive, hence the explicit `*.R` / `*.Rmd` variants).
+///
+/// Every remote `find` is built from this one list. The primary and fallback
+/// commands used to carry their own hand-written copies, and the fallback's
+/// had silently lost every script and notebook extension.
+const SCAN_NAME_PATTERNS: &[&str] = &[
+    "*.pdf", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp", "*.svg", "*.tiff", "*.tif",
+    "*.csv", "*.tsv", "*.md", "*.txt", "*.json", "*.html", "*.htm", "*.yaml", "*.yml", "*.toml",
+    "*.R", "*.r", "*.Rmd", "*.rmd", "*.py", "*.ipynb", "*.sh", "*.bash", "*.nf", "*.smk", "*.wdl",
+];
+
+/// `find` prunes for a remote scan — shared by the primary and fallback
+/// commands for the same reason as [`SCAN_NAME_PATTERNS`].
+const SCAN_PRUNES: &str = "-not -path '*/.git/*' -not -path '*/node_modules/*' \
+     -not -path '*/__pycache__/*' -not -path '*/.operon/*' -not -path '*/.cache/*' \
+     -not -path '*/target/*' -not -path '*/.snakemake/*' -not -path '*/.nextflow/*'";
+
 /// Max document file size for inclusion (2 MB)
 const MAX_DOC_SIZE: u64 = 2 * 1024 * 1024;
 
@@ -990,28 +1009,35 @@ pub async fn scan_remote_project_files(
     // Use find command to get all reportable files with sizes.
     // Must match all extensions from PDF_EXTS, IMAGE_EXTS, CSV_EXTS, and DOC_EXTS.
     //
-    // Strategy: Try GNU find -printf first (most Linux HPC systems have this).
-    // The shell_escape() wrapper single-quotes the entire command, so we can't use
-    // shell variables ($f, $s). Keep it to a single find invocation.
+    // Sizes come from `stat`, not from GNU's `find -printf` (BSD find on a
+    // macOS remote rejects -printf; the message went to /dev/null and `head`
+    // still exited 0, so the scan silently fell back to a size-less, shorter
+    // extension list). One `-exec sh -c` picks GNU `stat -c` or BSD `stat -f`
+    // at runtime and emits the same `size\tpath` lines on both. The extension
+    // list and the prunes are built once, so the primary command and the
+    // last-resort fallback below cannot drift apart again.
     let escaped_path = path.replace('\'', "'\\''");
+    let name_tests = SCAN_NAME_PATTERNS
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            if i == 0 {
+                format!("-name '{}'", n)
+            } else {
+                format!("-o -name '{}'", n)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
     let find_cmd = format!(
-        "find '{p}' -maxdepth {d} -type f \\( \
-         -name '*.pdf' \
-         -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' \
-         -o -name '*.bmp' -o -name '*.webp' -o -name '*.svg' -o -name '*.tiff' -o -name '*.tif' \
-         -o -name '*.csv' -o -name '*.tsv' \
-         -o -name '*.md' -o -name '*.txt' -o -name '*.json' -o -name '*.html' -o -name '*.htm' \
-         -o -name '*.yaml' -o -name '*.yml' -o -name '*.toml' \
-         -o -name '*.R' -o -name '*.r' -o -name '*.Rmd' -o -name '*.rmd' \
-         -o -name '*.py' -o -name '*.ipynb' -o -name '*.sh' -o -name '*.bash' \
-         -o -name '*.nf' -o -name '*.smk' -o -name '*.wdl' \
-         \\) \
-         -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-         -not -path '*/.operon/*' -not -path '*/.cache/*' -not -path '*/target/*' \
-         -not -path '*/.snakemake/*' -not -path '*/.nextflow/*' \
-         -printf '%s\\t%p\\n' 2>/dev/null | head -5000",
+        "find '{p}' -maxdepth {d} -type f \\( {names} \\) {prunes} \
+         -exec sh -c 'T=$(printf \"\\t\"); \
+         if stat -c %s /dev/null >/dev/null 2>&1; then stat -c \"%s${{T}}%n\" \"$@\"; \
+         else stat -f \"%z${{T}}%N\" \"$@\"; fi' _ {{}} + 2>/dev/null | head -5000",
         p = escaped_path,
-        d = MAX_SCAN_DEPTH
+        d = MAX_SCAN_DEPTH,
+        names = name_tests,
+        prunes = SCAN_PRUNES,
     );
 
     eprintln!(
@@ -1026,25 +1052,19 @@ pub async fn scan_remote_project_files(
         output.lines().count()
     );
 
-    // If -printf produced no output, fall back to find without sizes (use 0 for all sizes).
-    // This handles systems where GNU find -printf is not available.
+    // If the stat form produced no output (no `stat` at all, or genuinely no
+    // matching files), fall back to a plain find with size 0 for everything.
+    // Same extension list and prunes as above — they are built from the shared
+    // constants so this fallback can never see fewer file types again.
     let output = if output.trim().is_empty() {
-        eprintln!("[operon] -printf produced no output, falling back to plain find");
+        eprintln!("[operon] find+stat produced no output, falling back to plain find");
         let fallback_cmd = format!(
-            "find '{p}' -maxdepth {d} -type f \\( \
-             -name '*.pdf' \
-             -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.gif' \
-             -o -name '*.bmp' -o -name '*.webp' -o -name '*.svg' -o -name '*.tiff' -o -name '*.tif' \
-             -o -name '*.csv' -o -name '*.tsv' \
-             -o -name '*.md' -o -name '*.txt' -o -name '*.json' -o -name '*.html' -o -name '*.htm' \
-             -o -name '*.yaml' -o -name '*.yml' -o -name '*.toml' \
-             \\) \
-             -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-             -not -path '*/.operon/*' -not -path '*/.cache/*' -not -path '*/target/*' \
-             -not -path '*/.snakemake/*' -not -path '*/.nextflow/*' \
+            "find '{p}' -maxdepth {d} -type f \\( {names} \\) {prunes} \
              2>/dev/null | head -5000",
             p = escaped_path,
-            d = MAX_SCAN_DEPTH
+            d = MAX_SCAN_DEPTH,
+            names = name_tests,
+            prunes = SCAN_PRUNES,
         );
         let fallback_output = super::ssh::ssh_exec(&profile, &fallback_cmd)
             .map_err(|e| format!("SSH scan fallback failed: {}", e))?;

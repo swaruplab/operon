@@ -350,13 +350,31 @@ pub async fn index_remote_project(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    // Single SSH call: find with maxdepth, output relative path + size + type
-    let find_cmd = format!(
-        "cd '{}' && find . -maxdepth 4 -not -path '*/\\.*' \
+    // Single SSH call: find with maxdepth, output relative path + size + type.
+    //
+    // `find -printf` is GNU-only. BSD find (a macOS remote) rejects it with
+    // "unknown primary or operator"; that message went to /dev/null and the
+    // pipeline still exited 0 through `head`, so the caller silently got an
+    // empty manifest and the agent lost its `<project_files>` context. Probe
+    // for -printf once inside the same script and fall back to a portable
+    // `-exec stat -f` form emitting the identical `size\tkind\tpath` lines.
+    // The prunes and the head cap are shared by both branches so they cannot
+    // drift. BSD paths keep find's `./` prefix; the parser below strips it.
+    const PRUNES: &str = "-not -path '*/\\.*' \
          -not -path '*/node_modules/*' -not -path '*/__pycache__/*' \
-         -not -path '*/target/*' -not -path '*/.git/*' \
-         -printf '%s\\t%y\\t%P\\n' 2>/dev/null | head -300",
-        remote_path.replace('\'', "'\\''")
+         -not -path '*/target/*' -not -path '*/.git/*'";
+    let find_cmd = format!(
+        "cd '{path}' && {{ \
+         if find /dev/null -maxdepth 0 -printf '' >/dev/null 2>&1; then \
+         find . -maxdepth 4 {prunes} -printf '%s\\t%y\\t%P\\n' 2>/dev/null; \
+         else \
+         find . -mindepth 1 -maxdepth 4 {prunes} \\( \
+         -type d -exec sh -c 'T=$(printf \"\\t\"); stat -f \"%z${{T}}d${{T}}%N\" \"$@\"' _ {{}} + \
+         -o -type f -exec sh -c 'T=$(printf \"\\t\"); stat -f \"%z${{T}}f${{T}}%N\" \"$@\"' _ {{}} + \
+         \\) 2>/dev/null; \
+         fi; }} | head -300",
+        path = remote_path.replace('\'', "'\\''"),
+        prunes = PRUNES,
     );
 
     let output = crate::commands::ssh::ssh_exec(&profile, &find_cmd)?;
@@ -369,8 +387,11 @@ pub async fn index_remote_project(
         }
         let size: u64 = parts[0].parse().unwrap_or(0);
         let ftype = parts[1];
-        let rel_path = parts[2].to_string();
-        if rel_path.is_empty() {
+        // GNU `-printf %P` prints the path relative to the start point; the
+        // BSD fallback's `stat -f %N` echoes it as find handed it over
+        // (`./sub/x`). Strip that prefix so both remotes yield identical rows.
+        let rel_path = parts[2].strip_prefix("./").unwrap_or(parts[2]).to_string();
+        if rel_path.is_empty() || rel_path == "." {
             continue;
         }
 
@@ -471,6 +492,8 @@ fn detect_category(id: &str, _content: &str) -> String {
         || has("cellagent")
         || has("cellfree-rna")
         || has("expression-matrix-")
+        // FORGE: single-nucleus multiome (RNA + ATAC) Nextflow pipeline.
+        || eq("forge")
         || has("metabolite-communication")
         || has("bgpt-paper")
         || has("biomedical-api-router")
@@ -2108,8 +2131,42 @@ pub struct RemoteRgCapability {
     pub has_grep: bool,
 }
 
+/// Shell prelude that resolves a *runnable* ripgrep on the remote into
+/// `$OPERON_RG` (empty string when there is none). Shared by every probe so
+/// the rules below can't drift between them:
+///
+///  * `~/.operon/bin/rg` is trusted only if it actually RUNS. A Linux musl
+///    binary dropped onto a macOS remote is executable but exits 126 with no
+///    output, which the SSH layer reports as "transient connection issue" —
+///    remote search stayed broken until the file was deleted by hand. A
+///    non-runnable one is therefore removed here, so the very next search
+///    falls through to PATH rg or the grep backend.
+///  * The Homebrew prefixes are checked explicitly: the persistent channel
+///    runs `bash --noprofile --norc` with sshd's default PATH
+///    (/usr/bin:/bin:/usr/sbin:/sbin), which never contains /opt/homebrew/bin,
+///    so `command -v rg` alone cannot see a brew-installed ripgrep.
+///  * `command -v rg` stays last — the normal case on Linux/HPC.
+const REMOTE_RG_PROBE: &str = "\
+    OPERON_RG=''; \
+    if [ -e \"$HOME/.operon/bin/rg\" ]; then \
+        if [ -x \"$HOME/.operon/bin/rg\" ] && \"$HOME/.operon/bin/rg\" --version >/dev/null 2>&1; then \
+            OPERON_RG=\"$HOME/.operon/bin/rg\"; \
+        else \
+            rm -f \"$HOME/.operon/bin/rg\"; \
+        fi; \
+    fi; \
+    if [ -z \"$OPERON_RG\" ]; then \
+        for c in /opt/homebrew/bin/rg /usr/local/bin/rg; do \
+            if [ -x \"$c\" ] && \"$c\" --version >/dev/null 2>&1; then OPERON_RG=\"$c\"; break; fi; \
+        done; \
+    fi; \
+    if [ -z \"$OPERON_RG\" ] && command -v rg >/dev/null 2>&1 && rg --version >/dev/null 2>&1; then \
+        OPERON_RG=\"$(command -v rg)\"; \
+    fi; ";
+
 /// Probe the remote server for ripgrep. Checks `~/.operon/bin/rg` first
-/// (Operon-installed), then `rg` on PATH, then `grep`.
+/// (Operon-installed), then the Homebrew prefixes, then `rg` on PATH, then
+/// `grep`. Only a ripgrep that runs counts — see [`REMOTE_RG_PROBE`].
 #[tauri::command]
 pub async fn check_remote_ripgrep(
     ssh_state: tauri::State<'_, crate::commands::ssh::SSHManager>,
@@ -2124,16 +2181,16 @@ pub async fn check_remote_ripgrep(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
     // One probe script to check all three capabilities at once.
-    let script = "\
-        if [ -x \"$HOME/.operon/bin/rg\" ]; then \
-            echo RG_PATH=$HOME/.operon/bin/rg; \
-            \"$HOME/.operon/bin/rg\" --version 2>/dev/null | head -n1 || true; \
-        elif command -v rg >/dev/null 2>&1; then \
-            echo RG_PATH=$(command -v rg); \
-            rg --version 2>/dev/null | head -n1 || true; \
-        fi; \
-        if command -v grep >/dev/null 2>&1; then echo HAS_GREP=1; fi";
-    let output = crate::commands::ssh::ssh_exec(&profile, script)?;
+    let script = format!(
+        "{probe}\
+         if [ -n \"$OPERON_RG\" ]; then \
+             echo \"RG_PATH=$OPERON_RG\"; \
+             \"$OPERON_RG\" --version 2>/dev/null | head -n1 || true; \
+         fi; \
+         if command -v grep >/dev/null 2>&1; then echo HAS_GREP=1; fi",
+        probe = REMOTE_RG_PROBE
+    );
+    let output = crate::commands::ssh::ssh_exec(&profile, &script)?;
 
     let mut rg_path = None;
     let mut version = None;
@@ -2157,6 +2214,12 @@ pub async fn check_remote_ripgrep(
 
 /// Install ripgrep on the remote server by scp'ing the bundled
 /// musl-static Linux binary to `~/.operon/bin/rg`.
+///
+/// The binary is Linux-only, so the remote OS is checked FIRST and the upload
+/// is verified BEFORE anything is moved into place: an unrunnable
+/// `~/.operon/bin/rg` used to take remote search down completely (exit 126,
+/// reported to the user as a transient SSH failure) and could only be cleared
+/// by deleting the file by hand.
 #[tauri::command]
 pub async fn install_remote_ripgrep(
     app: tauri::AppHandle,
@@ -2172,6 +2235,23 @@ pub async fn install_remote_ripgrep(
             .cloned()
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
+
+    // 0) What are we installing onto? The bundled binary is
+    // x86_64-unknown-linux-musl; on a macOS remote it can only ever produce a
+    // poisoned ~/.operon/bin/rg, so don't upload it at all. Operon's grep
+    // backend keeps working, and a brew-installed rg is picked up by
+    // REMOTE_RG_PROBE on the next search.
+    let uname = crate::commands::ssh::ssh_exec_checked(&profile, "uname -sm")
+        .map_err(|e| format!("Cannot detect the remote OS: {}", e))?;
+    let uname = uname.trim().to_string();
+    if uname.starts_with("Darwin") {
+        return Err(
+            "This server runs macOS, and Operon only bundles a Linux ripgrep binary. \
+             Install it on the server with `brew install ripgrep` — Operon will pick it \
+             up automatically. Until then, remote search uses the (slower) grep backend."
+                .to_string(),
+        );
+    }
 
     // Locate the bundled musl binary. In dev it's in src-tauri/binaries/;
     // in a production bundle it's copied to the app resource dir by the
@@ -2249,17 +2329,49 @@ pub async fn install_remote_ripgrep(
             return Err(format!("SCP ripgrep upload failed: {}", stderr));
         }
     }
-    // 3) Verify arch looks right and move into place
-    let install_cmd = format!(
-        "mv {tmp} $HOME/.operon/bin/rg && chmod +x $HOME/.operon/bin/rg && \
-         $HOME/.operon/bin/rg --version 2>/dev/null | head -n1",
+    // 3) Verify the uploaded binary RUNS before it goes anywhere near
+    // ~/.operon/bin/rg. The exit status is useless here (the pipeline reports
+    // head's), so the verdict is the output: real ripgrep prints "ripgrep
+    // <version>", a wrong-arch binary prints an exec error (or nothing).
+    let verify_cmd = format!(
+        "chmod +x '{tmp}' 2>/dev/null; '{tmp}' --version 2>&1 | head -n1",
         tmp = remote_tmp,
     );
-    let version_out = crate::commands::ssh::ssh_exec(&profile, &install_cmd)?;
+    let version_out = crate::commands::ssh::ssh_exec_status(&profile, &verify_cmd)?.stdout;
     if !version_out.contains("ripgrep") {
+        // Never leave the failed upload behind.
+        let _ = crate::commands::ssh::ssh_exec_status(
+            &profile,
+            &format!("rm -f '{tmp}'", tmp = remote_tmp),
+        );
+        let detail = version_out.trim();
         return Err(format!(
-            "Install failed — binary does not run on this server. Output: {}",
-            version_out.trim()
+            "Install failed — the bundled ripgrep does not run on this server ({}).{}",
+            uname,
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!(" Output: {}", detail)
+            }
+        ));
+    }
+
+    // 4) Only now move it into place, and confirm the move actually happened.
+    let install_cmd = format!(
+        "mkdir -p \"$HOME/.operon/bin\" && mv '{tmp}' \"$HOME/.operon/bin/rg\" && \
+         chmod +x \"$HOME/.operon/bin/rg\" && echo OPERON_RG_INSTALLED",
+        tmp = remote_tmp,
+    );
+    let install_out = crate::commands::ssh::ssh_exec_checked(&profile, &install_cmd)?;
+    if !install_out.contains("OPERON_RG_INSTALLED") {
+        let _ = crate::commands::ssh::ssh_exec_status(
+            &profile,
+            &format!("rm -f '{tmp}'", tmp = remote_tmp),
+        );
+        return Err(format!(
+            "Install failed — could not move ripgrep into {}. Output: {}",
+            remote_final,
+            install_out.trim()
         ));
     }
     Ok(format!(
@@ -2307,12 +2419,13 @@ pub async fn search_in_remote_directory(
         root_path.as_bytes(),
     );
 
-    // Probe once per call. Cheap; SSH mux keeps it fast.
-    let probe = "\
-        if [ -x \"$HOME/.operon/bin/rg\" ]; then echo $HOME/.operon/bin/rg; \
-        elif command -v rg >/dev/null 2>&1; then echo rg; \
-        else echo __no_rg__; fi";
-    let rg_probe = crate::commands::ssh::ssh_exec(&profile, probe)?
+    // Probe once per call. Cheap; SSH mux keeps it fast. Only a ripgrep that
+    // runs is accepted — see [`REMOTE_RG_PROBE`].
+    let probe = format!(
+        "{probe}if [ -n \"$OPERON_RG\" ]; then echo \"$OPERON_RG\"; else echo __no_rg__; fi",
+        probe = REMOTE_RG_PROBE
+    );
+    let rg_probe = crate::commands::ssh::ssh_exec(&profile, &probe)?
         .trim()
         .to_string();
     let has_rg = rg_probe != "__no_rg__" && !rg_probe.is_empty();
@@ -2346,12 +2459,15 @@ pub async fn search_in_remote_directory(
             .map(|a| format!("'{}'", a.replace('\'', "'\\''")))
             .collect::<Vec<_>>()
             .join(" ");
+        // The probe now always returns an absolute path (Homebrew prefixes
+        // included), so quote it rather than pasting it in bare.
+        let rg_quoted = format!("'{}'", rg_probe.replace('\'', "'\\''"));
         let script = format!(
             "Q=$(echo '{q}' | base64 -d); R=$(echo '{r}' | base64 -d); \
              {rg} {flags} -- \"$Q\" \"$R\" 2>/dev/null",
             q = query_b64,
             r = root_b64,
-            rg = rg_probe,
+            rg = rg_quoted,
             flags = rg_flags,
         );
         let script_b64 = base64::Engine::encode(

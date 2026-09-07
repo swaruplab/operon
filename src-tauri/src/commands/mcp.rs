@@ -528,6 +528,27 @@ pub async fn check_mcp_dependencies(
     check_runtime(&runtime).await
 }
 
+/// PATH prelude for every remote MCP command.
+///
+/// Operon's persistent SSH channel runs `bash --noprofile --norc`, so it gets
+/// sshd's built-in PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) and none of the
+/// user's login-shell setup. That PATH can never contain a Homebrew node/npm
+/// (macOS remotes), an nvm install, or a `--prefix`ed npm global dir, so every
+/// check reported "not installed" and every install ran `npm` that wasn't
+/// there. Prepending the usual prefixes costs nothing and is a no-op wherever
+/// they don't exist.
+const REMOTE_PATH_PRELUDE: &str = "\
+    export PATH=\"/opt/homebrew/bin:/usr/local/bin:$HOME/.npm-global/bin:$HOME/.local/bin:$PATH\"; \
+    for _d in \"$HOME/.nvm/versions/node\"/*/bin; do \
+        if [ -d \"$_d\" ]; then PATH=\"$_d:$PATH\"; fi; \
+    done; export PATH; ";
+
+/// Sentinel echoed by a remote MCP install that actually succeeded. The SSH
+/// channel merges stderr into stdout and the lenient `ssh_exec` treats any
+/// output as success, so `bash: npm: command not found` used to be reported to
+/// the user as "installed".
+const MCP_INSTALL_OK: &str = "OPERON_MCP_INSTALL_OK";
+
 /// Check remote MCP dependencies over SSH.
 #[tauri::command]
 pub async fn check_remote_mcp_dependencies(
@@ -552,29 +573,56 @@ pub async fn check_remote_mcp_dependencies(
         .clone();
     drop(profiles);
 
-    let (check_cmd, min_version, install_hint) = match runtime.as_str() {
+    let (version_cmd, min_version, linux_hint, mac_hint) = match runtime.as_str() {
         "node" => (
-            "node --version 2>/dev/null || echo NOT_FOUND",
+            "node --version",
             "20.0.0",
             "Install Node.js: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs",
+            "Install Node.js on the server: brew install node",
         ),
         "python" => (
-            "python3 --version 2>/dev/null || echo NOT_FOUND",
+            "python3 --version",
             "3.10.0",
             "Install Python 3.10+: sudo apt-get install python3 python3-pip",
+            "Install Python 3.10+ on the server: brew install python@3.12",
         ),
         _ => return Err(format!("Unknown runtime: {}", runtime)),
     };
 
-    let output = super::ssh::ssh_exec(&profile, check_cmd)
+    // Report the OS from the same call so the install hint can match it, and
+    // fence the version behind a sentinel: the SSH channel merges stderr into
+    // stdout, so a bare version line can't be told apart from a diagnostic.
+    let check_cmd = format!(
+        "{path}echo \"OPERON_OS=$(uname -s)\"; \
+         _v=\"$({version_cmd} 2>/dev/null)\"; \
+         if [ -n \"$_v\" ]; then echo \"OPERON_VER=$_v\"; else echo OPERON_VER=NOT_FOUND; fi",
+        path = REMOTE_PATH_PRELUDE,
+        version_cmd = version_cmd,
+    );
+
+    let output = super::ssh::ssh_exec(&profile, &check_cmd)
         .map_err(|e| format!("SSH check failed: {}", e))?;
 
-    let version_str = output.trim().to_string();
+    let mut remote_os = String::new();
+    let mut version_str = String::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(os) = line.strip_prefix("OPERON_OS=") {
+            remote_os = os.to_string();
+        } else if let Some(v) = line.strip_prefix("OPERON_VER=") {
+            version_str = v.to_string();
+        }
+    }
     let runtime_found = !version_str.contains("NOT_FOUND") && !version_str.is_empty();
     let runtime_version = if runtime_found {
         Some(version_str.replace('v', "").trim().to_string())
     } else {
         None
+    };
+    let install_hint = if remote_os == "Darwin" {
+        mac_hint
+    } else {
+        linux_hint
     };
 
     Ok(DependencyStatus {
@@ -609,22 +657,39 @@ pub async fn install_remote_mcp_server(
         .clone();
     drop(profiles);
 
+    // The sentinel is emitted ONLY when the install pipeline succeeded; it is
+    // the sole evidence we accept, because a failing command's output comes
+    // back on stdout and would otherwise read as success.
+    let pkg = entry.config.args.first().unwrap_or(&entry.config.command);
     let install_cmd = match entry.runtime.as_str() {
         "node" => format!(
-            "npm install -g {} 2>&1 || npx {} --help >/dev/null 2>&1 && echo OK",
-            entry.config.args.first().unwrap_or(&entry.config.command),
-            entry.config.args.first().unwrap_or(&entry.config.command)
+            "{path}( npm install -g {pkg} 2>&1 || npx {pkg} --help >/dev/null 2>&1 ) && echo {ok}",
+            path = REMOTE_PATH_PRELUDE,
+            pkg = pkg,
+            ok = MCP_INSTALL_OK
         ),
         "python" => format!(
-            "pip install {} 2>&1 || pip3 install {} 2>&1",
-            entry.config.args.first().unwrap_or(&entry.config.command),
-            entry.config.args.first().unwrap_or(&entry.config.command)
+            "{path}( pip install {pkg} 2>&1 || pip3 install {pkg} 2>&1 ) && echo {ok}",
+            path = REMOTE_PATH_PRELUDE,
+            pkg = pkg,
+            ok = MCP_INSTALL_OK
         ),
         _ => return Err(format!("Unknown runtime: {}", entry.runtime)),
     };
 
-    super::ssh::ssh_exec(&profile, &install_cmd)
+    let out = super::ssh::ssh_exec_status(&profile, &install_cmd)
         .map_err(|e| format!("Remote install failed: {}", e))?;
+    if !out.stdout.contains(MCP_INSTALL_OK) {
+        let detail = out.diagnostic();
+        return Err(if detail.is_empty() {
+            format!(
+                "Remote install of '{}' failed (exit status {}) with no output — is {} installed on the server?",
+                pkg, out.code, entry.runtime
+            )
+        } else {
+            format!("Remote install of '{}' failed: {}", pkg, detail)
+        });
+    }
 
     Ok(())
 }

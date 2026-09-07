@@ -81,6 +81,7 @@ interface RemoteTreeNodeProps {
   isSelected?: boolean;
   selectionMode?: boolean;
   onSelect?: (e: React.MouseEvent, entry: FileEntry) => void;
+  onError?: (message: string) => void;
 }
 
 interface ContextMenuState {
@@ -89,7 +90,7 @@ interface ContextMenuState {
   entry: FileEntry;
 }
 
-function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPinned, onTogglePin, onContextMenu, isSelected, selectionMode, onSelect }: RemoteTreeNodeProps) {
+function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPinned, onTogglePin, onContextMenu, isSelected, selectionMode, onSelect, onError }: RemoteTreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,6 +112,7 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
       setChildren(entries);
     } catch (err) {
       console.error('Failed to list remote directory:', err);
+      onError?.(`Could not open ${entry.name}: ${err}`);
     }
     setLoading(false);
     setExpanded(true);
@@ -151,7 +153,9 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
         openFile(entry.path, content, preview, profileId);
       }
     } catch (err) {
+      // Do not open a tab: an error string as tab content could be saved back to the remote.
       console.error('Failed to read remote file:', err);
+      onError?.(`Could not open ${entry.name}: ${err}`);
     }
     setLoading(false);
   };
@@ -294,7 +298,7 @@ function RemoteTreeNode({ entry, depth, profileId, showHidden, onNavigate, isPin
       {entry.is_dir &&
         expanded &&
         children.map((child) => (
-          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} isSelected={onSelect ? false : undefined} selectionMode={selectionMode} onSelect={onSelect} />
+          <RemoteTreeNode key={child.path} entry={child} depth={depth + 1} profileId={profileId} showHidden={showHidden} onNavigate={onNavigate} isPinned={onTogglePin ? false : undefined} onTogglePin={onTogglePin} onContextMenu={onContextMenu} isSelected={onSelect ? false : undefined} selectionMode={selectionMode} onSelect={onSelect} onError={onError} />
         ))}
     </div>
   );
@@ -363,6 +367,12 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
 
   // Transfer progress
   const [transfer, setTransfer] = useState<TransferProgress | null>(null);
+
+  // Surface a failed remote operation via the transfer toast — the established
+  // error surface in this component (red, dismissible, auto-dismissed).
+  const showError = useCallback((message: string) => {
+    setTransfer({ completed: 0, total: 1, current_file: '', errors: 1, status: 'error', message });
+  }, []);
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -440,8 +450,14 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
       invalidateRemotePath(profileId, remotePath);
       setCreatingFolder(false);
       setNewFolderName('');
+      // Reload so the new folder actually appears (invalidating alone only clears the cache)
+      const items = await listRemoteDirectoryCached(profileId, remotePath, showHidden);
+      setEntries(items);
     } catch (err) {
       console.error('Failed to create remote folder:', err);
+      setCreatingFolder(false);
+      setNewFolderName('');
+      showError(`Create folder failed: ${err}`);
     }
   };
 
@@ -507,6 +523,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
         }
       } catch (err) {
         console.error('Failed to open pinned remote file:', err);
+        showError(`Could not open ${item.name}: ${err}`);
       }
     }
   };
@@ -717,10 +734,10 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     return () => { unlisten.then((u) => u()); };
   }, []);
 
-  // Auto-dismiss transfer toast
+  // Auto-dismiss transfer toast (errors linger longer so the diagnostic can be read)
   useEffect(() => {
     if (transfer && (transfer.status === 'done' || transfer.status === 'error')) {
-      const timer = setTimeout(() => setTransfer(null), 5000);
+      const timer = setTimeout(() => setTransfer(null), transfer.status === 'error' ? 8000 : 5000);
       return () => clearTimeout(timer);
     }
   }, [transfer]);
@@ -765,6 +782,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     } catch (err) {
       console.error('Failed to rename remote path:', err);
       setRenaming(null);
+      showError(`Rename failed: ${err}`);
     }
   };
 
@@ -779,6 +797,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
     } catch (err) {
       console.error('Failed to delete remote file:', err);
       setDeleteConfirm(null);
+      showError(`Delete failed: ${err}`);
     }
   };
 
@@ -1328,7 +1347,7 @@ export function RemoteExplorer({ profileId, profileName, terminalId }: RemoteExp
           <div className="px-4 py-8 text-center text-subtle text-sm">Empty directory</div>
         ) : (
           entries.map((entry) => (
-            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} isSelected={selectedPaths.has(entry.path)} selectionMode={selectedPaths.size > 0} onSelect={handleSelect} />
+            <RemoteTreeNode key={entry.path} entry={entry} depth={0} profileId={profileId} showHidden={showHidden} onNavigate={navigateTo} isPinned={isPinned(entry.path)} onTogglePin={togglePin} onContextMenu={handleContextMenu} isSelected={selectedPaths.has(entry.path)} selectionMode={selectedPaths.size > 0} onSelect={handleSelect} onError={showError} />
           ))
         )}
       </div>

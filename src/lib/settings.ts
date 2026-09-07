@@ -9,7 +9,7 @@ export interface AppSettings {
   word_wrap: boolean;
   minimap_enabled: boolean;
   model: string;
-  /** Anthropic effort/reasoning level: 'low' | 'medium' | 'high' | 'max' | 'xhigh'.
+  /** Anthropic effort/reasoning level: 'low' | 'medium' | 'high' | 'xhigh' | 'max'.
    *  Skipped at command-build time if the chosen model doesn't support the level. */
   effort: string;
   /** When true, Operon appends the "ultrathink" keyword to every prompt sent

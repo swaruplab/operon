@@ -726,8 +726,12 @@ pub struct SessionFileStatus {
 
 /// PATH prefix applied to every remote SSH command that invokes `claude`.
 /// Covers all known install locations so `claude` is found regardless of shell or rc files.
-const REMOTE_PATH_PREFIX: &str =
-    r#"export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"; "#;
+///
+/// The Homebrew prefixes come LAST so they can never shadow an install we found
+/// the normal way: they exist for a macOS remote, whose non-login
+/// `bash --noprofile --norc` channel starts from sshd's `/usr/bin:/bin:/usr/sbin:/sbin`
+/// and never sources the `~/.zprofile` that would have added them.
+const REMOTE_PATH_PREFIX: &str = r#"export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH:/opt/homebrew/bin:/usr/local/bin"; "#;
 
 pub struct ClaudeSession {
     pub child: tokio::process::Child,
@@ -1605,7 +1609,7 @@ pub async fn check_remote_claude(
     // Check multiple locations: PATH, ~/.npm-global/bin, ~/.claude/local/bin
     let check_script = r#"
 # Add common install locations to PATH
-export PATH="$HOME/.npm-global/bin:$HOME/.claude/local/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.claude/local/bin:$HOME/.local/bin:$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 echo "NODE:$(node --version 2>/dev/null || echo MISSING)"
 echo "NPM:$(npm --version 2>/dev/null || echo MISSING)"
@@ -1618,6 +1622,14 @@ elif [ -x "$HOME/.claude/local/bin/claude" ]; then
   CLAUDE_VER="$($HOME/.claude/local/bin/claude --version 2>/dev/null || echo FOUND)"
 elif [ -x "$HOME/.npm-global/bin/claude" ]; then
   CLAUDE_VER="$($HOME/.npm-global/bin/claude --version 2>/dev/null || echo FOUND)"
+elif [ -x /opt/homebrew/bin/claude ]; then
+  # macOS remote: Homebrew (and Homebrew-managed node) are not on the PATH of the
+  # non-login channel shell, and the rc sourcing below is bash-only while a Mac
+  # user's PATH lives in ~/.zprofile. Checked after the official locations so an
+  # Operon-managed install still wins.
+  CLAUDE_VER="$(/opt/homebrew/bin/claude --version 2>/dev/null || echo FOUND)"
+elif [ -x /usr/local/bin/claude ]; then
+  CLAUDE_VER="$(/usr/local/bin/claude --version 2>/dev/null || echo FOUND)"
 elif [ -f ~/.bashrc ] || [ -f ~/.bash_profile ]; then
   # Last resort: alias-based installs (e.g. `alias claude='npx ...'`). Safe to
   # source profiles here — the whole check runs inside the channel's `( … )`
@@ -1739,7 +1751,7 @@ pub async fn update_remote_claude(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
     let script = r#"
-export PATH="$HOME/.local/bin:$HOME/.claude/local/bin:$HOME/.npm-global/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.claude/local/bin:$HOME/.npm-global/bin:$PATH:/opt/homebrew/bin:/usr/local/bin"
 if command -v claude >/dev/null 2>&1; then
   claude update 2>&1
 elif [ -x "$HOME/.local/bin/claude" ]; then
@@ -1886,7 +1898,7 @@ pub async fn install_remote_claude(
     // Falls back to npm if curl installer fails.
     let install_script = "
 # Ensure common install locations are in PATH
-export PATH=\"$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH\"
+export PATH=\"$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH:/opt/homebrew/bin:/usr/local/bin\"
 
 # Method 1: Official Claude Code installer (recommended, no Node.js needed)
 echo '>>> Installing Claude Code via official installer...'
@@ -1951,7 +1963,7 @@ echo OPERON_INSTALL_FAILED
     if result.contains("OPERON_INSTALL_SUCCESS") {
         // Probe for the actual claude binary path and store it in server_config
         let probe_script = r#"
-export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+export PATH="$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH:/opt/homebrew/bin:/usr/local/bin"
 for p in "$HOME/.claude/local/bin/claude" "$HOME/.local/bin/claude" "$HOME/.npm-global/bin/claude"; do
     [ -x "$p" ] && { echo "CLAUDE_PATH:$p"; exit 0; }
 done
@@ -2087,7 +2099,12 @@ touch "$LOGFILE"
 # about it. A completed login exits long before the cap; 15 min is far more
 # than any real browser round-trip needs. Unset if `timeout` is missing so
 # behaviour is unchanged on hosts without coreutils.
-if command -v timeout >/dev/null 2>&1; then TMO="timeout 900"; else TMO=""; fi
+# TMO_SHORT is the same guard for the last-resort direct login below: macOS
+# ships neither, so an unguarded `timeout` there printed "command not found"
+# instead of attempting the login. gtimeout is coreutils-on-Homebrew.
+if command -v timeout >/dev/null 2>&1; then TMO="timeout 900"; TMO_SHORT="timeout 10";
+elif command -v gtimeout >/dev/null 2>&1; then TMO="gtimeout 900"; TMO_SHORT="gtimeout 10";
+else TMO=""; TMO_SHORT=""; fi
 if script -V 2>&1 | grep -qi 'util-linux' || [ "$(uname)" = "Linux" ]; then
   # Linux: script -q -c 'cmd' outfile
   $TMO script -q -c 'TERM=dumb {claude_bin} login 2>&1' "$LOGFILE" </dev/null &
@@ -2125,7 +2142,7 @@ if [ -n "$CLEANED" ]; then
 else
   echo "(no output captured — script command may not be available)"
   # Last-resort fallback: try without PTY
-  TERM=dumb timeout 10 {claude_bin} login 2>&1 | head -30 || echo "(direct login also failed)"
+  TERM=dumb $TMO_SHORT {claude_bin} login 2>&1 | head -30 || echo "(direct login also failed)"
 fi
 "#,
         prefix = REMOTE_PATH_PREFIX,
@@ -3707,15 +3724,31 @@ pub async fn start_claude_session(
                 prompt_cleanup,
             );
 
-            // Upload the script to the remote via ssh_exec + base64.
+            // Upload the script to the remote via ssh_exec_checked + base64.
             // Uses chunked transfer to avoid ControlMaster socket message size
             // limits (~256KB). Each chunk is appended to a temp b64 file on the
             // remote, then decoded in one shot.
+            //
+            // Every step runs through the CHECKED exec: with the lenient one, a
+            // failed decode came back as `Ok(<usage text>)` (the persistent
+            // channel merges stderr into stdout) and the agent was launched
+            // against an empty script.
             {
                 let b64_script =
                     base64::engine::general_purpose::STANDARD.encode(script_content.as_bytes());
-                let escaped_script = script_file.replace('"', "\\\"");
-                let tmp_b64 = format!("{}.__b64__", escaped_script);
+                // Single-quote escaping, as everywhere else in this file: the
+                // path reaches the remote inside '…', so a space, `$` or
+                // backtick in the working directory cannot be re-parsed.
+                let q = |s: &str| s.replace('\'', "'\\''");
+                let script_q = q(&script_file);
+                let tmp_b64 = format!("{}.__b64__", script_file);
+                let tmp_b64_q = q(&tmp_b64);
+                // The decode lands in a sibling and is moved into place only
+                // once it succeeded. Decoding straight onto the run script
+                // truncated it BEFORE base64 ran — and BSD/macOS base64 has no
+                // positional file operand, so `base64 -d FILE` exits 64 without
+                // writing anything and the run script was left 0 bytes.
+                let new_q = q(&format!("{}.__new__", script_file));
                 const CHUNK_SIZE: usize = 140_000;
                 eprintln!(
                     "[operon] script upload starting: target={} script_bytes={} b64_bytes={} chunked={}",
@@ -3726,13 +3759,12 @@ pub async fn start_claude_session(
                 );
 
                 if b64_script.len() <= CHUNK_SIZE {
-                    // Small script — single command
-                    let write_cmd = format!(
-                        "printf %s {} | base64 -d > \"{}\"",
-                        b64_script, escaped_script,
-                    );
+                    // Small script — single command. `base64 -d` reads STDIN,
+                    // the only form both GNU and BSD base64 accept.
+                    let write_cmd =
+                        format!("printf %s {} | base64 -d > '{}'", b64_script, script_q);
                     let t0 = std::time::Instant::now();
-                    crate::commands::ssh::ssh_exec(&profile, &write_cmd).map_err(|e| {
+                    crate::commands::ssh::ssh_exec_checked(&profile, &write_cmd).map_err(|e| {
                         eprintln!("[operon] script upload FAILED (single-shot): {}", e);
                         format!("Failed to create run script on remote: {}", e)
                     })?;
@@ -3750,8 +3782,8 @@ pub async fn start_claude_session(
                         let end = std::cmp::min(offset + CHUNK_SIZE, b64_script.len());
                         let chunk = &b64_script[offset..end];
                         let redirect = if first { ">" } else { ">>" };
-                        let cmd = format!("printf %s {} {} \"{}\"", chunk, redirect, tmp_b64,);
-                        crate::commands::ssh::ssh_exec(&profile, &cmd).map_err(|e| {
+                        let cmd = format!("printf %s {} {} '{}'", chunk, redirect, tmp_b64_q);
+                        crate::commands::ssh::ssh_exec_checked(&profile, &cmd).map_err(|e| {
                             eprintln!("[operon] script upload chunk {} FAILED: {}", chunk_idx, e);
                             format!("Failed to upload script chunk to remote: {}", e)
                         })?;
@@ -3764,12 +3796,20 @@ pub async fn start_claude_session(
                         chunk_idx,
                         t0.elapsed()
                     );
-                    // Decode the assembled base64 and clean up
+                    // Decode the assembled base64 into a sibling, then move it
+                    // onto the run script. `mv -f --` is safe here: the run
+                    // script is a fresh file Operon owns for this session.
                     let decode_cmd = format!(
-                        "base64 -d \"{}\" > \"{}\" && rm -f \"{}\"",
-                        tmp_b64, escaped_script, tmp_b64,
+                        "if base64 -d < '{tmp}' > '{new}'; then rm -f -- '{tmp}'; \
+                         mv -f -- '{new}' '{dst}' || {{ rm -f -- '{new}'; \
+                         echo 'operon: could not install the run script' >&2; false; }}; \
+                         else rm -f -- '{tmp}' '{new}'; \
+                         echo 'operon: remote base64 decode failed' >&2; false; fi",
+                        tmp = tmp_b64_q,
+                        new = new_q,
+                        dst = script_q,
                     );
-                    crate::commands::ssh::ssh_exec(&profile, &decode_cmd).map_err(|e| {
+                    crate::commands::ssh::ssh_exec_checked(&profile, &decode_cmd).map_err(|e| {
                         eprintln!("[operon] script decode FAILED: {}", e);
                         format!("Failed to decode run script on remote: {}", e)
                     })?;
@@ -3910,7 +3950,7 @@ pub async fn start_claude_session(
                  if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes. The command may have failed to start — check the terminal.\"}}}}'; exit 1; fi; \
                  if command -v stdbuf >/dev/null 2>&1; then TAIL_CMD=\"stdbuf -oL tail -f '{out_esc}'\"; else TAIL_CMD=\"tail -f '{out_esc}'\"; fi; \
                  ( trap - HUP PIPE; eval exec $TAIL_CMD ) & TAIL_PID=$!; \
-                 ( trap - HUP PIPE; _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
+                 ( trap - HUP PIPE; _warned=0; _me=${{BASHPID:-$(exec sh -c 'echo $PPID')}}; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p \"$_me\" 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
                  _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 2; _n=$((_n+1)); [ \"$_n\" -ge 21600 ] && {{ _capped=1; break; }}; if [ $((_n % 3)) -eq 0 ]; then _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; fi; done; \
                  sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
                  [ \"$_capped\" = \"1\" ] && exit 0; \
@@ -4108,7 +4148,8 @@ pub async fn start_claude_session(
                 "$HOME/bin/claude" \
                 "$HOME/.yarn/bin/claude" \
                 "$HOME/.bun/bin/claude" \
-                /usr/local/bin/claude; do
+                /usr/local/bin/claude \
+                /opt/homebrew/bin/claude; do
                 [ -x "$p" ] && echo "$p" && exit 0
             done
             # Check NVM paths
@@ -5170,7 +5211,7 @@ pub async fn reconnect_tail(
          i=0; while [ ! -f '{out}' ] && [ \"$i\" -lt 1500 ]; do sleep 0.2; i=$((i+1)); [ $((i % 50)) -eq 0 ] && printf '{{\"type\":\"heartbeat\"}}\\n'; done; \
          if [ ! -f '{out}' ]; then echo '{{\"type\":\"error\",\"error\":{{\"message\":\"Output file did not appear after 5 minutes — the remote command may have failed to start, or the file was cleaned up. Check the terminal for errors.\"}}}}'; exit 1; fi; \
          if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL cat '{out}'; ( trap - HUP PIPE; exec stdbuf -oL tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' ) & TAIL_PID=$!; else cat '{out}'; ( trap - HUP PIPE; exec tail -f -n +$(($(wc -l < '{out}' | tr -d ' ') + 1)) '{out}' ) & TAIL_PID=$!; fi; \
-         ( trap - HUP PIPE; _warned=0; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p ${{BASHPID:-$$}} 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
+         ( trap - HUP PIPE; _warned=0; _me=${{BASHPID:-$(exec sh -c 'echo $PPID')}}; while [ ! -f '{donef}' ]; do sleep 30; _pp=$(ps -o ppid= -p \"$_me\" 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && exit 0; printf '{{\"type\":\"heartbeat\"}}\\n'; if [ -f '{out}' ]; then _now=$(date +%s); _mt=$(stat -c %Y '{out}' 2>/dev/null || stat -f %m '{out}' 2>/dev/null || echo 0); if [ \"$_mt\" -gt 0 ]; then _age=$((_now - _mt)); if [ \"$_age\" -gt 300 ] && [ \"$_warned\" = \"0\" ]; then printf '{{\"type\":\"stall_warning\",\"message\":\"No output for over 5 minutes. This is normal for a long tool call, compile, download or queued job — the agent is still being watched. If the compute node was preempted or OOM-killed the session will end on its own.\"}}\\n'; _warned=1; fi; fi; fi; done ) & HB_PID=$!; \
          _n=0; _capped=0; while [ ! -f '{donef}' ]; do sleep 2; _n=$((_n+1)); [ \"$_n\" -ge 21600 ] && {{ _capped=1; break; }}; if [ $((_n % 3)) -eq 0 ]; then _pp=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' '); [ \"$_pp\" = \"1\" ] && {{ kill $TAIL_PID $HB_PID 2>/dev/null; exit 0; }}; fi; done; \
          sleep 0.5; kill $TAIL_PID $HB_PID 2>/dev/null; wait $TAIL_PID $HB_PID 2>/dev/null; \
          [ \"$_capped\" = \"1\" ] && exit 0; \
@@ -6406,6 +6447,29 @@ mod terminal_mode_protocol_tests {
             .find("{} > '{}' 2>&1; echo $? > '{}'")
             .expect("run script shape changed");
         assert!(claude_at > 0, "the clear must precede the agent invocation");
+    }
+
+    #[test]
+    fn the_run_script_upload_never_decodes_onto_the_live_target() {
+        // BSD/macOS `base64` takes no positional file operand: `base64 -d FILE`
+        // exits 64 having written nothing — but `> target` had already truncated
+        // the run script, and the lenient ssh_exec called it Ok because the usage
+        // text arrives on the channel's merged stdout. The agent then launched
+        // against a 0-byte script.
+        let c = code();
+        assert!(
+            !c.contains("base64 -d \\\"{}\\\" > \\\"{}\\\""),
+            "the chunked upload decodes a positional file onto the target again"
+        );
+        assert!(
+            c.contains("if base64 -d < '{tmp}' > '{new}'; then"),
+            "the chunked upload must decode from stdin into a sibling first"
+        );
+        assert!(
+            c.contains("ssh_exec_checked(&profile, &decode_cmd)"),
+            "the decode must go through the checked exec — the lenient one reports \
+             a base64 usage message as success"
+        );
     }
 
     #[test]

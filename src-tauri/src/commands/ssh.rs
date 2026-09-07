@@ -1530,7 +1530,65 @@ pub async fn reorder_ssh_profiles(
 /// On macOS/Linux: uses ControlMaster socket if active, bypassing re-auth.
 /// On Windows: uses a persistent SSH exec channel (single TCP connection reused
 /// for all commands — the Windows equivalent of ControlMaster).
-pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
+/// Outcome of one remote command, as reported by whichever transport ran it.
+///
+/// `Err` from [`ssh_exec_status`] is reserved for TRANSPORT failures: ssh could
+/// not be spawned, the channel stalled, the connection dropped. A command that
+/// ran and exited non-zero is a normal `Ok` with `code != 0`, so each caller
+/// decides what a failure means for it instead of the transport guessing.
+///
+/// The persistent channels merge stderr into stdout (`wrap_remote_cmd`), so
+/// `stderr` is empty there and the diagnostic text lives in `stdout`; the
+/// one-shot paths keep the two streams apart. [`RemoteOutput::diagnostic`]
+/// hides that difference.
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
+}
+
+impl RemoteOutput {
+    fn merged(stdout: String, code: i32) -> Self {
+        Self {
+            stdout,
+            stderr: String::new(),
+            code,
+        }
+    }
+
+    /// The most useful text to show a user for a failed command: stderr when
+    /// the transport kept it separate, otherwise the tail of the merged output
+    /// (the error is almost always the last thing the command printed).
+    pub(crate) fn diagnostic(&self) -> String {
+        let text = if self.stderr.trim().is_empty() {
+            self.stdout.trim()
+        } else {
+            self.stderr.trim()
+        };
+        let lines: Vec<&str> = text.lines().collect();
+        let tail = if lines.len() > 20 {
+            lines[lines.len() - 20..].join("\n")
+        } else {
+            text.to_string()
+        };
+        if tail.chars().count() > 4000 {
+            tail.chars().skip(tail.chars().count() - 4000).collect()
+        } else {
+            tail
+        }
+    }
+}
+
+/// Run a remote command and return its stdout, stderr and exit code.
+///
+/// This is the transport layer. Prefer [`ssh_exec_checked`] for commands whose
+/// failure must not be mistaken for success (every file operation), and
+/// [`ssh_exec`] where partial output on a non-zero exit is still meaningful.
+pub(crate) fn ssh_exec_status(
+    profile: &SSHProfile,
+    remote_cmd: &str,
+) -> Result<RemoteOutput, String> {
     // Ensure a passphrase-protected key is unlocked into the ssh-agent that all
     // our ssh/scp children inherit. No-op for keys without a passphrase.
     crate::commands::sshauth::ensure_key_loaded(profile);
@@ -1614,14 +1672,11 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
             }
         }
 
-        // Helper: a nonzero exit with no stdout is almost always a transient
-        // connection/auth blip rather than a real command failure — surface it
-        // as a retryable error, matching the Unix path.
-        fn win_channel_result(stdout: String, exit_code: i32) -> Result<String, String> {
-            if exit_code != 0 && stdout.trim().is_empty() {
-                return Err(ssh_transient_error(exit_code));
-            }
-            Ok(stdout)
+        // The channel merges stderr into stdout; what a non-zero exit means is
+        // decided by the `ssh_exec` / `ssh_exec_checked` wrappers, identically
+        // to the Unix path.
+        fn win_channel_result(stdout: String, exit_code: i32) -> Result<RemoteOutput, String> {
+            Ok(RemoteOutput::merged(stdout, exit_code))
         }
 
         match guard.as_mut().unwrap().exec(remote_cmd) {
@@ -1669,7 +1724,8 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
     // ── macOS/Linux: persistent in-process channel, fall back to one-shot fork ──
     // Even with ControlMaster active, every `ssh` subprocess pays fork+exec+
     // channel-open (~50-200ms on macOS). The persistent channel keeps one
-    // `ssh ... bash -l` alive per host and pipes commands through it, mirroring
+    // `ssh ... bash --noprofile --norc` alive per host and pipes commands
+    // through it, mirroring
     // the Windows path.
     #[cfg(not(target_os = "windows"))]
     {
@@ -1743,12 +1799,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
         // First attempt on the (possibly long-lived) channel.
         let first = guard.as_mut().unwrap().exec(remote_cmd);
         match first {
-            Ok((stdout, exit_code)) => {
-                if exit_code != 0 && stdout.trim().is_empty() {
-                    return Err(ssh_transient_error(exit_code));
-                }
-                Ok(stdout)
-            }
+            Ok((stdout, exit_code)) => Ok(RemoteOutput::merged(stdout, exit_code)),
             Err(e) => {
                 // Channel died mid-call (heartbeat killed it, sshd MaxSessions,
                 // network blip). Drop, respawn synchronously, replay the same
@@ -1765,12 +1816,7 @@ pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String,
                         *guard = Some(fresh);
                         pool.record_respawn();
                         match guard.as_mut().unwrap().exec(remote_cmd) {
-                            Ok((stdout, exit_code)) => {
-                                if exit_code != 0 && stdout.trim().is_empty() {
-                                    return Err(ssh_transient_error(exit_code));
-                                }
-                                Ok(stdout)
-                            }
+                            Ok((stdout, exit_code)) => Ok(RemoteOutput::merged(stdout, exit_code)),
                             Err(e2) => {
                                 eprintln!(
                                     "[operon-ssh] Retry on fresh channel failed: {}. Falling back to one-shot.",
@@ -1817,7 +1863,7 @@ fn ssh_exec_oneshot(
     profile: &SSHProfile,
     remote_cmd: &str,
     has_mux: bool,
-) -> Result<String, String> {
+) -> Result<RemoteOutput, String> {
     let output = {
         let mut ssh_args = if has_mux {
             format!(
@@ -1849,8 +1895,10 @@ fn ssh_exec_oneshot(
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     let filtered_stderr = filter_ssh_stderr(&stderr);
+    let code = output.status.code().unwrap_or(-1);
 
-    if !output.status.success() && stdout.trim().is_empty() {
+    // A dead multiplexing socket is a transport failure, not a command result.
+    if code != 0 && stdout.trim().is_empty() {
         let mux_active = control_master_active(profile);
         let sock_path = control_socket_path(profile);
 
@@ -1862,15 +1910,13 @@ fn ssh_exec_oneshot(
                 sock_path
             ));
         }
-
-        if filtered_stderr.is_empty() {
-            return Err(ssh_transient_error(output.status.code().unwrap_or(-1)));
-        }
-
-        return Err(format!("SSH command failed: {}", filtered_stderr));
     }
 
-    Ok(stdout)
+    Ok(RemoteOutput {
+        stdout,
+        stderr: filtered_stderr,
+        code,
+    })
 }
 
 /// Per-call direct `ssh.exe` fallback for Windows. Used when the persistent
@@ -1880,7 +1926,10 @@ fn ssh_exec_oneshot(
 /// chain. The remote command is run under an explicit `bash --noprofile --norc`,
 /// mirroring the persistent channel so behaviour is identical.
 #[cfg(target_os = "windows")]
-fn ssh_exec_oneshot_windows(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
+fn ssh_exec_oneshot_windows(
+    profile: &SSHProfile,
+    remote_cmd: &str,
+) -> Result<RemoteOutput, String> {
     use std::os::windows::process::CommandExt;
 
     let mut cmd = std::process::Command::new("ssh");
@@ -1920,14 +1969,59 @@ fn ssh_exec_oneshot_windows(profile: &SSHProfile, remote_cmd: &str) -> Result<St
 
     let filtered_stderr = filter_ssh_stderr(&stderr);
 
-    if !output.status.success() && stdout.trim().is_empty() {
-        if filtered_stderr.is_empty() {
-            return Err(ssh_transient_error(output.status.code().unwrap_or(-1)));
-        }
-        return Err(format!("SSH command failed: {}", filtered_stderr));
-    }
+    Ok(RemoteOutput {
+        stdout,
+        stderr: filtered_stderr,
+        code: output.status.code().unwrap_or(-1),
+    })
+}
 
-    Ok(stdout)
+/// Run a remote command, tolerating a non-zero exit as long as it produced
+/// output.
+///
+/// This is the historical contract most callers rely on: `grep` with no match,
+/// a partially failing `ls`, and probe scripts that end with `|| true` all exit
+/// non-zero while their output is exactly what the caller wants. A non-zero
+/// exit with NO output is reported as an error (on the persistent channels that
+/// is almost always a transport blip, hence the retry wording).
+///
+/// Do NOT use this for anything that writes, reads a file's content, or must
+/// distinguish "it worked" from "it printed an error": the channels merge
+/// stderr into stdout, so `cat: x: No such file` would come back as `Ok`. Use
+/// [`ssh_exec_checked`] there.
+pub(crate) fn ssh_exec(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
+    let out = ssh_exec_status(profile, remote_cmd)?;
+    if out.code != 0 && out.stdout.trim().is_empty() {
+        let stderr = out.stderr.trim();
+        if stderr.is_empty() {
+            return Err(ssh_transient_error(out.code));
+        }
+        return Err(format!("SSH command failed: {}", stderr));
+    }
+    Ok(out.stdout)
+}
+
+/// Run a remote command and fail on ANY non-zero exit, with the command's own
+/// diagnostic as the error text.
+///
+/// This is the contract every file operation needs. With the lenient
+/// [`ssh_exec`], a save whose `base64 -d` failed, a `cat` of a missing file or
+/// an `mv` onto a read-only directory all returned `Ok(<error text>)` because
+/// the persistent channel merges stderr into stdout — the editor then showed
+/// "Saved" over a truncated file, or opened `cat: ...: Permission denied` as if
+/// it were the file. Here the exit code is the verdict and the diagnostic is
+/// what the user sees.
+pub(crate) fn ssh_exec_checked(profile: &SSHProfile, remote_cmd: &str) -> Result<String, String> {
+    let out = ssh_exec_status(profile, remote_cmd)?;
+    if out.code != 0 {
+        let diag = out.diagnostic();
+        return Err(if diag.is_empty() {
+            format!("remote command failed with exit status {}", out.code)
+        } else {
+            diag
+        });
+    }
+    Ok(out.stdout)
 }
 
 /// Async wrapper around the blocking [`ssh_exec`]. Runs the SSH call on a
@@ -1939,6 +2033,28 @@ pub(crate) async fn ssh_exec_async(
     remote_cmd: String,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || ssh_exec(&profile, &remote_cmd))
+        .await
+        .map_err(|e| format!("SSH task failed to run: {}", e))?
+}
+
+/// Async wrapper around [`ssh_exec_checked`]; same threading rationale as
+/// [`ssh_exec_async`].
+pub(crate) async fn ssh_exec_checked_async(
+    profile: SSHProfile,
+    remote_cmd: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || ssh_exec_checked(&profile, &remote_cmd))
+        .await
+        .map_err(|e| format!("SSH task failed to run: {}", e))?
+}
+
+/// Async wrapper around [`ssh_exec_status`]; same threading rationale as
+/// [`ssh_exec_async`].
+pub(crate) async fn ssh_exec_status_async(
+    profile: SSHProfile,
+    remote_cmd: String,
+) -> Result<RemoteOutput, String> {
+    tokio::task::spawn_blocking(move || ssh_exec_status(&profile, &remote_cmd))
         .await
         .map_err(|e| format!("SSH task failed to run: {}", e))?
 }
@@ -2089,6 +2205,216 @@ fn shell_escape(s: &str) -> String {
 }
 
 // ── Remote File Operations ──
+//
+// Every command below must behave identically on GNU/Linux (HPC clusters),
+// macOS/BSD (a lab Mac Studio) and BusyBox, under `bash --noprofile --norc`
+// 3.2 as well as the user's login shell. The rules that keep it that way:
+//
+//  * `base64` never gets a file operand. BSD `base64` has no positional
+//    argument (`base64 -- file` is "invalid argument", exit 64), so files are
+//    always redirected in with `<`. The one-time cost of that bug was every
+//    image on a macOS remote rendering blank and every large save emptying the
+//    file it was saving.
+//  * A destination is never truncated before the data that replaces it exists.
+//    Decoding happens into a temp file first; the target is written only from
+//    a successful decode, so a failing decoder (or a dropped connection
+//    mid-stream) leaves the original untouched.
+//  * `LC_ALL=C` in front of `ls`, so the date columns the parser counts on
+//    cannot change shape with whatever LANG the client's ssh forwards.
+//  * Every one of these runs through `ssh_exec_checked`: a non-zero exit is
+//    an error carrying the command's own diagnostic, never "success with an
+//    error message as the content".
+
+/// `base64 < 'path'` — the only encoding form GNU, BSD and BusyBox all accept.
+/// Output may be line-wrapped (GNU wraps at 76 columns); callers strip
+/// whitespace.
+pub(crate) fn remote_read_base64_cmd(path: &str) -> String {
+    format!("base64 < {}", shell_escape(path))
+}
+
+/// True when `s` is nothing but base64 alphabet (after whitespace removal).
+/// A remote `base64` that printed a usage or error message instead of data is
+/// caught here rather than handed to the viewer as an image.
+pub(crate) fn looks_like_base64(s: &str) -> bool {
+    s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+}
+
+/// Shell snippet that decodes base64 (produced by `decode_pipeline`) into
+/// `path` without ever truncating `path` before the replacement bytes exist.
+///
+/// The decode lands in a temp file first — `mktemp` in the TARGET'S directory,
+/// so it shares the filesystem and quota the real write will face, falling back
+/// to `$TMPDIR` when that directory is not writable (a read-only directory can
+/// still hold a writable file). Only a decode that SUCCEEDED is then copied
+/// into the target with `cat > path`, which keeps the target's inode, mode,
+/// owner and symlink-ness, exactly like an in-place editor save.
+///
+/// Failure paths: a bad decode removes the temp and exits non-zero, leaving the
+/// original file untouched. A failed copy (quota, permissions) keeps the temp
+/// and prints where it is, so the user's content is never the thing that is
+/// lost. `cleanup_extra` is any additional path to remove on both paths (the
+/// chunk file of a chunked upload).
+fn remote_write_from_b64(decode_pipeline: &str, path: &str, cleanup_extra: &str) -> String {
+    let target = shell_escape(path);
+    let dir = match path.rsplit_once('/') {
+        Some(("", _)) => "/".to_string(),
+        Some((d, _)) => d.to_string(),
+        None => ".".to_string(),
+    };
+    let dir_tmpl = shell_escape(&format!("{}/.operon.XXXXXX", dir));
+    format!(
+        "t=$(mktemp {dir_tmpl} 2>/dev/null) || t=$(mktemp \"${{TMPDIR:-/tmp}}/operon.XXXXXX\") || \
+         {{ echo \"operon: no writable temp location for {target}\" >&2; exit 1; }}; \
+         if {decode_pipeline} > \"$t\"; then \
+         {{ cat -- \"$t\" > {target} && rm -f -- \"$t\" {cleanup_extra}; }} || \
+         {{ echo \"operon: could not write {target}; the new content was left at $t\" >&2; false; }}; \
+         else rm -f -- \"$t\" {cleanup_extra}; echo \"operon: remote base64 decode failed\" >&2; false; fi",
+    )
+}
+
+/// Single-round-trip write for content whose base64 fits in one command.
+pub(crate) fn remote_write_small_cmd(b64: &str, path: &str) -> String {
+    remote_write_from_b64(&format!("printf %s {} | base64 -d", b64), path, "")
+}
+
+/// Name of the shared-filesystem file that accumulates a chunked upload's
+/// base64. It sits next to the target on purpose: consecutive chunks may be
+/// sent over different SSH connections (channel rebuilt, one-shot fallback),
+/// and on a load-balanced login-node pool those can land on different hosts
+/// whose `/tmp` are not shared.
+fn remote_chunk_file(path: &str) -> String {
+    format!("{}.__operon_tmp_b64__", path)
+}
+
+/// Append (or start) a chunk of base64 in the chunk file.
+pub(crate) fn remote_write_chunk_cmd(chunk: &str, path: &str, first: bool) -> String {
+    format!(
+        "printf %s {} {} {}",
+        chunk,
+        if first { ">" } else { ">>" },
+        shell_escape(&remote_chunk_file(path))
+    )
+}
+
+/// Decode the assembled chunk file into the target, then remove it.
+pub(crate) fn remote_write_finish_cmd(path: &str) -> String {
+    let chunk = shell_escape(&remote_chunk_file(path));
+    remote_write_from_b64(&format!("base64 -d < {}", chunk), path, &chunk)
+}
+
+/// `LC_ALL=C ls -lL[A] -- 'path'`. Locale pinned so the date is always three
+/// tokens; `-L` so a symlink to a directory lists as a directory. stderr is NOT
+/// discarded: a missing or unreadable directory must say so.
+pub(crate) fn remote_list_cmd(path: &str, show_hidden: bool) -> String {
+    let ls_flag = if show_hidden { "-lLA" } else { "-lL" };
+    format!("LC_ALL=C ls {} -- {}", ls_flag, shell_escape(path))
+}
+
+/// `-rw-r--r--`, `drwxr-xr-x@`, `-rw-r--r--.` — a type letter, nine mode
+/// characters, and optionally the macOS/SELinux/ACL suffix. Anything else in
+/// the first column is not a listing line.
+fn looks_like_ls_perms(p: &str) -> bool {
+    let b = p.as_bytes();
+    b.len() >= 10
+        && matches!(b[0], b'-' | b'd' | b'l' | b'c' | b'b' | b'p' | b's')
+        && b[1..10]
+            .iter()
+            .all(|c| matches!(c, b'r' | b'w' | b'x' | b's' | b'S' | b't' | b'T' | b'-'))
+}
+
+/// Parse `ls -l` output into entries.
+///
+/// The first eight whitespace-delimited fields (perms, links, user, group,
+/// size, month, day, time-or-year) are walked in the ORIGINAL line and the
+/// name is everything after the single separator space, verbatim — so a name
+/// with two consecutive spaces, a tab, or a trailing `@`/`*`/`=` survives.
+/// (`ls -l` never appends indicator characters without `-F`; the old parser
+/// stripped them from real names.) Only symlink lines can carry ` -> target`,
+/// and with `-L` in effect those are dangling links, which are skipped like
+/// any other line that does not parse. Lines that are not listings (the
+/// `total` header, an error message from a partially failed `ls`) are ignored.
+pub(crate) fn parse_ls_long(output: &str, base_path: &str) -> Vec<FileEntry> {
+    let base = if base_path.ends_with('/') {
+        base_path.to_string()
+    } else {
+        format!("{}/", base_path)
+    };
+    let mut entries: Vec<FileEntry> = Vec::new();
+
+    for raw in output.lines() {
+        let line = raw.trim_end_matches(['\r', '\n']);
+        if line.is_empty() || line.starts_with("total ") {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        let mut idx = 0usize;
+        let mut fields: Vec<&str> = Vec::with_capacity(8);
+        for _ in 0..8 {
+            while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            let start = idx;
+            while idx < bytes.len() && !bytes[idx].is_ascii_whitespace() {
+                idx += 1;
+            }
+            if start == idx {
+                break;
+            }
+            fields.push(&line[start..idx]);
+        }
+        if fields.len() < 8 {
+            continue;
+        }
+        // Exactly one separator space precedes the name; a name that itself
+        // starts with a space keeps it.
+        if idx < bytes.len() && bytes[idx] == b' ' {
+            idx += 1;
+        }
+        let name_part = &line[idx..];
+        let perms = fields[0];
+        if !looks_like_ls_perms(perms) {
+            continue; // an error line, or something that is not a listing
+        }
+        if fields[4].ends_with(',') {
+            continue; // device node: "8, 0" in the size column shifts every field
+        }
+        let first = perms.as_bytes()[0];
+        let name = if first == b'l' {
+            name_part.split(" -> ").next().unwrap_or(name_part)
+        } else {
+            name_part
+        };
+        if name.is_empty() || name == "." || name == ".." {
+            continue;
+        }
+
+        let is_dir = first == b'd';
+        let size = fields[4].parse::<u64>().unwrap_or(0);
+        let extension = if !is_dir {
+            name.rsplit('.')
+                .next()
+                .and_then(|e| if e != name { Some(e.to_string()) } else { None })
+        } else {
+            None
+        };
+
+        entries.push(FileEntry {
+            name: name.to_string(),
+            path: format!("{}{}", base, name),
+            is_dir,
+            size,
+            extension,
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    entries
+}
 
 #[tauri::command]
 pub async fn list_remote_directory(
@@ -2117,68 +2443,20 @@ pub async fn list_remote_directory(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let ls_flag = if show_hidden { "-lLA" } else { "-lL" };
-    let cmd = format!("ls {} -- {} 2>/dev/null", ls_flag, shell_escape(&path));
+    let out = ssh_exec_status_async(profile, remote_list_cmd(&path, show_hidden)).await?;
+    let entries = parse_ls_long(&out.stdout, &path);
 
-    let output = ssh_exec_async(profile, cmd).await?;
-
-    let base_path = if path.ends_with('/') {
-        path.clone()
-    } else {
-        format!("{}/", path)
-    };
-
-    let mut entries: Vec<FileEntry> = Vec::new();
-
-    for line in output.lines() {
-        let line = line.trim_end();
-        if line.is_empty() || line.starts_with("total ") {
-            continue;
-        }
-
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 9 {
-            continue;
-        }
-
-        let perms = fields[0];
-        let size = fields[4].parse::<u64>().unwrap_or(0);
-        let raw_name = fields[8..].join(" ");
-
-        let name_no_link = raw_name.split(" -> ").next().unwrap_or(&raw_name);
-        let name = name_no_link
-            .trim_end_matches(['/', '*', '@', '=', '|'])
-            .to_string();
-
-        if name.is_empty() || name == "." || name == ".." {
-            continue;
-        }
-
-        let is_dir = perms.starts_with('d');
-        let full_path = format!("{}{}", base_path, name);
-
-        let extension = if !is_dir {
-            name.rsplit('.')
-                .next()
-                .and_then(|e| if e != name { Some(e.to_string()) } else { None })
+    // `ls` exits non-zero for a partially failed listing too (one unreadable
+    // entry); only an empty result is treated as a failure of the directory
+    // itself, and then the diagnostic names the reason.
+    if entries.is_empty() && out.code != 0 {
+        let diag = out.diagnostic();
+        return Err(if diag.is_empty() {
+            format!("Cannot list {} (exit status {})", path, out.code)
         } else {
-            None
-        };
-
-        entries.push(FileEntry {
-            name,
-            path: full_path,
-            is_dir,
-            size,
-            extension,
+            format!("Cannot list {}: {}", path, diag)
         });
     }
-
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
 
     // Store in cache for subsequent requests
     state.cache.put_dir(cache_key, entries.clone());
@@ -2284,7 +2562,10 @@ pub async fn read_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let content = ssh_exec_async(profile, format!("cat -- {}", shell_escape(&path))).await?;
+    // Checked: a failed `cat` is an error with its own message, never a tab
+    // whose content is "cat: ...: No such file or directory" — and never cached.
+    let content =
+        ssh_exec_checked_async(profile, format!("cat -- {}", shell_escape(&path))).await?;
     state.cache.put_file(cache_key, content.clone());
     Ok(content)
 }
@@ -2304,8 +2585,18 @@ pub async fn read_remote_file_base64(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    let output = ssh_exec_async(profile, format!("base64 -- {}", shell_escape(&path))).await?;
-    Ok(output.chars().filter(|c| !c.is_whitespace()).collect())
+    let output = ssh_exec_checked_async(profile, remote_read_base64_cmd(&path)).await?;
+    let b64: String = output.chars().filter(|c| !c.is_whitespace()).collect();
+    if !looks_like_base64(&b64) {
+        // Belt and braces for a transport that merged an error into stdout
+        // with a zero exit: never hand the viewer a data: URI made of text.
+        return Err(format!(
+            "remote base64 produced unexpected output for {}: {}",
+            path,
+            output.trim().lines().next().unwrap_or("")
+        ));
+    }
+    Ok(b64)
 }
 
 /// Create a directory on a remote server via SSH
@@ -2325,7 +2616,7 @@ pub async fn create_remote_directory(
     };
 
     let cmd = format!("mkdir -p -- {}", shell_escape(&path));
-    ssh_exec(&profile, &cmd)?;
+    ssh_exec_checked(&profile, &cmd)?;
     state.cache.invalidate_path(&profile_id, &path);
     Ok(())
 }
@@ -2352,17 +2643,17 @@ pub async fn delete_remote_file(
         "if [ -d {} ]; then echo DIR; elif [ -f {} ]; then echo FILE; else echo NONE; fi",
         escaped, escaped
     );
-    let result = ssh_exec(&profile, &check_cmd)?;
+    let result = ssh_exec_checked(&profile, &check_cmd)?;
     let kind = result.trim();
 
     match kind {
         "FILE" => {
             let cmd = format!("rm -- {}", escaped);
-            ssh_exec(&profile, &cmd)?;
+            ssh_exec_checked(&profile, &cmd)?;
         }
         "DIR" => {
             let cmd = format!("rm -rf -- {}", escaped);
-            ssh_exec(&profile, &cmd)?;
+            ssh_exec_checked(&profile, &cmd)?;
         }
         _ => return Err("Path does not exist".to_string()),
     }
@@ -2439,7 +2730,7 @@ pub async fn rename_remote_path(
         shell_escape(&old_path),
         shell_escape(&new_path)
     );
-    ssh_exec(&profile, &cmd)?;
+    ssh_exec_checked(&profile, &cmd)?;
     state.cache.invalidate_path(&profile_id, &old_path);
     state.cache.invalidate_path(&profile_id, &new_path);
     Ok(())
@@ -2465,50 +2756,54 @@ pub async fn write_remote_file(
             .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
     };
 
-    // Ensure parent directory exists
+    // Ensure the parent directory exists. Checked: if this fails the write
+    // would fail too, and "cannot create /x/y" is the message the user needs.
     if let Some(parent) = std::path::Path::new(&path).parent() {
-        let mkdir_cmd = format!("mkdir -p -- {}", shell_escape(&parent.to_string_lossy()));
-        let _ = ssh_exec(&profile, &mkdir_cmd);
+        let parent = parent.to_string_lossy();
+        if !parent.is_empty() && parent != "/" {
+            let mkdir_cmd = format!("mkdir -p -- {}", shell_escape(&parent));
+            ssh_exec_checked_async(profile.clone(), mkdir_cmd)
+                .await
+                .map_err(|e| format!("Cannot create directory {}: {}", parent, e))?;
+        }
     }
 
-    let escaped_path = shell_escape(&path);
-
-    // Encode content as base64 and write in chunks to avoid ControlMaster
-    // socket message size limits (~256KB). Each chunk is appended to a temp
-    // b64 file, then decoded in one shot.
+    // Content travels as base64 so no quoting layer can touch it. Anything that
+    // fits in one command is written in one round trip; larger content is
+    // accumulated in a chunk file next to the target (see `remote_chunk_file`)
+    // and decoded once. In both cases the target is only written from a
+    // decode that already succeeded — see `remote_write_from_b64`.
     let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
-    let tmp_b64 = shell_escape(&format!("{}.__operon_tmp_b64__", path));
 
-    // Max chunk size ~100KB to stay well under the socket limit
+    // ~100 KB per command stays well under the ControlMaster socket message
+    // limit (~256 KB).
     const CHUNK_SIZE: usize = 100_000;
 
     if b64.len() <= CHUNK_SIZE {
-        // Small file — single command, no temp file needed
-        let cmd = format!("printf %s {} | base64 -d > {}", b64, escaped_path);
-        ssh_exec(&profile, &cmd)?;
+        ssh_exec_checked_async(profile.clone(), remote_write_small_cmd(&b64, &path))
+            .await
+            .map_err(|e| format!("Save failed: {}", e))?;
     } else {
-        // Large file — write base64 in chunks, then decode
-        // First chunk: truncate (>)
-        let first_chunk = &b64[..CHUNK_SIZE];
-        let cmd = format!("printf %s {} > {}", first_chunk, tmp_b64);
-        ssh_exec(&profile, &cmd)?;
-
-        // Remaining chunks: append (>>)
-        let mut offset = CHUNK_SIZE;
+        let mut offset = 0usize;
+        let mut first = true;
         while offset < b64.len() {
             let end = std::cmp::min(offset + CHUNK_SIZE, b64.len());
-            let chunk = &b64[offset..end];
-            let cmd = format!("printf %s {} >> {}", chunk, tmp_b64);
-            ssh_exec(&profile, &cmd)?;
+            let cmd = remote_write_chunk_cmd(&b64[offset..end], &path, first);
+            if let Err(e) = ssh_exec_checked_async(profile.clone(), cmd).await {
+                // Leave nothing behind from a half-uploaded chunk file.
+                let _ = ssh_exec_async(
+                    profile.clone(),
+                    format!("rm -f -- {}", shell_escape(&remote_chunk_file(&path))),
+                )
+                .await;
+                return Err(format!("Save failed while uploading: {}", e));
+            }
+            first = false;
             offset = end;
         }
-
-        // Decode the assembled base64 file and clean up
-        let cmd = format!(
-            "base64 -d -- {} > {} && rm -f -- {}",
-            tmp_b64, escaped_path, tmp_b64
-        );
-        ssh_exec(&profile, &cmd)?;
+        ssh_exec_checked_async(profile.clone(), remote_write_finish_cmd(&path))
+            .await
+            .map_err(|e| format!("Save failed: {}", e))?;
     }
 
     state.cache.invalidate_path(&profile_id, &path);
@@ -4537,15 +4832,20 @@ mod remote_path_escaping_tests {
         // why every path operand also gets a `--` separator. Guard the separator
         // here so a future edit cannot quietly drop it.
         let src = production_code();
+        // `base64` never takes a path operand any more (BSD base64 has none —
+        // files are redirected in with `<`, and a redirection target is never
+        // option-parsed), so the guarded forms are the ones that still name a
+        // path as an argument.
         for pat in [
             "cat -- {}",
-            "base64 -- {}",
+            "base64 < {}",
             "mkdir -p -- {}",
             "rm -- {}",
             "rm -rf -- {}",
             "mv -- {} {}",
-            "ls {} -- {} 2>/dev/null",
-            "base64 -d -- {} > {} && rm -f -- {}",
+            "LC_ALL=C ls {} -- {}",
+            " > {target} && rm -f -- ",
+            "else rm -f -- ",
         ] {
             assert!(src.contains(pat), "lost the -- separator: {pat}");
         }
@@ -4682,5 +4982,345 @@ mod remote_path_escaping_tests {
             operands >= 4,
             "expected at least 4 scp operands, found {operands}"
         );
+    }
+}
+
+#[cfg(test)]
+mod remote_file_op_tests {
+    //! The command builders above are exercised through a REAL shell here, so
+    //! `cargo test` on a Mac runs them against BSD userland and CI's Linux
+    //! runners against GNU — the two remotes Operon has to be right about.
+    use super::*;
+
+    const MACOS_LISTING: &str = "total 320\n\
+-rw-r--r--@ 1 vivek-mbp  wheel  76800 Sep  6 17:56 bin.png\n\
+drwxr-xr-x@ 2 vivek-mbp  wheel     64 Sep  6 17:56 dir with space\n\
+-rwxr-xr-x@ 1 vivek-mbp  wheel      0 Sep  6 17:56 exec.sh\n\
+drwxr-xr-x+ 2 vivek-mbp  wheel     64 Sep  6 17:56 sub\n\
+-rw-r--r--@ 1 vivek-mbp  wheel      6 Sep  6 17:56 two  spaces.txt\n\
+-rw-r--r--@ 1 vivek-mbp  wheel      0 Sep  6 17:56 \u{e9}_\u{fc}n\u{ef}code.txt\n\
+-rw-r--r--  1 vivek-mbp  wheel      3 Jan  9  2024 ends@\n\
+-rw-r--r--  1 vivek-mbp  wheel      3 Jan  9  2024 not a link -> really.txt\n";
+
+    const GNU_LISTING: &str = "total 12\n\
+-rw-r--r--. 1 user group 1234 Sep  5 10:10 selinux.txt\n\
+lrwxrwxrwx  1 user group    7 Sep  5 10:10 dangling -> nowhere\n\
+brw-rw----  1 root disk 8, 0 Sep  5 10:10 sda\n\
+-rw-r--r--  1 user group    0 Sep  5 10:10 \ttabbed name\n\
+ls: cannot access '/x/hidden': Permission denied\n\
+drwxr-xr-x  2 user group 4096 Sep  5 10:10 .\n\
+drwxr-xr-x  9 user group 4096 Sep  5 10:10 ..\n";
+
+    fn names(v: &[FileEntry]) -> Vec<&str> {
+        v.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    fn entry<'a>(v: &'a [FileEntry], name: &str) -> &'a FileEntry {
+        v.iter()
+            .find(|e| e.name == name)
+            .unwrap_or_else(|| panic!("missing {name:?} in {:?}", names(v)))
+    }
+
+    #[test]
+    fn macos_listing_keeps_names_verbatim() {
+        let v = parse_ls_long(MACOS_LISTING, "/Users/x/proj");
+        assert_eq!(
+            names(&v),
+            vec![
+                "dir with space",
+                "sub",
+                "bin.png",
+                "ends@",
+                "exec.sh",
+                "not a link -> really.txt",
+                "two  spaces.txt",
+                "\u{e9}_\u{fc}n\u{ef}code.txt",
+            ]
+        );
+        assert!(entry(&v, "sub").is_dir);
+        assert!(!entry(&v, "exec.sh").is_dir);
+        assert_eq!(entry(&v, "bin.png").size, 76800);
+        assert_eq!(entry(&v, "bin.png").extension.as_deref(), Some("png"));
+        assert_eq!(
+            entry(&v, "two  spaces.txt").path,
+            "/Users/x/proj/two  spaces.txt"
+        );
+        assert_eq!(entry(&v, "ends@").extension, None);
+    }
+
+    #[test]
+    fn gnu_listing_survives_selinux_devices_tabs_and_error_lines() {
+        let v = parse_ls_long(GNU_LISTING, "/x/");
+        assert_eq!(
+            names(&v),
+            vec!["\ttabbed name", "dangling", "selinux.txt"],
+            "device nodes, `.`/`..` and ls error lines must be dropped"
+        );
+        assert_eq!(entry(&v, "selinux.txt").size, 1234);
+        assert_eq!(entry(&v, "dangling").path, "/x/dangling");
+    }
+
+    #[test]
+    fn the_first_column_must_look_like_a_mode_string() {
+        assert!(looks_like_ls_perms("-rw-r--r--"));
+        assert!(looks_like_ls_perms("drwxr-xr-x@"));
+        assert!(looks_like_ls_perms("-rw-r--r--."));
+        assert!(looks_like_ls_perms("lrwxrwxrwx"));
+        assert!(looks_like_ls_perms("-rwsr-sr-t"));
+        assert!(!looks_like_ls_perms("ls:"));
+        assert!(!looks_like_ls_perms("total"));
+        assert!(!looks_like_ls_perms("-rw-r--r"));
+    }
+
+    #[test]
+    fn base64_alphabet_check_rejects_a_usage_message() {
+        assert!(looks_like_base64("iVBORw0KGgo="));
+        assert!(looks_like_base64(""));
+        let usage = "base64: invalid argument /p/x.png\nUsage:\tbase64 [-Ddh] [-b num]"
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>();
+        assert!(!looks_like_base64(&usage));
+    }
+
+    #[test]
+    fn base64_is_never_given_a_path_operand() {
+        // BSD base64 has no positional argument; only the `<` form is portable.
+        assert_eq!(
+            remote_read_base64_cmd("/a/b c.png"),
+            "base64 < '/a/b c.png'"
+        );
+        assert!(remote_write_finish_cmd("/a/f.txt")
+            .contains("base64 -d < '/a/f.txt.__operon_tmp_b64__'"));
+        assert!(remote_write_small_cmd("aGk=", "/a/f.txt").contains("printf %s aGk= | base64 -d"));
+        assert!(remote_list_cmd("/a/b", true).starts_with("LC_ALL=C ls -lLA -- '/a/b'"));
+        assert_eq!(remote_list_cmd("/a/b", false), "LC_ALL=C ls -lL -- '/a/b'");
+    }
+
+    #[cfg(unix)]
+    mod through_a_real_shell {
+        use super::*; // includes the file's `base64::Engine` import
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::path::{Path, PathBuf};
+
+        struct Scratch(PathBuf);
+        impl Scratch {
+            fn new(tag: &str) -> Self {
+                let dir = std::env::temp_dir().join(format!(
+                    "operon-fileops-{}-{}",
+                    std::process::id(),
+                    tag
+                ));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                Scratch(dir)
+            }
+            fn path(&self, name: &str) -> String {
+                self.0.join(name).to_string_lossy().into_owned()
+            }
+        }
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn sh(cmd: &str) -> std::process::Output {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .output()
+                .expect("run sh")
+        }
+
+        /// Anything the write path should have cleaned up: its chunk file and
+        /// its decode temp (`mktemp` names it `.operon.XXXXXX` beside the
+        /// target).
+        fn leftovers(dir: &Path) -> Vec<String> {
+            std::fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.contains("__operon_") || n.starts_with(".operon."))
+                .collect()
+        }
+
+        fn is_root() -> bool {
+            String::from_utf8_lossy(&sh("id -u").stdout).trim() == "0"
+        }
+
+        #[test]
+        fn base64_read_round_trips_a_binary_file() {
+            let s = Scratch::new("read");
+            let path = s.path("all bytes  (2).png");
+            let data: Vec<u8> = (0..=255u8).cycle().take(3000).collect();
+            std::fs::write(&path, &data).unwrap();
+            let out = sh(&remote_read_base64_cmd(&path));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let text: String = String::from_utf8_lossy(&out.stdout)
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            assert!(looks_like_base64(&text));
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(text.as_bytes())
+                .unwrap();
+            assert_eq!(decoded, data);
+        }
+
+        #[test]
+        fn base64_read_of_a_missing_file_exits_non_zero() {
+            let s = Scratch::new("read-missing");
+            let out = sh(&remote_read_base64_cmd(&s.path("nope.png")));
+            assert!(!out.status.success());
+            assert!(String::from_utf8_lossy(&out.stdout).trim().is_empty());
+        }
+
+        #[test]
+        fn small_write_round_trips_and_keeps_the_inode() {
+            let s = Scratch::new("write-small");
+            let path = s.path("notes 'quoted'.md");
+            std::fs::write(&path, "old").unwrap();
+            let ino = std::fs::metadata(&path).unwrap().ino();
+            let content =
+                "line one\n\"quotes\" and 'apostrophes' and $HOME and \\backslash\n\u{e9}\u{fc}\n";
+            let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+            let out = sh(&remote_write_small_cmd(&b64, &path));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().ino(),
+                ino,
+                "must write in place"
+            );
+            assert!(leftovers(&s.0).is_empty(), "{:?}", leftovers(&s.0));
+        }
+
+        #[test]
+        fn small_write_with_a_bad_payload_leaves_the_target_untouched() {
+            let s = Scratch::new("write-bad");
+            let path = s.path("precious.csv");
+            std::fs::write(&path, "PRECIOUS").unwrap();
+            let out = sh(&remote_write_small_cmd("@@@@not-base64@@@@", &path));
+            assert!(
+                !out.status.success(),
+                "a failed decode must be a failed save"
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "PRECIOUS");
+            assert!(String::from_utf8_lossy(&out.stderr).contains("decode failed"));
+            assert!(leftovers(&s.0).is_empty(), "{:?}", leftovers(&s.0));
+        }
+
+        #[test]
+        fn chunked_write_round_trips_and_cleans_up() {
+            let s = Scratch::new("write-chunked");
+            let path = s.path("big.tsv");
+            let content: String = (0..12_000).map(|i| format!("{i}\tsome text\n")).collect();
+            let b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
+            assert!(b64.len() > 100_000);
+            let mut first = true;
+            for chunk in b64.as_bytes().chunks(100_000) {
+                let out = sh(&remote_write_chunk_cmd(
+                    std::str::from_utf8(chunk).unwrap(),
+                    &path,
+                    first,
+                ));
+                assert!(
+                    out.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                first = false;
+            }
+            let out = sh(&remote_write_finish_cmd(&path));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+            assert!(leftovers(&s.0).is_empty(), "{:?}", leftovers(&s.0));
+        }
+
+        #[test]
+        fn chunked_write_with_a_corrupt_chunk_file_leaves_the_target_untouched() {
+            let s = Scratch::new("write-chunked-bad");
+            let path = s.path("precious.tsv");
+            std::fs::write(&path, "PRECIOUS").unwrap();
+            assert!(sh(&remote_write_chunk_cmd("@@@@", &path, true))
+                .status
+                .success());
+            let out = sh(&remote_write_finish_cmd(&path));
+            assert!(!out.status.success());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "PRECIOUS");
+            assert!(
+                leftovers(&s.0).is_empty(),
+                "chunk file must be removed: {:?}",
+                leftovers(&s.0)
+            );
+        }
+
+        #[test]
+        fn write_onto_an_unwritable_target_fails_and_keeps_the_content_somewhere() {
+            if is_root() {
+                return; // root can write anything; nothing to prove
+            }
+            let s = Scratch::new("write-readonly");
+            let path = s.path("readonly.txt");
+            std::fs::write(&path, "PRECIOUS").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+            let b64 = base64::engine::general_purpose::STANDARD.encode(b"NEW");
+            let out = sh(&remote_write_small_cmd(&b64, &path));
+            assert!(!out.status.success());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "PRECIOUS");
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            assert!(stderr.contains("left at"), "{stderr}");
+            // The message names where the decoded content survived; clean it up.
+            if let Some(kept) = stderr.split("left at ").nth(1).map(|t| t.trim()) {
+                assert_eq!(std::fs::read(kept).unwrap(), b"NEW");
+                let _ = std::fs::remove_file(kept);
+            }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        #[test]
+        fn the_real_ls_output_parses_on_this_platform() {
+            let s = Scratch::new("ls");
+            std::fs::write(s.path("two  spaces.txt"), "x").unwrap();
+            std::fs::write(s.path("ends@"), "x").unwrap();
+            std::fs::write(s.path(".hidden"), "x").unwrap();
+            std::fs::create_dir(s.path("sub dir")).unwrap();
+            let dir = s.0.to_string_lossy().into_owned();
+
+            let out = sh(&remote_list_cmd(&dir, true));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let v = parse_ls_long(&String::from_utf8_lossy(&out.stdout), &dir);
+            assert_eq!(
+                names(&v),
+                vec!["sub dir", ".hidden", "ends@", "two  spaces.txt"]
+            );
+            assert!(entry(&v, "sub dir").is_dir);
+            assert_eq!(entry(&v, "two  spaces.txt").size, 1);
+
+            let out = sh(&remote_list_cmd(&dir, false));
+            let v = parse_ls_long(&String::from_utf8_lossy(&out.stdout), &dir);
+            assert_eq!(names(&v), vec!["sub dir", "ends@", "two  spaces.txt"]);
+
+            let out = sh(&remote_list_cmd(&s.path("missing"), false));
+            assert!(!out.status.success());
+            assert!(parse_ls_long(&String::from_utf8_lossy(&out.stdout), &dir).is_empty());
+        }
     }
 }

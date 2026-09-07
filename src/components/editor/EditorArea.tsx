@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { X, FileText, Code2, Image as ImageIcon, Globe, Pencil, Save, Check, Server, Sheet, Presentation } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { X, FileText, Code2, Image as ImageIcon, Globe, Pencil, Save, Check, Server, Sheet, Presentation, AlertTriangle } from 'lucide-react';
 import { useProject } from '../../context/ProjectContext';
 import { CodeEditor } from './CodeEditor';
 import { DiffViewer } from './DiffViewer';
@@ -21,8 +21,14 @@ export function EditorArea() {
   } = useProject();
 
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<{ tabId: string; message: string } | null>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  // A save error belongs to the tab it happened on; drop it when the user moves on.
+  useEffect(() => {
+    setSaveError(null);
+  }, [activeTabId]);
 
   const handleSave = useCallback(
     async (tabId: string, content: string) => {
@@ -41,10 +47,14 @@ export function EditorArea() {
           await writeFile(tab.filePath, content);
         }
         saveTab(tabId, content);
+        setSaveError((prev) => (prev?.tabId === tabId ? null : prev));
         setSaveFlash(tabId);
         setTimeout(() => setSaveFlash(null), 1500);
       } catch (err) {
+        // Tab stays dirty (saveTab not called); show the reason in the toolbar.
         console.error('Failed to save file:', err);
+        const message = `${err}`;
+        setSaveError({ tabId, message: /^save failed/i.test(message) ? message : `Save failed: ${message}` });
       }
     },
     [tabs, saveTab],
@@ -164,7 +174,23 @@ export function EditorArea() {
               <span className="text-[10px] text-blue-600 dark:text-blue-400">Modified</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0">
+            {saveError && saveError.tabId === activeTab.id && (
+              <span
+                className="flex items-center gap-1 min-w-0 max-w-[280px] px-2 py-0.5 rounded text-[10px] text-red-600 dark:text-red-400 bg-red-400/10"
+                title={saveError.message}
+              >
+                <AlertTriangle className="w-3 h-3 shrink-0 pointer-events-none" />
+                <span className="truncate">{saveError.message}</span>
+                <button
+                  onClick={() => setSaveError(null)}
+                  className="p-0.5 rounded hover:bg-red-400/20 shrink-0"
+                  title="Dismiss"
+                >
+                  <X className="w-3 h-3 pointer-events-none" />
+                </button>
+              </span>
+            )}
             {activeTab.isPreview ? (
               <button
                 onClick={() => promoteTab(activeTab.id)}

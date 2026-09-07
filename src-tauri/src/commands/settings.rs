@@ -107,7 +107,8 @@ pub struct AppSettings {
     pub word_wrap: bool,
     pub minimap_enabled: bool,
     pub model: String,
-    /// Anthropic effort/reasoning level: "low" | "medium" | "high" | "max" | "xhigh".
+    /// Anthropic effort/reasoning level: "low" | "medium" | "high" | "xhigh" | "max"
+    /// (canonical order — `xhigh` sits between `high` and `max`).
     /// Only applied when the chosen model's capabilities.effort lists the level
     /// as supported (so a user pinning "max" then switching to Haiku silently
     /// degrades to no --effort flag rather than erroring).
@@ -295,16 +296,22 @@ impl Default for AppSettings {
 fn migrate_settings(settings: &mut AppSettings) -> bool {
     let mut changed = false;
 
-    // Retired dated ids. Safe to re-apply on every load: no dropdown offers
-    // them, so rewriting one can never override a choice the user could make.
-    let renamed = match settings.model.as_str() {
-        "claude-opus-4-20250514" => Some(DEFAULT_MODEL),
-        "claude-sonnet-4-20250514" => Some("claude-sonnet-4-6"),
-        _ => None,
-    };
-    if let Some(new_id) = renamed {
-        settings.model = new_id.to_string();
-        changed = true;
+    // Retired ids, driven by the one table in models.rs that also evicts them
+    // from the cached catalog — so the two halves of a retirement cannot drift.
+    // Safe to re-apply on every load: no dropdown offers these, so rewriting one
+    // can never override a choice the user could still make.
+    //
+    // Applied to `reviewer_model` as well as `model`: the Settings reviewer
+    // dropdown is built from the same Anthropic catalog, so a user who picked
+    // Haiku for the reviewer holds an id this release just evicted.
+    for field in [&mut settings.model, &mut settings.reviewer_model] {
+        if let Some((_, new_id)) = super::models::RETIRED_MODEL_IDS
+            .iter()
+            .find(|(old, _)| *old == field.as_str())
+        {
+            *field = (*new_id).to_string();
+            changed = true;
+        }
     }
 
     // One-shot: the previous default is still a shipping, selectable model, so
@@ -661,16 +668,79 @@ mod migration_tests {
             };
             assert!(migrate_settings(&mut s));
             assert_eq!(s.model, "claude-sonnet-4-6");
+
+            // Same model, undated id — not a default change, so it applies at
+            // every migration version just like the two above.
+            let mut s = AppSettings {
+                model: "claude-haiku-4-5-20251001".to_string(),
+                settings_migration_version: version,
+                ..Default::default()
+            };
+            assert!(migrate_settings(&mut s));
+            assert_eq!(s.model, "claude-haiku-4-5");
         }
+    }
+
+    #[test]
+    fn a_retired_reviewer_model_is_renamed_too() {
+        // The reviewer dropdown is built from the same Anthropic catalog, so a
+        // user who picked Haiku for it holds an id this release evicted. Left
+        // unmigrated the reviewer silently stops resolving.
+        let mut s = AppSettings {
+            reviewer_model: "claude-haiku-4-5-20251001".to_string(),
+            ..Default::default()
+        };
+        assert!(migrate_settings(&mut s));
+        assert_eq!(s.reviewer_model, "claude-haiku-4-5");
+        assert_eq!(s.model, DEFAULT_MODEL, "the main model is untouched");
+
+        // A live reviewer choice is left alone.
+        let mut s = AppSettings {
+            reviewer_model: "claude-fable-5-1".to_string(),
+            settings_migration_version: SETTINGS_MIGRATION_VERSION,
+            ..Default::default()
+        };
+        assert!(!migrate_settings(&mut s));
+        assert_eq!(s.reviewer_model, "claude-fable-5-1");
+    }
+
+    #[test]
+    fn the_undated_haiku_choice_is_not_migrated() {
+        // The retired id is rewritten; the live one it points at must stay put,
+        // or Haiku could never be selected at all.
+        for version in [0, SETTINGS_MIGRATION_VERSION] {
+            let mut s = AppSettings {
+                model: "claude-haiku-4-5".to_string(),
+                settings_migration_version: version,
+                ..Default::default()
+            };
+            let migrated = migrate_settings(&mut s);
+            assert_eq!(s.model, "claude-haiku-4-5");
+            // Only the version stamp may change on a pre-versioning file.
+            assert_eq!(migrated, version < SETTINGS_MIGRATION_VERSION);
+        }
+    }
+
+    #[test]
+    fn opus_5_remains_the_default_at_high_effort() {
+        // Claude Fable 5.1 is newer and tops the dropdown, but Operon's shipped
+        // default deliberately stays Opus 5.
+        assert_eq!(DEFAULT_MODEL, "claude-opus-5");
+        assert_eq!(default_model(), "claude-opus-5");
+        assert_eq!(default_effort(), "high");
+        let s = AppSettings::default();
+        assert_eq!(s.model, "claude-opus-5");
+        assert_eq!(s.effort, "high");
     }
 
     #[test]
     fn a_deliberate_choice_is_left_alone() {
         // Anything that isn't the superseded default is the user's call.
         for id in [
+            "claude-fable-5-1",
             "claude-sonnet-5",
             "claude-sonnet-4-6",
-            "claude-haiku-4-5-20251001",
+            "claude-haiku-4-5",
         ] {
             let mut s = AppSettings {
                 model: id.to_string(),
