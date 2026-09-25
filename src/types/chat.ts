@@ -49,6 +49,18 @@ export interface ClaudeSystemEvent {
   session_id?: string;
   tools?: string[];
   model?: string;
+  /** On the `init` event: the Claude Code release that is running. */
+  claude_code_version?: string;
+}
+
+/** Written into a remote run's output by Operon's run script (not Claude
+ *  Code) when it updates Claude Code on the node before starting the agent. */
+export interface ClaudeOperonStatusEvent {
+  type: 'operon_status';
+  kind: 'claude_update_started' | 'claude_update_finished';
+  from?: string;
+  to?: string;
+  need?: string;
 }
 
 export interface ClaudeMessageUsage {
@@ -86,6 +98,10 @@ export interface ClaudeResultEvent {
   type: 'result';
   subtype?: string;
   session_id?: string;
+  /** True when the run ended in an error; `result` then carries Claude Code's
+   *  message, e.g. "Login expired · Please run /login". */
+  is_error?: boolean;
+  result?: string;
   cost_usd?: number;
   duration_ms?: number;
   total_turns?: number;
@@ -97,6 +113,7 @@ export interface ClaudeErrorEvent {
 }
 
 export type ClaudeEvent =
+  | ClaudeOperonStatusEvent
   | ClaudeSystemEvent
   | ClaudeAssistantEvent
   | ClaudeToolEvent

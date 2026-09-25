@@ -39,6 +39,7 @@ import {
   History,
   Copy,
   Check,
+  Cloud,
 } from 'lucide-react';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -76,11 +77,74 @@ function isVersionOlder(a: string, b: string): boolean {
   }
   return false;
 }
+
+/** What Claude Code prints when its sign-in has lapsed or been revoked, e.g.
+ *  "Login expired · Please run /login". It tags every error that signing in
+ *  again would fix with "Please run /login". */
+const SIGN_IN_NEEDED_RE = /Please run \/login|\bLogin expired\b|\bNot logged in\b|OAuth token (?:has )?(?:expired|been revoked)/i;
+
+/** True if a stream event is Claude Code reporting that it needs a new sign-in.
+ *  Only Claude Code's own messages count: a result flagged `is_error`, a
+ *  `<synthetic>` assistant message (how it reports API errors), or a transport
+ *  error. The model's own replies are never matched, so a conversation that
+ *  merely mentions logging in cannot trigger the banner. */
+function eventNeedsSignIn(data: ClaudeEvent): boolean {
+  if (data.type === 'result') {
+    return !!data.is_error && typeof data.result === 'string' && SIGN_IN_NEEDED_RE.test(data.result);
+  }
+  if (data.type === 'assistant') {
+    if ((data.message as { model?: string }).model !== '<synthetic>') return false;
+    return data.message.content.some((b) => b.type === 'text' && SIGN_IN_NEEDED_RE.test(b.text));
+  }
+  if (data.type === 'error') return SIGN_IN_NEEDED_RE.test(data.error?.message ?? '');
+  return false;
+}
+
+/** Claude Code's reply when it is older than the model needs, e.g. "Claude
+ *  Code 2.1.269 does not support this model; version 2.1.280 or newer is
+ *  required". */
+const NEWER_CLAUDE_RE = /Claude Code (\d+\.\d+\.\d+) does not support this model; version (\d+\.\d+\.\d+) or newer is required/;
+
+/** The installed and required versions, if this event is that reply. Only
+ *  Claude Code's own messages count, as for {@link eventNeedsSignIn}. */
+function eventNeedsNewerClaude(data: ClaudeEvent): { have: string; need: string } | null {
+  let text = '';
+  if (data.type === 'result' && data.is_error && typeof data.result === 'string') {
+    text = data.result;
+  } else if (data.type === 'assistant' && (data.message as { model?: string }).model === '<synthetic>') {
+    text = data.message.content.map((b) => (b.type === 'text' ? b.text : '')).join(' ');
+  }
+  const m = text.match(NEWER_CLAUDE_RE);
+  return m ? { have: m[1], need: m[2] } : null;
+}
+
+/** The later of two dotted versions; either may be missing. */
+function laterVersion(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (a && b) return isVersionOlder(a, b) ? b : a;
+  return a || b || null;
+}
+
+const CLOUD_PROVIDER_LABEL: Record<NonNullable<ClaudeAuthEnv['cloud_provider']>, { name: string; envVar: string }> = {
+  bedrock: { name: 'Amazon Bedrock', envVar: 'CLAUDE_CODE_USE_BEDROCK' },
+  vertex: { name: 'Google Vertex AI', envVar: 'CLAUDE_CODE_USE_VERTEX' },
+  foundry: { name: 'Microsoft Foundry', envVar: 'CLAUDE_CODE_USE_FOUNDRY' },
+};
+const cloudNoticeKey = (provider: string) => `operon.cloudProviderNotice.dismissed.${provider}`;
 import { getCachedModels, groupAndSort, supportedEffortLevels, clampEffort, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
 import { listRemoteDirectoryCached } from '../../lib/ssh';
 import { copyText } from '../../lib/clipboard';
-import { CLEAR_AUTH_ENV_PREFIX, startClaudeLogin, getClaudeInvocation } from '../../lib/claude';
+import {
+  CLEAR_AUTH_ENV_PREFIX,
+  startClaudeLogin,
+  getClaudeInvocation,
+  checkClaudeInstalled,
+  updateLocalClaude,
+  detectClaudeAuthEnv,
+  claudeCodeMinVersion,
+  probeRemoteClaudeSignin,
+  type ClaudeAuthEnv,
+} from '../../lib/claude';
 import {
   listPendingCompletions,
   markCompletionSeen,
@@ -984,7 +1048,7 @@ function AuthSetup({ onDone }: { onDone: (method: string) => void }) {
             login was in progress while the tab showed "command not found". */}
         {terminalOpened && (
           <p className="text-xs text-muted mb-2">
-            <code className="bg-surface px-1 py-0.5 rounded text-orange-700 dark:text-orange-300 text-[11px]">claude login</code> is running in a terminal tab below.
+            <code className="bg-surface px-1 py-0.5 rounded text-orange-700 dark:text-orange-300 text-[11px]">claude auth login</code> is running in a terminal tab below.
           </p>
         )}
         <p className="text-xs text-muted mb-5">
@@ -1405,6 +1469,55 @@ export function ChatPanel() {
   const [latestClaudeVersion, setLatestClaudeVersion] = useState<string | null>(null);
   const [updatingRemote, setUpdatingRemote] = useState(false);
   const [remoteUpdateMsg, setRemoteUpdateMsg] = useState<string | null>(null);
+  // Release channel from Settings → Claude; picks which published version the
+  // "update available" hints compare against.
+  const [updateChannel, setUpdateChannel] = useState<'latest' | 'stable'>('latest');
+
+  // Local Claude Code version indicator (same idea as the remote one)
+  const [localClaudeVersion, setLocalClaudeVersion] = useState<string | null>(null);
+  const [updatingLocal, setUpdatingLocal] = useState(false);
+  const [localUpdateMsg, setLocalUpdateMsg] = useState<string | null>(null);
+
+  // Claude Code reported mid-session that its sign-in expired or was revoked.
+  const [signInExpired, setSignInExpired] = useState(false);
+  const [signInNote, setSignInNote] = useState<string | null>(null);
+
+  // Credential sources in the local shell profile that outrank a claude.ai
+  // sign-in (a setup-token, or a Bedrock/Vertex/Foundry switch).
+  const [authEnv, setAuthEnv] = useState<ClaudeAuthEnv | null>(null);
+  const [cloudNoticeDismissed, setCloudNoticeDismissed] = useState(false);
+
+  // "Claude Code is too old for this model." Operon updates it and sends the
+  // message again once; only if that fails does this banner appear.
+  //  - learnedFloorsRef: per model, the version Claude Code's own error named
+  //    (covers models Operon's table doesn't know yet).
+  //  - lastSendRef: what the last send asked the backend for, so the retry
+  //    re-runs exactly that — same prompt, same resume point — without
+  //    adding a second copy of the user's message.
+  //  - healRef.attempts: the retry happens at most once per message.
+  //  - healRef.updatedThisRun: an update already ran for this message (on the
+  //    server's node, or locally before sending), so don't try again.
+  const learnedFloorsRef = useRef<Record<string, string>>({});
+  const lastSendRef = useRef<{
+    invokeArgs: Record<string, unknown>;
+    target: 'local' | 'remote-terminal' | 'remote-direct';
+    profileId?: string;
+  } | null>(null);
+  const healRef = useRef<{
+    state: 'idle' | 'retry-pending' | 'retrying';
+    attempts: number;
+    updatedThisRun: boolean;
+    have: string | null;
+    need: string | null;
+  }>({ state: 'idle', attempts: 0, updatedThisRun: false, have: null, need: null });
+  const runHealRetryRef = useRef<(() => Promise<void>) | null>(null);
+  const [claudeTooOld, setClaudeTooOld] = useState<{
+    have: string;
+    need: string;
+    model: string;
+    remote: boolean;
+    error?: string;
+  } | null>(null);
 
   // Remote OAuth login flow
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
@@ -1781,6 +1894,7 @@ export function ChatPanel() {
       }
       setUltrathink(!!s.ultrathink);
       setRestrictLoginNode(s.hpc_restrict_login_node !== false);
+      setUpdateChannel(s.claude_update_channel === 'stable' ? 'stable' : 'latest');
       setReviewerEnabled(s.reviewer_enabled !== false);
       setSbatchReviewOn(s.reviewer_auto_sbatch !== false);
       remoteClaudeReadyRef.current = new Set(s.remote_claude_ready || []);
@@ -1990,24 +2104,162 @@ export function ChatPanel() {
     }
   }, [isTransientSshError]);
 
-  // Fetch the latest published Claude Code version once we know the remote has
-  // Claude, so the indicator can show "up to date" / "update available".
+  // The latest published Claude Code on the chosen channel, once there is an
+  // installed version (local or remote) to compare it with, so the indicators
+  // can show "up to date" / "update available". Re-fetched when the channel
+  // changes: on 'stable' a newer 'latest' is not an update.
+  const haveClaudeVersion =
+    !!localClaudeVersion ||
+    (remoteDeps?.status === 'ok' && remoteDeps.hasClaude && !!parseClaudeVersion(remoteDeps.claudeVersion));
   useEffect(() => {
-    if (
-      remoteDeps?.status === 'ok' &&
-      remoteDeps.hasClaude &&
-      parseClaudeVersion(remoteDeps.claudeVersion) &&
-      latestClaudeVersion === null
-    ) {
-      invoke<string>('get_latest_claude_code_version')
-        .then((v) => setLatestClaudeVersion(v))
-        .catch(() => {}); // best-effort — no hint shown if the fetch fails
+    if (!haveClaudeVersion) return;
+    let cancelled = false;
+    setLatestClaudeVersion(null);
+    invoke<string>('get_latest_claude_code_version', { channel: updateChannel })
+      .then((v) => { if (!cancelled) setLatestClaudeVersion(v); })
+      .catch(() => {}); // best-effort — no hint shown if the fetch fails
+    return () => { cancelled = true; };
+  }, [haveClaudeVersion, updateChannel]);
+
+  // Local Claude Code version + shell-profile credential sources. Only when
+  // not connected to a server: the remote side has its own checks.
+  const isRemoteSession = !!remoteInfo;
+  useEffect(() => {
+    if (isRemoteSession) return;
+    let cancelled = false;
+    checkClaudeInstalled()
+      .then((s) => { if (!cancelled) setLocalClaudeVersion(s.installed ? parseClaudeVersion(s.version) : null); })
+      .catch(() => {});
+    detectClaudeAuthEnv()
+      .then((env) => {
+        if (cancelled) return;
+        setAuthEnv(env);
+        if (env.cloud_provider) {
+          try {
+            setCloudNoticeDismissed(localStorage.getItem(cloudNoticeKey(env.cloud_provider)) === '1');
+          } catch { /* storage unavailable — show the notice */ }
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isRemoteSession]);
+
+  // One-click `claude update` on this computer, then re-read the version.
+  const handleUpdateLocal = useCallback(async () => {
+    setUpdatingLocal(true);
+    setLocalUpdateMsg(null);
+    try {
+      await updateLocalClaude();
+      const s = await checkClaudeInstalled();
+      setLocalClaudeVersion(s.installed ? parseClaudeVersion(s.version) : null);
+    } catch (e) {
+      setLocalUpdateMsg(`Update failed: ${String(e).replace(/^.*?:\s*/, '').slice(0, 140)}`);
+    } finally {
+      setUpdatingLocal(false);
     }
-  }, [remoteDeps?.status, remoteDeps?.hasClaude, remoteDeps?.claudeVersion, latestClaudeVersion]);
+  }, []);
+
+  // "Sign in again" on the expired-login banner. On a server this reveals the
+  // server sign-in steps, which run `claude auth login` in that server's own
+  // terminal. Locally it opens a terminal tab running `claude auth login` —
+  // unless a CLAUDE_CODE_OAUTH_TOKEN in the shell profile outranks the sign-in,
+  // in which case signing in again would change nothing.
+  const handleSignInAgain = useCallback(async () => {
+    if (remoteInfo) {
+      setLoginStatus('idle');
+      setLoginError(null);
+      setLoginUrl(null);
+      setRemoteDeps((prev) =>
+        prev
+          ? { ...prev, hasAuth: false }
+          : { checked: true, status: 'ok', hasNode: true, hasClaude: true, hasAuth: false, installing: false, error: null },
+      );
+      setSignInExpired(false);
+      setSignInNote(null);
+      return;
+    }
+    if (authEnv?.oauth_token) {
+      setSignInNote(
+        'Your shell profile sets CLAUDE_CODE_OAUTH_TOKEN, which Claude Code uses instead of a sign-in. ' +
+          'Run `claude setup-token` in a terminal, replace the old value with the new token, then restart Operon.',
+      );
+      return;
+    }
+    try {
+      const r = await startClaudeLogin();
+      setSignInNote(
+        r.ok
+          ? 'Finish signing in in the "Claude Login" terminal tab below, then send your message again.'
+          : 'Claude Code was not found on this computer, so sign-in could not start.',
+      );
+    } catch (e) {
+      setSignInNote(`Could not open the sign-in terminal: ${String(e)}`);
+    }
+  }, [remoteInfo, authEnv?.oauth_token]);
+
+  // Update Claude Code where the last run happened, then send the same request
+  // again. Called from the done handler (so the failed run is fully over)
+  // after Claude Code said it is too old for the model. On a server in
+  // terminal mode the update itself happens in the run script, on the node,
+  // because minClaudeVersion is now set; locally and in direct mode it is done
+  // here first.
+  runHealRetryRef.current = async () => {
+    const last = lastSendRef.current;
+    const heal = healRef.current;
+    heal.attempts += 1;
+    heal.updatedThisRun = false;
+    if (!last) {
+      heal.state = 'idle';
+      setIsStreaming(false);
+      return;
+    }
+    try {
+      if (last.target === 'local') {
+        await updateLocalClaude();
+        const s = await checkClaudeInstalled();
+        const v = s.installed ? parseClaudeVersion(s.version) : null;
+        setLocalClaudeVersion(v);
+        if (v && heal.need && isVersionOlder(v, heal.need)) {
+          throw new Error(`it is still ${v} after \`claude update\``);
+        }
+      } else if (last.target === 'remote-direct' && last.profileId) {
+        await invoke<string>('update_remote_claude', { profileId: last.profileId });
+      }
+      seenMsgIds.current.clear();
+      lastEventTime.current = Date.now();
+      lastContentTime.current = Date.now();
+      setIsStreaming(true);
+      await invoke('start_claude_session', { ...last.invokeArgs, minClaudeVersion: heal.need });
+    } catch (e) {
+      heal.state = 'idle';
+      setIsStreaming(false);
+      setClaudeTooOld({
+        have: heal.have ?? '?',
+        need: heal.need ?? '?',
+        model: String(last.invokeArgs.model ?? ''),
+        remote: last.target !== 'local',
+        error: String(e).replace(/^Error:\s*/, ''),
+      });
+    }
+  };
 
   // One-click `claude update` on the connected remote, then re-check the version.
   const handleUpdateRemote = useCallback(async () => {
     if (!remoteInfo?.profileId) return;
+    // Restricted cluster: `update_remote_claude` would run claude on the login
+    // node. Type it into the server terminal instead, where the agent runs.
+    if (restrictLoginNode) {
+      if (!sshTerminalId) {
+        setRemoteUpdateMsg('Open a terminal on the server, then run: claude update');
+        return;
+      }
+      invoke('write_terminal', {
+        terminalId: sshTerminalId,
+        data: Array.from(new TextEncoder().encode('claude update\n')),
+      }).catch(() => {});
+      setRemoteUpdateMsg('Running claude update in the terminal below.');
+      return;
+    }
     setUpdatingRemote(true);
     setRemoteUpdateMsg(null);
     try {
@@ -2019,7 +2271,7 @@ export function ChatPanel() {
     } finally {
       setUpdatingRemote(false);
     }
-  }, [remoteInfo?.profileId, runRemoteCheck]);
+  }, [remoteInfo?.profileId, runRemoteCheck, restrictLoginNode, sshTerminalId]);
 
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
@@ -2060,7 +2312,17 @@ export function ChatPanel() {
         installing: false,
         error: null,
       });
-      return;
+      // Still say up front when the server has no sign-in at all, instead of
+      // failing the first message. This check starts no process on the login
+      // node (shell builtins only), so it is safe under the policy above.
+      let cancelledProbe = false;
+      probeRemoteClaudeSignin(remoteInfo.profileId)
+        .then((r) => {
+          if (cancelledProbe || r !== 'no') return;
+          setRemoteDeps((prev) => (prev && prev.status === 'ok' ? { ...prev, hasAuth: false } : prev));
+        })
+        .catch(() => { /* unknown: stay quiet; the first run reports it */ });
+      return () => { cancelledProbe = true; };
     }
 
     let cancelled = false;
@@ -2290,6 +2552,74 @@ export function ChatPanel() {
       }
       try {
         const data = JSON.parse(line) as ClaudeEvent;
+        if (eventNeedsSignIn(data)) setSignInExpired(true);
+
+        const pushNotice = (text: string) =>
+          setMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: 'system' as const, content: [{ type: 'text' as const, text }], timestamp: Date.now() },
+          ]);
+
+        // Claude Code is older than this model needs. The first time for a
+        // message, hide its API 400 and update + retry instead: the result
+        // marks the retry pending, and the done handler runs it once this run
+        // is fully over. After that, the banner explains what's left to do.
+        const tooOld = eventNeedsNewerClaude(data);
+        if (tooOld) {
+          const heal = healRef.current;
+          const canHeal = heal.attempts === 0 && !heal.updatedThisRun && lastSendRef.current !== null;
+          if (data.type === 'assistant' && canHeal) return;
+          if (data.type === 'result') {
+            const modelId = String(lastSendRef.current?.invokeArgs.model ?? '');
+            if (modelId) learnedFloorsRef.current[modelId] = tooOld.need;
+            if (canHeal) {
+              heal.state = 'retry-pending';
+              heal.have = tooOld.have;
+              heal.need = tooOld.need;
+              const where = remoteInfoRef.current ? `on ${remoteInfoRef.current.profileName}` : 'on this computer';
+              pushNotice(
+                `Claude Code ${tooOld.have} ${where} is too old for ${modelId} (it needs ${tooOld.need} or newer). ` +
+                  'Updating it, then sending your message again…',
+              );
+              return;
+            }
+            setClaudeTooOld({ have: tooOld.have, need: tooOld.need, model: modelId, remote: !!remoteInfoRef.current });
+          }
+        }
+
+        // Status lines Operon's run script writes while it updates Claude Code
+        // on the server's node, before the agent starts.
+        if (data.type === 'operon_status') {
+          if (data.kind === 'claude_update_started') {
+            healRef.current.updatedThisRun = true;
+            pushNotice(
+              `Updating Claude Code${data.from ? ` ${data.from}` : ''} on the node your agent runs on ` +
+                `(this model needs ${data.need ?? 'a newer version'} or newer)…`,
+            );
+          } else if (data.kind === 'claude_update_finished') {
+            const ok = !!data.to && !!data.need && !isVersionOlder(data.to, data.need);
+            const rp = remoteInfoRef.current?.remotePath;
+            pushNotice(
+              ok
+                ? `Claude Code updated to ${data.to}.`
+                : `Claude Code could not be updated automatically (still ${data.to || data.from || 'unknown'}).` +
+                    (rp ? ` The update's output is in ${rp}/.operon-${sessionId}.update.log on the server.` : ''),
+            );
+            if (data.to) {
+              const to = data.to;
+              setRemoteDeps((prev) => (prev ? { ...prev, claudeVersion: to } : prev));
+            }
+          }
+          return;
+        }
+
+        // Every run reports the Claude Code version it is — the only way to
+        // learn it on clusters where Operon never runs Claude on the login node.
+        if (data.type === 'system' && data.subtype === 'init' && typeof data.claude_code_version === 'string') {
+          const v = data.claude_code_version;
+          if (remoteInfoRef.current) setRemoteDeps((prev) => (prev ? { ...prev, claudeVersion: v } : prev));
+          else setLocalClaudeVersion(parseClaudeVersion(v));
+        }
 
         if (data.type === 'system' && 'session_id' in data && data.session_id) {
           setClaudeSessionId(data.session_id);
@@ -2579,11 +2909,21 @@ export function ChatPanel() {
           });
         }
       } catch {
-        // Unparseable line, ignore
+        // Unparseable line. Claude Code's stderr can land here raw; still
+        // notice an expired sign-in in it.
+        if (!line.trimStart().startsWith('{') && SIGN_IN_NEEDED_RE.test(line)) setSignInExpired(true);
       }
     }).then((u) => unlisteners.push(u));
 
     listen(`claude-done-${sessionId}`, async () => {
+      // The run that just ended said Claude Code is too old: keep the turn
+      // going and update + resend instead (see runHealRetryRef).
+      if (healRef.current.state === 'retry-pending') {
+        healRef.current.state = 'retrying';
+        void runHealRetryRef.current?.();
+        return;
+      }
+      if (healRef.current.state === 'retrying') healRef.current.state = 'idle';
       setIsStreaming(false);
 
       // Capture whether silent-failure fired so we can follow up with a remote
@@ -2671,6 +3011,7 @@ export function ChatPanel() {
             timeout,
           ]);
           const trimmed = content.trim();
+          if (SIGN_IN_NEEDED_RE.test(trimmed)) setSignInExpired(true);
           const truncated = trimmed.length > 1500
             ? trimmed.slice(0, 1500) + '\n…[truncated, full file on remote]'
             : trimmed;
@@ -3236,6 +3577,12 @@ export function ChatPanel() {
     if (isStreaming && !overrideText) return;
 
     const rawText = textToSend;
+    // Each send is a fresh attempt: the sign-in banner comes back if Claude
+    // Code reports the problem again.
+    setSignInExpired(false);
+    setSignInNote(null);
+    setClaudeTooOld(null);
+    healRef.current = { state: 'idle', attempts: 0, updatedThisRun: false, have: null, need: null };
 
     // ── Plan mode: if existing plan detected, ask user what to do ──
     if (mode === 'plan' && existingPlan && existingPlan.trim().length > 0 && !planConflict && !planReady) {
@@ -3694,6 +4041,38 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         }
       }
 
+      // Make sure Claude Code is new enough for this model. On a server the
+      // run script checks and updates it on the node itself (minClaudeVersion);
+      // on this computer it is updated here, before the run.
+      const floor = laterVersion(
+        await claudeCodeMinVersion(model).catch(() => null),
+        learnedFloorsRef.current[model],
+      );
+      if (floor) invokeArgs.minClaudeVersion = floor;
+      if (!remoteInfo && floor && localClaudeVersion && isVersionOlder(localClaudeVersion, floor)) {
+        healRef.current.updatedThisRun = true;
+        const notice = (text: string) =>
+          setMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: 'system' as const, content: [{ type: 'text' as const, text }], timestamp: Date.now() },
+          ]);
+        notice(`Claude Code ${localClaudeVersion} on this computer is too old for ${model} (it needs ${floor} or newer). Updating it first…`);
+        try {
+          await updateLocalClaude();
+        } catch {
+          /* the run itself reports it if Claude Code is still too old */
+        }
+        const st = await checkClaudeInstalled().catch(() => null);
+        const now = st?.installed ? parseClaudeVersion(st.version) : null;
+        if (now) setLocalClaudeVersion(now);
+        notice(now && !isVersionOlder(now, floor) ? `Claude Code updated to ${now}.` : 'Claude Code could not be updated automatically.');
+      }
+      lastSendRef.current = {
+        invokeArgs,
+        target: remoteInfo ? (invokeArgs.useTerminal ? 'remote-terminal' : 'remote-direct') : 'local',
+        profileId: remoteInfo?.profileId,
+      };
+
       // Add a timeout so the UI doesn't hang forever if the backend stalls
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('Session start timed out after 60s. Check your SSH connection.')), 60000)
@@ -3714,7 +4093,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
   // NOTE: projectPath is intentionally excluded from deps — we use
   // sessionProjectPath (pinned on first message) so that sidebar folder
   // navigation does not break an active streaming session.
-  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady]);
+  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady, localClaudeVersion]);
 
   // Report mode: user clicks "Generate Report" button during clarify phase.
   // Calls sendMessage with an override string, which bypasses the isStreaming
@@ -4101,11 +4480,187 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 <span className="text-subtle">· installed</span>
               )}
               {remoteUpdateMsg && (
-                <span className="text-red-500 dark:text-red-400 ml-1 truncate">{remoteUpdateMsg}</span>
+                <span className={`ml-1 truncate ${remoteUpdateMsg.startsWith('Update failed') ? 'text-red-500 dark:text-red-400' : 'text-muted'}`}>{remoteUpdateMsg}</span>
               )}
             </div>
           );
         })()}
+
+      {/* Local Claude Code version indicator — same as the remote one above */}
+      {!remoteInfo && localClaudeVersion && (() => {
+        const updateAvailable = !!latestClaudeVersion && isVersionOlder(localClaudeVersion, latestClaudeVersion);
+        return (
+          <div
+            className={`px-3 py-1 border-b shrink-0 flex items-center gap-1.5 text-[10px] ${
+              updateAvailable ? 'border-amber-800/30 bg-amber-950/20' : 'border-border-default'
+            }`}
+          >
+            {updateAvailable ? (
+              <AlertTriangle className="w-3 h-3 text-amber-500 dark:text-amber-400 shrink-0 pointer-events-none" />
+            ) : (
+              <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400 shrink-0 pointer-events-none" />
+            )}
+            <span className="text-muted">Claude Code</span>
+            <span className="font-mono text-secondary">{localClaudeVersion}</span>
+            {updateChannel === 'stable' && <span className="text-subtle">(stable)</span>}
+            {updateAvailable ? (
+              <>
+                <span className="text-amber-600 dark:text-amber-400">→ {latestClaudeVersion} available</span>
+                <button
+                  onClick={handleUpdateLocal}
+                  disabled={updatingLocal}
+                  className="ml-1 flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface hover:bg-elevated disabled:opacity-50 text-[10px] text-secondary transition-colors"
+                  title="Run `claude update` on this computer"
+                >
+                  {updatingLocal ? (
+                    <><Loader2 className="w-2.5 h-2.5 animate-spin pointer-events-none" /> Updating…</>
+                  ) : (
+                    <><RefreshCw className="w-2.5 h-2.5 pointer-events-none" /> Update</>
+                  )}
+                </button>
+              </>
+            ) : latestClaudeVersion ? (
+              <span className="text-green-600 dark:text-green-400">· up to date</span>
+            ) : (
+              <span className="text-subtle">· installed</span>
+            )}
+            {localUpdateMsg && (
+              <span className="text-red-500 dark:text-red-400 ml-1 truncate">{localUpdateMsg}</span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Claude Code is too old for the model and the automatic update didn't fix it */}
+      {claudeTooOld && (
+        <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/20">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 pointer-events-none" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                Claude Code {claudeTooOld.have} is too old for {claudeTooOld.model || 'this model'}
+              </p>
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                It needs {claudeTooOld.need} or newer, and updating it automatically didn't get there
+                {claudeTooOld.error ? ` (${claudeTooOld.error})` : ''}.{' '}
+                {claudeTooOld.remote
+                  ? 'Run claude update in the server terminal, or use a model this version supports.'
+                  : 'Try Update, or use a model this version supports.'}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                {claudeTooOld.remote && sshTerminalId && (
+                  <button
+                    onClick={() => {
+                      invoke('write_terminal', {
+                        terminalId: sshTerminalId,
+                        data: Array.from(new TextEncoder().encode('claude update\n')),
+                      }).catch(() => {});
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface hover:bg-elevated text-[11px] text-secondary transition-colors"
+                  >
+                    <TerminalSquare className="w-3 h-3 pointer-events-none" /> Run claude update in the terminal
+                  </button>
+                )}
+                {!claudeTooOld.remote && (
+                  <button
+                    onClick={() => void handleUpdateLocal()}
+                    disabled={updatingLocal}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-surface hover:bg-elevated disabled:opacity-50 text-[11px] text-secondary transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3 pointer-events-none" /> {updatingLocal ? 'Updating…' : 'Update'}
+                  </button>
+                )}
+                {model !== 'claude-opus-5' && model.startsWith('claude-') && (
+                  <button
+                    onClick={() => { setModel('claude-opus-5'); setClaudeTooOld(null); }}
+                    className="px-2.5 py-1 rounded bg-surface hover:bg-elevated text-[11px] text-secondary transition-colors"
+                  >
+                    Use Claude Opus 5 for this chat
+                  </button>
+                )}
+              </div>
+            </div>
+            <button onClick={() => setClaudeTooOld(null)} className="text-muted hover:text-secondary shrink-0" title="Dismiss">
+              <X className="w-3.5 h-3.5 pointer-events-none" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Claude Code said its sign-in expired or was revoked. Anthropic provider
+          only: Portkey/custom sessions authenticate with that provider's key. */}
+      {signInExpired && aiProvider === 'anthropic' && (() => {
+        const apiKeyUser = !remoteInfo && authState?.method === 'api_key';
+        return (
+          <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/20">
+            <div className="flex items-start gap-2">
+              <Key className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 pointer-events-none" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+                  {apiKeyUser ? 'Claude Code rejected its credentials' : "Claude Code's sign-in has expired"}
+                </p>
+                <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                  {apiKeyUser
+                    ? "Check the API key saved in Settings → Claude, or remove it to use your Claude account's sign-in instead."
+                    : remoteInfo
+                      ? `Sign in again on ${remoteInfo.profileName}. Your conversation is kept; send your message again afterwards.`
+                      : 'Sign in again to keep chatting. Your conversation is kept; send your message again afterwards.'}
+                </p>
+                {signInNote && (
+                  <p className="text-[10px] text-secondary mt-1 leading-relaxed">{signInNote}</p>
+                )}
+                {!apiKeyUser && (
+                  <button
+                    onClick={() => void handleSignInAgain()}
+                    className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1 bg-orange-600 hover:bg-orange-500 rounded text-[11px] text-white font-medium transition-colors"
+                  >
+                    <LogIn className="w-3 h-3 pointer-events-none" />
+                    Sign in again
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => { setSignInExpired(false); setSignInNote(null); }}
+                className="text-muted hover:text-secondary shrink-0"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* The shell profile routes Claude Code to a cloud provider, which
+          outranks a claude.ai sign-in. Only a notice: an admin or the user
+          may have set this on purpose, so Operon never clears it. */}
+      {!remoteInfo && aiProvider === 'anthropic' && authEnv?.cloud_provider && !cloudNoticeDismissed && (() => {
+        const cloud = CLOUD_PROVIDER_LABEL[authEnv.cloud_provider];
+        const dismiss = () => {
+          setCloudNoticeDismissed(true);
+          try { localStorage.setItem(cloudNoticeKey(authEnv.cloud_provider!), '1'); } catch { /* per-session only */ }
+        };
+        return (
+          <div className="px-3 py-2 border-b border-blue-800/30 shrink-0 bg-blue-950/20">
+            <div className="flex items-start gap-2">
+              <Cloud className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5 pointer-events-none" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">
+                  Claude Code is set to use {cloud.name}
+                </p>
+                <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                  Your shell profile sets <code className="bg-surface px-1 rounded">{cloud.envVar}</code>, so chats are billed to
+                  that cloud account and your Claude subscription sign-in is not used. If that isn't intended, remove
+                  the line from your shell profile and restart Operon.
+                </p>
+              </div>
+              <button onClick={dismiss} className="text-muted hover:text-secondary shrink-0" title="Don't show again">
+                <X className="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {remoteInfo && remoteDeps && remoteDeps.checked && remoteDeps.status === 'unreachable' && (
         <div className="px-3 py-2 border-b border-red-800/30 shrink-0 bg-red-950/30">
@@ -4367,8 +4922,13 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                         // often have `export ANTHROPIC_API_KEY=...` in the remote
                         // ~/.bashrc, which outranks the claude.ai session and makes
                         // `claude login` report that connectors are disabled.
+                        // `auth login`: current Claude Code has no top-level
+                        // `login` command — `claude login` opened a chat with
+                        // "login" as the prompt, which only reached the sign-in
+                        // screen when there was no login at all, and never for
+                        // an expired one.
                         try {
-                          const cmd = `${CLEAR_AUTH_ENV_PREFIX}claude login\n`;
+                          const cmd = `${CLEAR_AUTH_ENV_PREFIX}claude auth login\n`;
                           await invoke('write_terminal', {
                             terminalId: sshTerminalId,
                             data: Array.from(new TextEncoder().encode(cmd)),
@@ -4399,7 +4959,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 {loginStatus === 'fetching' && (
                   <div className="flex items-center gap-2 mt-1.5 text-[10px] text-secondary">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Running claude login in terminal — watching for login URL...
+                    Running claude auth login in the terminal — watching for the sign-in link...
                   </div>
                 )}
                 {loginStatus === 'ready' && loginUrl && (
@@ -4432,7 +4992,10 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       </div>
                     </div>
                     <div>
-                      <p className="text-[10px] text-secondary mb-1">Step 2: After signing in, paste the authentication code here:</p>
+                      <p className="text-[10px] text-secondary mb-1">
+                        Step 2: After signing in, copy the code the browser shows. Paste it at Claude Code's
+                        {' '}<span className="text-primary">Paste code here</span> prompt in the terminal, or paste it here and Operon types it into that terminal:
+                      </p>
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
@@ -4440,7 +5003,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           onChange={(e) => setAuthCode(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && authCode.trim() && sshTerminalId) {
-                              // Send auth code to the terminal (claude login is waiting for it)
+                              // Send auth code to the terminal (claude auth login is waiting for it)
                               invoke('write_terminal', {
                                 terminalId: sshTerminalId,
                                 data: Array.from(new TextEncoder().encode(authCode.trim() + '\n')),
@@ -4478,7 +5041,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                         </button>
                       </div>
                       <p className="text-[9px] text-subtle mt-1">
-                        The code will be sent to the terminal where <code className="bg-surface px-0.5 rounded">claude login</code> is waiting.
+                        The code is typed into the terminal where <code className="bg-surface px-0.5 rounded">claude auth login</code> is waiting.
                       </p>
                     </div>
                   </div>
@@ -4489,8 +5052,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                     <div className="p-2 bg-surface/60 rounded border border-green-700/30 space-y-1.5">
                       <p className="text-[10px] text-secondary font-medium">To finish, switch to the terminal and:</p>
                       <ol className="text-[10px] text-secondary space-y-1 list-decimal list-inside leading-relaxed">
-                        <li>Press <kbd className="px-1.5 py-0.5 bg-elevated rounded text-primary font-mono text-[10px]">Enter</kbd> to confirm the authentication</li>
-                        <li>Once logged in, type <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">/exit</code> to exit the Claude TUI</li>
+                        <li>If it is still waiting, press <kbd className="px-1.5 py-0.5 bg-elevated rounded text-primary font-mono text-[10px]">Enter</kbd> to confirm</li>
+                        <li><code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">claude auth login</code> exits by itself once signed in. An older Claude Code opens its chat screen instead — type <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">/exit</code> there</li>
                       </ol>
                       <p className="text-[9px] text-muted mt-1">Operon will auto-detect when authentication is complete.</p>
                     </div>
@@ -4499,7 +5062,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 {loginStatus === 'ready_no_url' && (
                   <div className="mt-1.5 space-y-2">
                     <p className="text-[10px] text-amber-600 dark:text-amber-400">
-                      The <code className="bg-surface px-1 rounded">claude login</code> command is running in the terminal below.
+                      The <code className="bg-surface px-1 rounded">claude auth login</code> command is running in the terminal below.
                     </p>
                     <div className="p-2 bg-surface/60 rounded border border-amber-700/30 space-y-1">
                       <p className="text-[10px] text-secondary">Check the terminal for a login URL. If you see one:</p>
@@ -4524,7 +5087,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                       <p className="text-[10px] text-secondary font-medium">You can log in manually instead:</p>
                       <ol className="text-[10px] text-secondary space-y-1 list-decimal list-inside leading-relaxed">
                         <li>Open a terminal connected to <span className="text-secondary font-medium">{remoteInfo?.profileName}</span></li>
-                        <li>Run: <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">claude login</code></li>
+                        <li>Run: <code className="text-amber-600 dark:text-amber-400 bg-panel/80 px-1 py-0.5 rounded font-mono">claude auth login</code></li>
                         <li>Follow the prompts to authenticate</li>
                         <li>Come back here and click <span className="text-blue-600 dark:text-blue-400 font-medium">Re-check Auth</span></li>
                       </ol>
@@ -4550,15 +5113,18 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                   If the button above doesn't work, open a terminal to <span className="text-secondary">{remoteInfo?.profileName}</span> and run:
                 </p>
                 <div className="mt-1 flex items-center gap-1.5 bg-surface/80 rounded px-2 py-1 border border-border-strong/30">
-                  <code className="text-[10px] text-amber-600 dark:text-amber-400 font-mono select-all flex-1">claude login</code>
+                  <code className="text-[10px] text-amber-600 dark:text-amber-400 font-mono select-all flex-1">claude auth login</code>
                   <button
-                    onClick={() => void copyText('claude login')}
+                    onClick={() => void copyText('claude auth login')}
                     className="text-[9px] text-muted hover:text-secondary shrink-0 px-1"
                   >
                     Copy
                   </button>
                 </div>
-                <p className="text-[9px] text-subtle mt-1">Follow the prompts, then click Re-check Auth below.</p>
+                <p className="text-[9px] text-subtle mt-1">
+                  Follow the prompts, then click Re-check Auth below. If sign-in keeps expiring on this server,
+                  Help → Remote SSH &amp; HPC explains a one-year token (<code className="bg-surface px-0.5 rounded">claude setup-token</code>).
+                </p>
               </div>
 
               {/* Option C: API key */}
@@ -4585,6 +5151,19 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                 >
                   <RefreshCw className={`w-3 h-3 ${remoteDeps?.installing ? 'animate-spin' : ''}`} />
                   {remoteDeps?.installing ? 'Checking...' : 'Re-check Auth'}
+                </button>
+                {/* Close without a check. Re-check Auth runs on the login node,
+                    which restricted clusters forbid; if the sign-in did not
+                    take, the next chat reports it again. */}
+                <button
+                  onClick={() => {
+                    setLoginStatus('idle');
+                    setLoginUrl(null);
+                    setRemoteDeps((prev) => (prev ? { ...prev, hasAuth: true } : prev));
+                  }}
+                  className="px-2.5 py-1 rounded text-[11px] text-secondary hover:text-primary bg-surface hover:bg-elevated transition-colors"
+                >
+                  Done — I've signed in
                 </button>
               </div>
             </div>

@@ -90,3 +90,6 @@ src-tauri/protocols/*/repo/dataset/
 docs/*Registrants*.xlsx
 # Local-only build config (machine-specific signing identity / paths).
 src-tauri/tauri.local.conf.json
+
+# Jarvis — unshipped experiment, kept local only; never commit
+jarvis/

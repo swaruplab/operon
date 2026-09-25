@@ -37,7 +37,7 @@ export type StartLoginResult =
   | { ok: false; reason: 'not-installed' };
 
 /**
- * Open a terminal tab running `claude login`.
+ * Open a terminal tab running `claude auth login`.
  *
  * Two things this must not do, both of which were real bugs:
  *  - Open a terminal when Claude Code isn't installed. The tab then prints
@@ -58,7 +58,10 @@ export async function startClaudeLogin(): Promise<StartLoginResult> {
   await emit('open-login-terminal', {
     terminalId,
     title: 'Claude Login',
-    command: `${inv.command} login`,
+    // `auth login`: current Claude Code has no top-level `login` command, so
+    // `claude login` started an interactive session with "login" as the
+    // prompt. An older CLI without `auth` falls back to that same behaviour.
+    command: `${inv.command} auth login`,
     kind: 'claude-login',
   });
   return { ok: true, terminalId };
@@ -70,6 +73,49 @@ const COMMAND_NOT_FOUND = /command not found|not recognized as an internal|No su
 /** True if a chunk of terminal output shows the login command never ran. */
 export function looksLikeClaudeMissing(output: string): boolean {
   return COMMAND_NOT_FOUND.test(output);
+}
+
+/** The oldest Claude Code release that can run `model`, if Operon knows one. */
+export async function claudeCodeMinVersion(model: string): Promise<string | null> {
+  return invoke('claude_code_min_version', { model });
+}
+
+/** Login-node-safe check of whether Claude Code is signed in on a server:
+ *  'yes' | 'token' | 'cloud' | 'no' | 'unknown'. Runs no Claude process. */
+export async function probeRemoteClaudeSignin(profileId: string): Promise<string> {
+  return invoke('probe_remote_claude_signin', { profileId });
+}
+
+/** Run `claude update` on this computer; resolves with Claude Code's output. */
+export async function updateLocalClaude(): Promise<string> {
+  return invoke('update_local_claude');
+}
+
+/** Credential sources other than `/login` set in the user's shell profile.
+ *  Only whether a variable is set is ever reported, never its value. */
+export interface ClaudeAuthEnv {
+  oauth_token: boolean;
+  cloud_provider: 'bedrock' | 'vertex' | 'foundry' | null;
+}
+
+export async function detectClaudeAuthEnv(): Promise<ClaudeAuthEnv> {
+  return invoke('detect_claude_auth_env');
+}
+
+export type ClaudeUpdateChannel = 'latest' | 'stable';
+
+/** The release channel Claude Code on this computer actually follows. */
+export async function getClaudeUpdateChannel(): Promise<ClaudeUpdateChannel> {
+  return invoke('get_claude_update_channel');
+}
+
+/** Switch Claude Code on this computer to `channel`. Pass the floor Operon
+ *  wrote last time (if any); resolves with the floor Operon owns afterwards. */
+export async function setClaudeUpdateChannel(
+  channel: ClaudeUpdateChannel,
+  operonFloor: string | null,
+): Promise<string | null> {
+  return invoke('set_claude_update_channel', { channel, operonFloor });
 }
 
 export async function checkClaudeInstalled(): Promise<ClaudeStatus> {

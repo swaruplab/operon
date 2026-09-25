@@ -75,6 +75,14 @@ export interface AppSettings {
    *  Setup still uses the login node via the manual buttons; everyday agent
    *  work runs on the compute node. */
   hpc_restrict_login_node: boolean;
+  /** Claude Code release channel: 'latest' (Claude Code's default) or 'stable'
+   *  (about a week behind, skipping releases with major regressions). Opt-in:
+   *  locally it changes Claude Code's own settings; for servers it picks the
+   *  channel Operon installs with. */
+  claude_update_channel: 'latest' | 'stable';
+  /** The minimumVersion Operon wrote when opting into 'stable', so switching
+   *  back removes only Operon's own floor. Empty when none. */
+  claude_update_floor: string;
   /** Profile ids whose remote Claude install has been verified once. Drives
    *  auto-detect-first-run: the login-node deps/auth check runs only the first
    *  time a profile is seen, then never again. */
@@ -89,8 +97,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   word_wrap: false,
   minimap_enabled: true,
   // Keep in sync with DEFAULT_MODEL / default_effort() in
-  // src-tauri/src/commands/settings.rs.
-  model: 'claude-opus-5',
+  // src-tauri/src/commands/settings.rs. Effort stays 'high' although Opus
+  // 5.5's own API default is 'medium' — Operon sends --effort explicitly.
+  model: 'claude-opus-5-5',
   effort: 'high',
   ultrathink: false,
   max_turns: 25,
@@ -120,6 +129,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reviewer_effort: 'low',
   reviewer_auto_sbatch: true,
   hpc_restrict_login_node: true,
+  claude_update_channel: 'latest',
+  claude_update_floor: '',
   remote_claude_ready: [],
 };
 

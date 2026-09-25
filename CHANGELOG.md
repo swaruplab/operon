@@ -4,6 +4,84 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] — 2026-09-25
+
+### Changed
+- **Claude Opus 5.5 at effort `high` is the new default model.** Added to the
+  bundled model catalog (`claude-opus-5-5`, 1M context / 128K output, all five
+  effort levels) and listed first in the Opus group. Fresh installs get it
+  outright; existing installs still on the previous default (`claude-opus-5`)
+  are moved forward once on load, and an install that skipped releases chains
+  through every earlier default to land on it. A model you picked yourself is
+  never overwritten, and Opus 5 stays selectable.
+- Effort stays `high` for the new default even though Opus 5.5's own API
+  default is `medium`: Operon sends `--effort` explicitly, so moving onto the
+  new model does not quietly lower reasoning depth.
+
+### Added
+- **An expired sign-in now shows a "Sign in again" button in the chat.** When
+  Claude Code reports that its login expired or was revoked (for example
+  "Login expired · Please run /login"), a notice appears above the chat. On a
+  server it opens the server sign-in steps; on this computer it opens a
+  terminal tab running `claude auth login`. The conversation is kept. Only
+  Claude Code's own error output triggers it, never the model's replies, and
+  only for the Anthropic provider.
+- **Local Claude Code version badge with an Update button**, matching the one
+  already shown for servers. Update runs `claude update` on this computer.
+- **Opt-in Stable release channel** (Settings → Claude → Claude Code updates).
+  Latest stays the default. Choosing Stable writes `autoUpdatesChannel` to
+  Claude Code's own `~/.claude/settings.json` (the same place `/config` writes
+  it; a one-time backup is kept) and pins `minimumVersion` to the installed
+  version so switching never downgrades. Switching back removes only the floor
+  Operon wrote. Servers set up from Operon are installed on the chosen channel,
+  and the version badges compare against it.
+- **Notice when a Bedrock / Vertex / Foundry switch is active.** If the shell
+  profile sets `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY`, which outranks a
+  claude.ai sign-in, the chat says so once (dismissible). Operon never clears
+  the variable, because it may have been set on purpose or by an admin.
+- Help: how server sign-in works, and how to use a one-year
+  `claude setup-token` token on a server where sign-in keeps expiring. Operon
+  never asks for, stores or copies the token.
+
+### Fixed
+- **A server whose Claude Code is too old for the model is updated, not
+  failed.** Claude Code only updates itself from its interactive screen, and
+  Operon runs it headless, so a server used through Operon stayed on whatever
+  version it last had. With Opus 5.5 (which needs Claude Code 2.1.280+) as the
+  default, the first message on such a server failed with "API Error: 400
+  Claude Code 2.1.269 does not support this model". Now the run script checks
+  the version on the node the agent runs on and runs `claude update` there
+  first when it is too old, reporting progress in the chat. It never runs on a
+  login node. If Claude Code names a newer requirement Operon did not know
+  about, the chat updates and resends the message once by itself. Only if that
+  fails does a notice explain what to do, with a one-click switch to Opus 5.
+  Local chats update the same way before the run.
+- **Restricted HPC clusters say up front when Claude Code isn't signed in.**
+  Connecting used to show nothing and let the first message fail with "Not
+  logged in". A connect-time check now opens the sign-in steps instead. It
+  uses shell builtins only, so no process on the login node ever has "claude"
+  in its command line.
+- **The server's Claude Code version is shown on restricted clusters too**,
+  read from each run's own start-up event. Its Update button types
+  `claude update` into the server terminal instead of running it on the login
+  node.
+- **Chat history records can no longer be corrupted or lose an update.**
+  Saving the Claude session id (at a run's start) and marking the chat
+  finished (at its end) could run at the same moment. One change was lost, so a
+  finished chat stayed "running", and two overlapping writes could leave a
+  record with a stray `}` that no longer loaded. Each record is now updated as
+  one step under a lock and written to a temporary file that replaces the old
+  one. Records already damaged this way are read correctly again.
+- **Sign-in runs `claude auth login`, not `claude login`.** Current Claude Code
+  has no top-level `login` command, so `claude login` opened a chat with "login"
+  as the prompt. That only reached the sign-in screen when there was no login at
+  all, never for an expired one. Fixed in the local sign-in tab, the server
+  "Login on Server" button, the fallback terminal and all instructions.
+- **A `CLAUDE_CODE_OAUTH_TOKEN` or cloud-provider switch counts as signed in.**
+  The local and server auth checks now detect these (by variable name only,
+  never reading the value), instead of showing the sign-in gate to a user
+  whose Claude Code already works.
+
 ## [1.0.6] — 2026-09-06
 
 ### Added

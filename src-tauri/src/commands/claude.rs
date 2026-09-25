@@ -793,22 +793,107 @@ fn sessions_dir() -> Result<std::path::PathBuf, String> {
     crate::platform::sessions_dir()
 }
 
-fn save_session_to_disk(meta: &SessionMetadata) -> Result<(), String> {
-    let dir = sessions_dir()?;
-    let path = dir.join(format!("{}.json", meta.session_id));
-    let data = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
-    std::fs::write(&path, data).map_err(|e| format!("Failed to save session: {}", e))
+/// Serializes every write and every load-change-save of a session record.
+///
+/// Tauri runs async commands on a thread pool, so `update_session_claude_id`
+/// (from the stream's first event) and `update_session_status` (from its last)
+/// could run at the same moment. Both loaded the record and each saved its own
+/// copy: the later save silently undid the other's change (a finished session
+/// stuck at "running"), and two overlapping `fs::write`s — each truncating,
+/// then writing — left a torn file, a whole record followed by the stale tail
+/// of a longer one, which no loader could parse. Held only around synchronous
+/// file I/O, never across an `.await`.
+static SESSION_FILES: Mutex<()> = Mutex::new(());
+
+fn session_files_lock() -> std::sync::MutexGuard<'static, ()> {
+    SESSION_FILES.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn load_session_from_disk(session_id: &str) -> Result<Option<SessionMetadata>, String> {
+/// Write a record whole: into a sibling file, then renamed over the old one,
+/// so a reader (or a crash) sees the old record or the new one, never a mix.
+/// `rename` replaces an existing file on Windows too. Caller holds the lock.
+fn write_session_file(dir: &std::path::Path, meta: &SessionMetadata) -> Result<(), String> {
+    let path = dir.join(format!("{}.json", meta.session_id));
+    let tmp = dir.join(format!(
+        ".{}.{}.json.tmp",
+        meta.session_id,
+        std::process::id()
+    ));
+    let data = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, data).map_err(|e| format!("Failed to save session: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to save session: {}", e)
+    })
+}
+
+fn save_session_to_disk(meta: &SessionMetadata) -> Result<(), String> {
     let dir = sessions_dir()?;
+    let _guard = session_files_lock();
+    write_session_file(&dir, meta)
+}
+
+/// Parse a record, also recovering one torn by the old overlapping-write bug:
+/// its first complete JSON value is a whole record, and what follows is the
+/// leftover tail of an earlier, longer write.
+fn parse_session_record(data: &str) -> Option<SessionMetadata> {
+    serde_json::from_str(data).ok().or_else(|| {
+        serde_json::Deserializer::from_str(data)
+            .into_iter::<SessionMetadata>()
+            .next()?
+            .ok()
+    })
+}
+
+fn read_session_file(
+    dir: &std::path::Path,
+    session_id: &str,
+) -> Result<Option<SessionMetadata>, String> {
     let path = dir.join(format!("{}.json", session_id));
     if !path.exists() {
         return Ok(None);
     }
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let meta: SessionMetadata = serde_json::from_str(&data).map_err(|e| e.to_string())?;
-    Ok(Some(meta))
+    parse_session_record(&data)
+        .map(Some)
+        .ok_or_else(|| format!("Session record {} is unreadable", session_id))
+}
+
+fn load_session_from_disk(session_id: &str) -> Result<Option<SessionMetadata>, String> {
+    let dir = sessions_dir()?;
+    read_session_file(&dir, session_id)
+}
+
+/// Load a record, let `change` edit it, and save it — as one step, under the
+/// lock, so concurrent updates each see the other's result. `change` returns
+/// false to leave the record untouched. `Ok(false)` means there is no record.
+fn update_session_on_disk(
+    session_id: &str,
+    change: impl FnOnce(&mut SessionMetadata) -> bool,
+) -> Result<bool, String> {
+    update_session_in(&sessions_dir()?, session_id, change)
+}
+
+fn update_session_in(
+    dir: &std::path::Path,
+    session_id: &str,
+    change: impl FnOnce(&mut SessionMetadata) -> bool,
+) -> Result<bool, String> {
+    let _guard = session_files_lock();
+    let Some(mut meta) = read_session_file(dir, session_id)? else {
+        return Ok(false);
+    };
+    if change(&mut meta) {
+        write_session_file(dir, &meta)?;
+    }
+    Ok(true)
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn load_all_sessions_from_disk() -> Vec<SessionMetadata> {
@@ -822,7 +907,7 @@ fn load_all_sessions_from_disk() -> Vec<SessionMetadata> {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(data) = std::fs::read_to_string(&path) {
-                    if let Ok(meta) = serde_json::from_str::<SessionMetadata>(&data) {
+                    if let Some(meta) = parse_session_record(&data) {
                         sessions.push(meta);
                     }
                 }
@@ -1711,14 +1796,22 @@ echo "REPORTLAB:$(python3 -c 'import reportlab; print(reportlab.Version)' 2>/dev
 /// hint. Runs from the app host (not the remote), so it works behind a login
 /// node with no outbound access.
 #[tauri::command]
-pub async fn get_latest_claude_code_version() -> Result<String, String> {
+pub async fn get_latest_claude_code_version(channel: Option<String>) -> Result<String, String> {
+    // The npm dist-tags mirror Claude Code's release channels: `latest` ships
+    // every release, `stable` trails it by about a week. Comparing a
+    // stable-channel install against `latest` would show "update available"
+    // forever for a version the user deliberately chose to lag.
+    let tag = match channel.as_deref() {
+        Some("stable") => "stable",
+        _ => "latest",
+    };
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("operon")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client
-        .get("https://registry.npmjs.org/@anthropic-ai/claude-code/latest")
+        .get("https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags")
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -1726,10 +1819,10 @@ pub async fn get_latest_claude_code_version() -> Result<String, String> {
         return Err(format!("npm registry returned {}", resp.status()));
     }
     let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    json.get("version")
+    json.get(tag)
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| "no version field in npm response".to_string())
+        .ok_or_else(|| format!("no `{tag}` dist-tag in npm response"))
 }
 
 /// Run `claude update` (the native installer's self-update) on a remote server,
@@ -1767,35 +1860,28 @@ fi
         .map_err(|e| e.to_string())
 }
 
-/// Check if Claude Code on a remote server is authenticated.
-/// Reads the stored OAuth credential (`expiresAt` + `refreshToken`) directly —
-/// it does NOT run `claude`, because a live `claude -p` would force a token
-/// REFRESH, and on a shared-NFS HPC home that refresh can race a session/other
-/// check and rotate-invalidate (even permanently wipe) the refresh token. The
-/// file read tells us auth status without ever touching the network.
-/// Returns: "authenticated", "not_authenticated", or an error string.
-#[tauri::command]
-pub async fn check_remote_claude_auth(
-    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
-    profile_id: String,
-) -> Result<String, String> {
-    let profile = {
-        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
-        profiles
-            .iter()
-            .find(|p| p.id == profile_id)
-            .cloned()
-            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
-    };
+/// Remote auth status, decided by READING — never by running `claude`, which
+/// would force a token refresh that can race another claude process on a
+/// shared NFS home and permanently wipe the refresh token. Prints one
+/// `AUTH:<state>` marker; see [`check_remote_claude_auth`] for the mapping.
+const REMOTE_AUTH_CHECK_SCRIPT: &str = r#"
+# A long-lived token from `claude setup-token`, or a Bedrock/Vertex/Foundry
+# switch, authenticates Claude Code with no credential file at all — reporting
+# "not logged in" for those would be a false alarm. They live in the user's
+# shell profile, which this non-login shell never sources, so look for the
+# variable NAME there. Only a name is matched or printed, never a value. This
+# also runs before any ~/.claude path is touched.
+for rc in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.zshenv"; do
+    [ -f "$rc" ] || continue
+    if grep -qsE '^[[:space:]]*(export[[:space:]]+)?CLAUDE_CODE_OAUTH_TOKEN=' "$rc"; then
+        echo "AUTH:token"; exit 0
+    fi
+    if grep -qsE '^[[:space:]]*(export[[:space:]]+)?CLAUDE_CODE_USE_(BEDROCK|VERTEX|FOUNDRY)=["'"'"']?(1|true)' "$rc"; then
+        echo "AUTH:cloud"; exit 0
+    fi
+done
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && { echo "AUTH:token"; exit 0; }
 
-    // Determine auth status by READING the stored OAuth credential — NEVER by
-    // running `claude`. A live `claude -p` would force a token REFRESH; on HPC
-    // the credential is on a shared NFS home, and a refresh racing another
-    // claude process (a session, or the old 5s re-check) rotates + invalidates
-    // the refresh token, which a lost race can permanently wipe. Reading the
-    // file's `expiresAt` + `refreshToken` tells us enough without any network
-    // call and without ever triggering that refresh. NO `claude`, NO python.
-    let check_script = r#"
 # Locate the credential file (first match wins).
 CRED=""
 for f in \
@@ -1857,13 +1943,279 @@ fi
 exit 0
 "#;
 
+/// Run `claude update` on this computer. The local twin of
+/// [`update_remote_claude`], behind the version badge's Update button. Follows
+/// whatever release channel Claude Code's own settings name.
+#[tauri::command]
+pub async fn update_local_claude() -> Result<String, String> {
+    let cmd = substitute_claude_invocation("claude update 2>&1");
+    let mut c = crate::platform::shell_exec_async(&cmd);
+    if let Some(git_bash_path) = crate::platform::find_git_bash_path() {
+        c.env("CLAUDE_CODE_GIT_BASH_PATH", &git_bash_path);
+    }
+    let out = tokio::time::timeout(std::time::Duration::from_secs(300), c.output())
+        .await
+        .map_err(|_| "claude update did not finish within 5 minutes".to_string())?
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+    .trim()
+    .to_string();
+    if out.status.success() {
+        Ok(text)
+    } else if text.is_empty() {
+        Err(format!("claude update exited with {}", out.status))
+    } else {
+        Err(text)
+    }
+}
+
+/// Credential sources other than `/login` that the user's own shell profile
+/// sets for Claude Code. Operon never reads a value — only whether a variable
+/// is set.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ClaudeAuthEnv {
+    /// `CLAUDE_CODE_OAUTH_TOKEN` is set: a one-year token from
+    /// `claude setup-token`, which outranks the `/login` credential.
+    pub oauth_token: bool,
+    /// `"bedrock"`, `"vertex"` or `"foundry"` when a `CLAUDE_CODE_USE_*` switch
+    /// is on. These outrank every other credential, including the
+    /// subscription login — and unlike a stale `ANTHROPIC_API_KEY` they are
+    /// Claude-Code-specific, so a set one is a deliberate choice (the user's,
+    /// or their cluster admin's) that Operon reports rather than strips.
+    pub cloud_provider: Option<String>,
+}
+
+/// Run in the same login shell Claude sessions are spawned through, so it sees
+/// exactly the environment the session will. Prints markers, never values.
+const AUTH_ENV_PROBE: &str = r#"[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && echo OPERON_ENV:oauth_token
+for p in BEDROCK VERTEX FOUNDRY; do
+  eval "v=\${CLAUDE_CODE_USE_$p:-}"
+  case "$v" in 1|true|TRUE|True) echo "OPERON_ENV:cloud:$p" ;; esac
+done
+true"#;
+
+fn parse_auth_env_probe(output: &str) -> ClaudeAuthEnv {
+    let mut env = ClaudeAuthEnv::default();
+    for line in output.lines().map(str::trim) {
+        if line == "OPERON_ENV:oauth_token" {
+            env.oauth_token = true;
+        } else if let Some(p) = line.strip_prefix("OPERON_ENV:cloud:") {
+            let name = match p {
+                "BEDROCK" => "bedrock",
+                "VERTEX" => "vertex",
+                "FOUNDRY" => "foundry",
+                _ => continue,
+            };
+            // Claude Code checks them in this order; report the one that wins.
+            if env.cloud_provider.is_none() {
+                env.cloud_provider = Some(name.to_string());
+            }
+        }
+    }
+    env
+}
+
+async fn probe_claude_auth_env() -> ClaudeAuthEnv {
+    let mut cmd = crate::platform::shell_exec_async(AUTH_ENV_PROBE);
+    match tokio::time::timeout(std::time::Duration::from_secs(10), cmd.output()).await {
+        Ok(Ok(out)) => parse_auth_env_probe(&String::from_utf8_lossy(&out.stdout)),
+        _ => ClaudeAuthEnv::default(),
+    }
+}
+
+/// Which non-`/login` credential sources a local Claude session would use.
+#[tauri::command]
+pub async fn detect_claude_auth_env() -> Result<ClaudeAuthEnv, String> {
+    Ok(probe_claude_auth_env().await)
+}
+
+// ── Claude Code release channel (opt-in "stable") ───────────────────────────
+//
+// The channel is Claude Code's own `autoUpdatesChannel` setting in
+// ~/.claude/settings.json, so it applies to every Claude Code session on the
+// machine, including ones the user starts in their own terminal. Setting it
+// only for Operon-launched sessions (through the settings file Operon passes)
+// would make those sessions and the user's own ones follow different channels
+// on one install: switching to "stable" downgrades unless a `minimumVersion`
+// floor is set, so the binary would flip back and forth. Writing it where
+// `/config` writes it keeps one channel per machine — which is also why it is
+// opt-in: Operon only touches the user's Claude settings when asked.
+
+fn claude_user_settings_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude").join("settings.json"))
+}
+
+/// "2.1.282 (Claude Code)" -> "2.1.282".
+fn parse_cli_version(raw: &str) -> Option<String> {
+    let v = raw.split_whitespace().next()?;
+    let ok = !v.is_empty()
+        && v.split('.').count() >= 2
+        && v.split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+    ok.then(|| v.to_string())
+}
+
+/// Apply Operon's channel choice to Claude Code's user settings. Pure, so it
+/// is tested without touching the user's file. Returns the new settings and
+/// the `minimumVersion` floor Operon now owns, if any.
+///
+/// Opting into "stable" mirrors `/config`'s "stay on the current version"
+/// choice: without a floor, the next update check would DOWNGRADE to the older
+/// stable build mid-work. Operon records the floor it wrote so switching back
+/// removes only its own — a floor the user set themselves is never touched.
+pub(crate) fn apply_update_channel(
+    mut settings: serde_json::Value,
+    channel: &str,
+    installed: Option<&str>,
+    operon_floor: Option<&str>,
+) -> Result<(serde_json::Value, Option<String>), String> {
+    let obj = settings.as_object_mut().ok_or_else(|| {
+        "Claude Code's settings.json is not a JSON object, so Operon left it unchanged".to_string()
+    })?;
+    let floor = match channel {
+        "stable" => {
+            obj.insert(
+                "autoUpdatesChannel".to_string(),
+                serde_json::Value::String("stable".to_string()),
+            );
+            match obj.get("minimumVersion").and_then(|v| v.as_str()) {
+                Some(existing) => operon_floor.filter(|f| *f == existing).map(str::to_string),
+                None => installed.map(|v| {
+                    obj.insert(
+                        "minimumVersion".to_string(),
+                        serde_json::Value::String(v.to_string()),
+                    );
+                    v.to_string()
+                }),
+            }
+        }
+        "latest" => {
+            obj.remove("autoUpdatesChannel");
+            if let Some(f) = operon_floor {
+                if obj.get("minimumVersion").and_then(|v| v.as_str()) == Some(f) {
+                    obj.remove("minimumVersion");
+                }
+            }
+            None
+        }
+        other => return Err(format!("unknown update channel {other:?}")),
+    };
+    Ok((settings, floor))
+}
+
+fn read_claude_user_settings(path: &std::path::Path) -> Result<serde_json::Value, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) if text.trim().is_empty() => Ok(serde_json::json!({})),
+        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+            format!(
+                "{} is not valid JSON ({e}), so Operon left it unchanged",
+                path.display()
+            )
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
+        Err(e) => Err(format!("could not read {}: {e}", path.display())),
+    }
+}
+
+/// Atomic write (temp file + rename), with a one-time backup of the user's
+/// original file beside it.
+fn write_claude_user_settings(
+    path: &std::path::Path,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("no parent directory for {}", path.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    if path.exists() {
+        let backup = dir.join("settings.json.operon-backup");
+        if !backup.exists() {
+            std::fs::copy(path, &backup)
+                .map_err(|e| format!("could not back up {}: {e}", path.display()))?;
+        }
+    }
+    let tmp = dir.join(format!(".settings.json.operon-{}", std::process::id()));
+    let mut text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    text.push('\n');
+    std::fs::write(&tmp, text).map_err(|e| format!("could not write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("could not replace {}: {e}", path.display())
+    })
+}
+
+/// The release channel Claude Code on this computer actually follows.
+#[tauri::command]
+pub async fn get_claude_update_channel() -> Result<String, String> {
+    let path = claude_user_settings_path().ok_or("home directory unavailable")?;
+    let settings = read_claude_user_settings(&path)?;
+    let stable = settings.get("autoUpdatesChannel").and_then(|v| v.as_str()) == Some("stable");
+    Ok(if stable { "stable" } else { "latest" }.to_string())
+}
+
+/// Switch Claude Code on this computer to `channel` ("latest" | "stable").
+/// `operon_floor` is the `minimumVersion` Operon wrote last time, if any.
+/// Returns the floor Operon owns afterwards, for the caller to persist.
+#[tauri::command]
+pub async fn set_claude_update_channel(
+    channel: String,
+    operon_floor: Option<String>,
+) -> Result<Option<String>, String> {
+    let path = claude_user_settings_path().ok_or("home directory unavailable")?;
+    let current = read_claude_user_settings(&path)?;
+    let installed = crate::platform::check_tool("claude").and_then(|(_, v)| parse_cli_version(&v));
+    let floor_in = operon_floor.filter(|f| !f.is_empty());
+    let (updated, floor) =
+        apply_update_channel(current, &channel, installed.as_deref(), floor_in.as_deref())?;
+    write_claude_user_settings(&path, &updated)?;
+    Ok(floor)
+}
+
+/// Check if Claude Code on a remote server is authenticated.
+/// Reads the stored OAuth credential (`expiresAt` + `refreshToken`) directly —
+/// it does NOT run `claude`, because a live `claude -p` would force a token
+/// REFRESH, and on a shared-NFS HPC home that refresh can race a session/other
+/// check and rotate-invalidate (even permanently wipe) the refresh token. The
+/// file read tells us auth status without ever touching the network.
+/// Returns: "authenticated", "not_authenticated", or an error string.
+#[tauri::command]
+pub async fn check_remote_claude_auth(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+
+    // Determine auth status by READING the stored OAuth credential — NEVER by
+    // running `claude`. A live `claude -p` would force a token REFRESH; on HPC
+    // the credential is on a shared NFS home, and a refresh racing another
+    // claude process (a session, or the old 5s re-check) rotates + invalidates
+    // the refresh token, which a lost race can permanently wipe. Reading the
+    // file's `expiresAt` + `refreshToken` tells us enough without any network
+    // call and without ever triggering that refresh. NO `claude`, NO python.
+    let check_script = REMOTE_AUTH_CHECK_SCRIPT;
+
     let result = super::ssh::ssh_exec_async(profile, check_script.to_string())
         .await
         .map_err(|e| format!("SSH auth check failed: {}", e))?;
 
     eprintln!("[Operon] Remote auth check result: {}", result.trim());
 
-    if result.contains("AUTH:verified") || result.contains("AUTH:ok") {
+    if result.contains("AUTH:verified")
+        || result.contains("AUTH:ok")
+        || result.contains("AUTH:token")
+        || result.contains("AUTH:cloud")
+    {
         Ok("authenticated".to_string())
     } else if result.contains("AUTH:expired") {
         // Credential files exist but are expired/invalid
@@ -1877,14 +2229,169 @@ exit 0
     }
 }
 
+/// The oldest Claude Code release that can run a model. Newer models are
+/// rejected by older CLIs with "Claude Code X does not support this model;
+/// version Y or newer is required", which is where these numbers come from.
+/// A model missing here is still covered: the chat learns the floor from that
+/// error, updates, and retries once.
+const MIN_CLAUDE_CODE_FOR_MODEL: &[(&str, &str)] = &[("claude-opus-5-5", "2.1.280")];
+
+/// True for a bare dotted version ("2.1.280"). Anything else is refused
+/// before it can reach a shell command.
+fn is_plain_version(v: &str) -> bool {
+    !v.is_empty()
+        && v.split('.').count() == 3
+        && v.split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// True if dotted version `a` is older than `b`. Non-numeric parts count as 0.
+fn version_older(a: &str, b: &str) -> bool {
+    let parse = |v: &str| -> Vec<u64> { v.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
+    let (pa, pb) = (parse(a), parse(b));
+    for i in 0..3 {
+        let (x, y) = (
+            pa.get(i).copied().unwrap_or(0),
+            pb.get(i).copied().unwrap_or(0),
+        );
+        if x != y {
+            return x < y;
+        }
+    }
+    false
+}
+
+/// The Claude Code version a run of `model` needs: the higher of the table
+/// above and `learned` (a floor the chat read from Claude Code's own error).
+fn required_claude_code(model: Option<&str>, learned: Option<&str>) -> Option<String> {
+    let known = model.and_then(|m| {
+        MIN_CLAUDE_CODE_FOR_MODEL
+            .iter()
+            .find(|(id, _)| *id == m)
+            .map(|(_, v)| *v)
+    });
+    let learned = learned.filter(|v| is_plain_version(v));
+    match (known, learned) {
+        (Some(a), Some(b)) => Some(if version_older(a, b) { b } else { a }.to_string()),
+        (a, b) => a.or(b).map(str::to_string),
+    }
+}
+
+/// Minimum Claude Code version for `model`, from the table above.
+#[tauri::command]
+pub fn claude_code_min_version(model: String) -> Option<String> {
+    required_claude_code(Some(&model), None)
+}
+
+/// Shell fragment for the remote run script, which is `source`d into the
+/// user's own shell (bash or zsh) on the node the agent runs on. It replaces
+/// the plain `claude --version` warm-up. When `need` is set and the installed
+/// Claude Code is older, it runs `claude update` right there and reports both
+/// ends of that in the run's output file as `operon_status` lines, so the chat
+/// can say what is happening instead of failing with an API 400.
+///
+/// Why here: Claude Code updates itself only from its interactive screen, and
+/// Operon only ever runs it headless, so a server used through Operon stays
+/// on whatever version it last had. Doing it on the compute node keeps it off
+/// login nodes that kill Claude processes. Must never `exit` (sourced).
+fn remote_claude_preflight(need: Option<&str>, out_q: &str, log_q: &str) -> String {
+    const WARMUP: &str = "(yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); ";
+    let Some(need) = need.filter(|v| is_plain_version(v)) else {
+        return WARMUP.to_string();
+    };
+    const VER: &str = r#"awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+[.][0-9]+[.][0-9]+/) { sub(/[^0-9.].*$/, "", $i); print $i; exit } }'"#;
+    format!(
+        concat!(
+            "_operon_v=$(yes y 2>/dev/null | claude --version 2>/dev/null | {ver}); ",
+            "if [ -n \"$_operon_v\" ] && awk -v a=\"$_operon_v\" -v b='{need}' ",
+            "'BEGIN{{split(a,x,\".\");split(b,y,\".\");for(i=1;i<=3;i++){{if(x[i]+0<y[i]+0)exit 0;if(x[i]+0>y[i]+0)exit 1}}exit 1}}'; then ",
+            "printf '{{\"type\":\"operon_status\",\"kind\":\"claude_update_started\",\"from\":\"%s\",\"need\":\"{need}\"}}\\n' \"$_operon_v\" >> '{out}'; ",
+            "claude update > '{log}' 2>&1 < /dev/null; ",
+            "_operon_nv=$(claude --version 2>/dev/null | {ver}); ",
+            "printf '{{\"type\":\"operon_status\",\"kind\":\"claude_update_finished\",\"from\":\"%s\",\"to\":\"%s\",\"need\":\"{need}\"}}\\n' \"$_operon_v\" \"$_operon_nv\" >> '{out}'; ",
+            "fi; unset _operon_v _operon_nv; "
+        ),
+        ver = VER,
+        need = need,
+        out = out_q,
+        log = log_q,
+    )
+}
+
+/// Is Claude Code signed in on this server? Decided with shell BUILTINS ONLY:
+/// no child process is started, so nothing on a login node ever has "claude"
+/// in its command line (clusters such as UCI RCIC kill those). Sent base64-
+/// wrapped for the same reason. Prints one `SIGNIN:` marker: yes, token,
+/// cloud, no, or unknown (macOS keeps the sign-in in the Keychain, which a
+/// builtin cannot see).
+const REMOTE_SIGNIN_PROBE: &str = r#"case "${OSTYPE:-}" in darwin*) echo "SIGNIN:unknown"; exit 0 ;; esac
+for rc in .bashrc .bash_profile .profile .zshrc .zprofile .zshenv; do
+    f="$HOME/$rc"
+    [ -f "$f" ] || continue
+    while IFS= read -r l || [ -n "$l" ]; do
+        t="${l#"${l%%[![:space:]]*}"}"
+        case "$t" in
+            \#*) ;;
+            *CLAUDE_CODE_OAUTH_TOKEN=*) echo "SIGNIN:token"; exit 0 ;;
+            *CLAUDE_CODE_USE_BEDROCK=*|*CLAUDE_CODE_USE_VERTEX=*|*CLAUDE_CODE_USE_FOUNDRY=*)
+                v="${t#*=}"; v="${v#\"}"; v="${v#\'}"
+                case "$v" in 1*|true*|TRUE*|True*) echo "SIGNIN:cloud"; exit 0 ;; esac ;;
+        esac
+    done < "$f"
+done
+[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && { echo "SIGNIN:token"; exit 0; }
+[ -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ] && { echo "SIGNIN:yes"; exit 0; }
+echo "SIGNIN:no"
+"#;
+
+fn parse_signin_probe(out: &str) -> String {
+    for state in ["yes", "token", "cloud", "no", "unknown"] {
+        if out.contains(&format!("SIGNIN:{}", state)) {
+            return state.to_string();
+        }
+    }
+    "unknown".to_string()
+}
+
+/// Login-node-safe sign-in check for connect time (see [`REMOTE_SIGNIN_PROBE`]).
+/// Returns "yes", "token", "cloud", "no" or "unknown".
+#[tauri::command]
+pub async fn probe_remote_claude_signin(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<String, String> {
+    let profile = {
+        let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+        profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .cloned()
+            .ok_or_else(|| format!("SSH profile {} not found", profile_id))?
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(REMOTE_SIGNIN_PROBE.as_bytes());
+    let out = super::ssh::ssh_exec_async(profile, format!("printf %s {} | base64 -d | bash", b64))
+        .await
+        .map_err(|e| format!("SSH sign-in check failed: {}", e))?;
+    Ok(parse_signin_probe(&out))
+}
+
 /// Install Claude Code on a remote server via SSH.
 /// On HPC servers users typically don't have sudo, so we configure npm
 /// to use a user-local prefix (~/.npm-global) and install there.
 #[tauri::command]
 pub async fn install_remote_claude(
     ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    settings_state: tauri::State<'_, super::settings::SettingsManager>,
     profile_id: String,
 ) -> Result<(), String> {
+    // Opt-in stable channel: the native installer records the channel it was
+    // given as the install's default for all future auto-updates, so a fresh
+    // install needs no settings file edit at all.
+    let stable = settings_state
+        .settings
+        .lock()
+        .map(|s| s.claude_update_channel == "stable")
+        .unwrap_or(false);
     let profile = {
         let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
         profiles
@@ -1903,7 +2410,7 @@ export PATH=\"$HOME/.claude/local/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PA
 # Method 1: Official Claude Code installer (recommended, no Node.js needed)
 echo '>>> Installing Claude Code via official installer...'
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL https://claude.ai/install.sh | bash 2>&1
+    curl -fsSL https://claude.ai/install.sh | bash__OPERON_CHANNEL_ARG__ 2>&1
     # Source updated profile so claude is in PATH. Redirect stdout too (not just
     # stderr) so MOTD/conda banners don't land in the channel and corrupt the
     # parsed install result.
@@ -1933,7 +2440,7 @@ if command -v npm >/dev/null 2>&1; then
     mkdir -p $NPM_PREFIX
     npm config set prefix $NPM_PREFIX 2>&1
     export PATH=$NPM_PREFIX/bin:$PATH
-    npm install -g @anthropic-ai/claude-code 2>&1
+    npm install -g @anthropic-ai/claude-code__OPERON_NPM_TAG__ 2>&1
 
     # Persist PATH
     LINE='export PATH=$HOME/.npm-global/bin:$PATH'
@@ -1956,8 +2463,14 @@ fi
 
 echo OPERON_INSTALL_FAILED
 ";
+    let install_script = install_script
+        .replace(
+            "__OPERON_CHANNEL_ARG__",
+            if stable { " -s stable" } else { "" },
+        )
+        .replace("__OPERON_NPM_TAG__", if stable { "@stable" } else { "" });
 
-    let result = super::ssh::ssh_exec(&profile, install_script)
+    let result = super::ssh::ssh_exec(&profile, &install_script)
         .map_err(|e| format!("Remote install failed: {}", e))?;
 
     if result.contains("OPERON_INSTALL_SUCCESS") {
@@ -2107,10 +2620,10 @@ elif command -v gtimeout >/dev/null 2>&1; then TMO="gtimeout 900"; TMO_SHORT="gt
 else TMO=""; TMO_SHORT=""; fi
 if script -V 2>&1 | grep -qi 'util-linux' || [ "$(uname)" = "Linux" ]; then
   # Linux: script -q -c 'cmd' outfile
-  $TMO script -q -c 'TERM=dumb {claude_bin} login 2>&1' "$LOGFILE" </dev/null &
+  $TMO script -q -c 'TERM=dumb {claude_bin} auth login 2>&1' "$LOGFILE" </dev/null &
 else
   # macOS / BSD: script -q outfile cmd...
-  $TMO script -q "$LOGFILE" bash -c 'TERM=dumb {claude_bin} login 2>&1' </dev/null &
+  $TMO script -q "$LOGFILE" bash -c 'TERM=dumb {claude_bin} auth login 2>&1' </dev/null &
 fi
 LOGIN_PID=$!
 
@@ -2142,7 +2655,7 @@ if [ -n "$CLEANED" ]; then
 else
   echo "(no output captured — script command may not be available)"
   # Last-resort fallback: try without PTY
-  TERM=dumb $TMO_SHORT {claude_bin} login 2>&1 | head -30 || echo "(direct login also failed)"
+  TERM=dumb $TMO_SHORT {claude_bin} auth login 2>&1 | head -30 || echo "(direct login also failed)"
 fi
 "#,
         prefix = REMOTE_PATH_PREFIX,
@@ -2195,7 +2708,7 @@ fi
                 "The login command did not produce an authentication URL."
             };
             Err(format!(
-                "{}\n\nYou can log in manually by running 'claude login' in a terminal on the server.\n\nServer output:\n{}",
+                "{}\n\nYou can log in manually by running 'claude auth login' in a terminal on the server.\n\nServer output:\n{}",
                 hint,
                 result.lines().take(10).collect::<Vec<_>>().join("\n")
             ))
@@ -2344,6 +2857,15 @@ pub async fn check_oauth_status() -> Result<bool, String> {
         return Ok(true);
     }
 
+    // A `claude setup-token` token or a cloud-provider switch in the user's
+    // profile authenticates every session with no stored /login credential.
+    // Detected by NAME in the same login shell sessions use: cheaper than the
+    // model ping below, and a value never leaves the shell.
+    let env = probe_claude_auth_env().await;
+    if env.oauth_token || env.cloud_provider.is_some() {
+        return Ok(true);
+    }
+
     // Slow path: actually run claude through a login shell to test auth.
     // Clear EVERY credential var first so we test the NATIVE OAuth credential:
     //  - a leftover `ANTHROPIC_BASE_URL` (Portkey / custom) would route this ping
@@ -2405,10 +2927,14 @@ pub async fn launch_claude_login() -> Result<String, String> {
         let (program, prefix_args) = crate::platform::spawn_resolve(path);
         let mut c = tokio::process::Command::new(&program);
         c.args(&prefix_args);
-        c.arg("login");
+        // `claude auth login`, not `claude login`: current Claude Code has no
+        // top-level `login` command, so `claude login` starts an interactive
+        // session with "login" as the prompt. On an older CLI without `auth`
+        // this degrades to exactly that old behaviour, never to something worse.
+        c.args(["auth", "login"]);
         c
     } else {
-        crate::platform::shell_exec_async("claude login")
+        crate::platform::shell_exec_async("claude auth login")
     };
 
     // Set environment for Claude Code
@@ -2563,9 +3089,9 @@ pub async fn launch_claude_login() -> Result<String, String> {
     eprintln!("[Claude Login] Direct approach failed, trying external terminal");
     // `cfg!` rather than `#[cfg]` so both arms are type-checked on every target.
     let login_cmd = if cfg!(target_os = "windows") {
-        "claude login".to_string()
+        "claude auth login".to_string()
     } else {
-        format!("unset {}; claude login", MANAGED_AUTH_VARS.join(" "))
+        format!("unset {}; claude auth login", MANAGED_AUTH_VARS.join(" "))
     };
     let result = crate::platform::open_terminal_with_command(&login_cmd);
     match result {
@@ -2574,7 +3100,7 @@ pub async fn launch_claude_login() -> Result<String, String> {
                 .to_string(),
         ),
         Err(e) => Err(format!(
-            "Failed to launch login: {}. Try running 'claude login' manually in PowerShell.",
+            "Failed to launch login: {}. Try running 'claude auth login' manually in PowerShell.",
             e
         )),
     }
@@ -3003,6 +3529,7 @@ pub async fn start_claude_session(
     remote: Option<RemoteContext>,
     use_terminal: Option<bool>,
     terminal_id: Option<String>,
+    min_claude_version: Option<String>,
 ) -> Result<(), String> {
     // Get API key
     let api_key = {
@@ -3710,14 +4237,28 @@ pub async fn start_claude_session(
             // turn that was interrupted) made the next turn's tail see "already
             // finished" and exit immediately, so the new agent streamed nothing.
             // Clearing both files here means every run starts from a clean slate.
+            //
+            // The warm-up doubles as the version check: when this model needs a
+            // newer Claude Code than the node has, it is updated here first (see
+            // remote_claude_preflight). The agent's output is APPENDED so the
+            // update's status lines, written before it, survive; the `rm -f`
+            // above still gives every run a fresh file.
+            let need = required_claude_code(model.as_deref(), min_claude_version.as_deref());
+            let update_log = format!("{}/.operon-{}.update.log", ctx.remote_path, session_id);
+            let preflight = remote_claude_preflight(
+                need.as_deref(),
+                &output_file.replace('\'', "'\\''"),
+                &update_log.replace('\'', "'\\''"),
+            );
             let script_content = format!(
-                "{}{}{}cd '{}' && rm -f '{}' '{}'; (yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); {} > '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}{}cd '{}' && rm -f '{}' '{}'; {}{} >> '{}' 2>&1; echo $? > '{}'{}",
                 REMOTE_PATH_PREFIX,
                 api_key_line,
                 guard_block,
                 ctx.remote_path.replace('\'', "'\\''"),
                 output_file.replace('\'', "'\\''"),
                 done_file.replace('\'', "'\\''"),
+                preflight,
                 claude_cmd,
                 output_file.replace('\'', "'\\''"),
                 done_file.replace('\'', "'\\''"),
@@ -4627,9 +5168,10 @@ pub async fn stop_claude_session(
         }
         // Record the stop server-side so a late `done` event cannot resurrect the
         // session as "completed" in the history/resume UI.
-        let mut meta = meta;
-        meta.status = "stopped".to_string();
-        let _ = save_session_to_disk(&meta);
+        let _ = update_session_on_disk(&session_id, |m| {
+            m.status = "stopped".to_string();
+            true
+        });
     }
 
     Ok(())
@@ -4863,13 +5405,13 @@ pub async fn update_session_claude_id(
     session_id: String,
     claude_session_id: String,
 ) -> Result<(), String> {
-    if let Some(mut meta) = load_session_from_disk(&session_id)? {
-        meta.claude_session_id = Some(claude_session_id);
-        meta.last_activity = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        save_session_to_disk(&meta)
+    let found = update_session_on_disk(&session_id, |m| {
+        m.claude_session_id = Some(claude_session_id);
+        m.last_activity = now_millis();
+        true
+    })?;
+    if found {
+        Ok(())
     } else {
         Err(format!("Session {} not found", session_id))
     }
@@ -4889,16 +5431,16 @@ pub(crate) fn status_transition_allowed(from: &str, to: &str) -> bool {
 
 #[tauri::command]
 pub async fn update_session_status(session_id: String, status: String) -> Result<(), String> {
-    if let Some(mut meta) = load_session_from_disk(&session_id)? {
-        if !status_transition_allowed(&meta.status, &status) {
-            return Ok(());
+    let found = update_session_on_disk(&session_id, |m| {
+        if !status_transition_allowed(&m.status, &status) {
+            return false;
         }
-        meta.status = status;
-        meta.last_activity = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        save_session_to_disk(&meta)
+        m.status = status;
+        m.last_activity = now_millis();
+        true
+    })?;
+    if found {
+        Ok(())
     } else {
         Err(format!("Session {} not found", session_id))
     }
@@ -5264,9 +5806,11 @@ pub async fn reconnect_tail(
 /// Rename a session (update its human-readable name).
 #[tauri::command]
 pub async fn rename_session(session_id: String, name: String) -> Result<(), String> {
-    if let Some(mut meta) = load_session_from_disk(&session_id).map_err(|e| e.to_string())? {
-        meta.name = Some(name);
-        save_session_to_disk(&meta)?;
+    let found = update_session_on_disk(&session_id, |m| {
+        m.name = Some(name);
+        true
+    })?;
+    if found {
         Ok(())
     } else {
         Err(format!("Session {} not found", session_id))
@@ -5289,11 +5833,15 @@ pub async fn delete_session(
     // the path that actually reaps them.
     let meta = load_session_from_disk(&session_id).ok().flatten();
 
-    // Delete metadata file
+    // Delete metadata file — under the record lock, so an update that is
+    // mid-flight cannot write the record back after it is gone.
     let dir = sessions_dir()?;
     let path = dir.join(format!("{}.json", session_id));
-    if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| format!("Failed to delete session: {}", e))?;
+    {
+        let _guard = session_files_lock();
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| format!("Failed to delete session: {}", e))?;
+        }
     }
 
     // Optionally delete output files
@@ -6444,7 +6992,7 @@ mod terminal_mode_protocol_tests {
             .find("cd '{}' && rm -f '{}' '{}';")
             .expect("run script no longer clears stale out/done before the agent starts");
         let claude_at = c[start..]
-            .find("{} > '{}' 2>&1; echo $? > '{}'")
+            .find("{}{} >> '{}' 2>&1; echo $? > '{}'")
             .expect("run script shape changed");
         assert!(claude_at > 0, "the clear must precede the agent invocation");
     }
@@ -6527,5 +7075,625 @@ mod session_status_tests {
     #[test]
     fn re_writing_stopped_is_not_treated_as_a_regression() {
         assert!(status_transition_allowed("stopped", "stopped"));
+    }
+}
+
+#[cfg(test)]
+mod auth_and_update_tests {
+    use super::{
+        apply_update_channel, parse_auth_env_probe, parse_cli_version, ClaudeAuthEnv,
+        AUTH_ENV_PROBE, REMOTE_AUTH_CHECK_SCRIPT,
+    };
+    use serde_json::json;
+
+    const SECRET: &str = "sk-ant-oat01-DO-NOT-PRINT-THIS-VALUE";
+
+    // ── release channel ──────────────────────────────────────────────────────
+
+    #[test]
+    fn opting_into_stable_sets_a_floor_so_nothing_downgrades() {
+        let (s, floor) =
+            apply_update_channel(json!({"model": "opus"}), "stable", Some("2.1.282"), None)
+                .unwrap();
+        assert_eq!(s["autoUpdatesChannel"], "stable");
+        assert_eq!(s["minimumVersion"], "2.1.282");
+        assert_eq!(s["model"], "opus", "other keys are preserved");
+        assert_eq!(floor.as_deref(), Some("2.1.282"));
+    }
+
+    #[test]
+    fn a_floor_the_user_set_is_kept_and_never_claimed() {
+        let (s, floor) = apply_update_channel(
+            json!({"minimumVersion": "2.1.100"}),
+            "stable",
+            Some("2.1.282"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(s["minimumVersion"], "2.1.100");
+        assert_eq!(
+            floor, None,
+            "Operon must not later remove a floor it didn't write"
+        );
+
+        // ...and switching back leaves it alone too.
+        let (s, _) = apply_update_channel(s, "latest", Some("2.1.282"), None).unwrap();
+        assert_eq!(s["minimumVersion"], "2.1.100");
+        assert!(s.get("autoUpdatesChannel").is_none());
+    }
+
+    #[test]
+    fn switching_back_removes_only_operons_own_floor() {
+        let (s, floor) = apply_update_channel(json!({}), "stable", Some("2.1.282"), None).unwrap();
+        let (s, floor) = apply_update_channel(s, "latest", None, floor.as_deref()).unwrap();
+        assert!(s.get("autoUpdatesChannel").is_none());
+        assert!(s.get("minimumVersion").is_none());
+        assert_eq!(floor, None);
+    }
+
+    #[test]
+    fn re_selecting_stable_keeps_ownership_of_its_floor() {
+        let (s, floor) = apply_update_channel(json!({}), "stable", Some("2.1.282"), None).unwrap();
+        let (_, again) =
+            apply_update_channel(s, "stable", Some("2.1.290"), floor.as_deref()).unwrap();
+        assert_eq!(again.as_deref(), Some("2.1.282"));
+    }
+
+    #[test]
+    fn stable_without_a_known_version_sets_no_floor() {
+        let (s, floor) = apply_update_channel(json!({}), "stable", None, None).unwrap();
+        assert_eq!(s["autoUpdatesChannel"], "stable");
+        assert!(s.get("minimumVersion").is_none());
+        assert_eq!(floor, None);
+    }
+
+    #[test]
+    fn bad_input_is_refused_not_rewritten() {
+        assert!(apply_update_channel(json!([1, 2]), "stable", None, None).is_err());
+        assert!(apply_update_channel(json!({}), "nightly", None, None).is_err());
+    }
+
+    #[test]
+    fn cli_version_parsing() {
+        assert_eq!(
+            parse_cli_version("2.1.282 (Claude Code)").as_deref(),
+            Some("2.1.282")
+        );
+        assert_eq!(parse_cli_version("2.1.282").as_deref(), Some("2.1.282"));
+        assert_eq!(parse_cli_version(""), None);
+        assert_eq!(parse_cli_version("installed"), None);
+        assert_eq!(parse_cli_version("2..1"), None);
+    }
+
+    // ── local environment probe ──────────────────────────────────────────────
+
+    fn run_probe(vars: &[(&str, &str)]) -> String {
+        let mut c = std::process::Command::new("sh");
+        c.arg("-c")
+            .arg(AUTH_ENV_PROBE)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin");
+        for (k, v) in vars {
+            c.env(k, v);
+        }
+        let out = c.output().expect("run sh");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn the_probe_reports_names_and_never_values() {
+        let out = run_probe(&[("CLAUDE_CODE_OAUTH_TOKEN", SECRET)]);
+        assert!(!out.contains(SECRET), "a token value leaked: {out}");
+        assert_eq!(
+            parse_auth_env_probe(&out),
+            ClaudeAuthEnv {
+                oauth_token: true,
+                cloud_provider: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_probe_sees_cloud_switches_and_ignores_off_values() {
+        let on = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_VERTEX", "1")]));
+        assert_eq!(on.cloud_provider.as_deref(), Some("vertex"));
+        let off = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_BEDROCK", "0")]));
+        assert_eq!(off, ClaudeAuthEnv::default());
+        assert_eq!(
+            parse_auth_env_probe(&run_probe(&[])),
+            ClaudeAuthEnv::default()
+        );
+    }
+
+    // ── remote auth check, run as the remote shell would run it ──────────────
+
+    struct FakeHome(std::path::PathBuf);
+    impl FakeHome {
+        fn new(tag: &str, bashrc: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "operon-authcheck-{}-{}",
+                std::process::id(),
+                tag
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(".bashrc"), bashrc).unwrap();
+            FakeHome(dir)
+        }
+        fn run(&self) -> String {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(REMOTE_AUTH_CHECK_SCRIPT)
+                .env_clear()
+                .env("HOME", &self.0)
+                .env("PATH", "/usr/bin:/bin")
+                .output()
+                .expect("run sh");
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+    }
+    impl Drop for FakeHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_setup_token_in_the_profile_counts_as_signed_in() {
+        let h = FakeHome::new(
+            "token",
+            &format!("export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
+        );
+        let out = h.run();
+        assert!(out.contains("AUTH:token"), "{out}");
+        assert!(
+            !out.contains(SECRET),
+            "the token value must never be printed: {out}"
+        );
+    }
+
+    #[test]
+    fn a_commented_out_token_does_not_count() {
+        let h = FakeHome::new(
+            "commented",
+            &format!("# export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
+        );
+        let out = h.run();
+        assert!(!out.contains("AUTH:token"), "{out}");
+        assert!(out.contains("AUTH:none"), "{out}");
+        assert!(!out.contains(SECRET), "{out}");
+    }
+
+    #[test]
+    fn a_cloud_switch_counts_only_when_on() {
+        let on = FakeHome::new("cloud-on", "export CLAUDE_CODE_USE_BEDROCK=1\n");
+        assert!(on.run().contains("AUTH:cloud"));
+        let off = FakeHome::new("cloud-off", "export CLAUDE_CODE_USE_BEDROCK=0\n");
+        assert!(!off.run().contains("AUTH:cloud"));
+    }
+
+    #[test]
+    fn with_nothing_configured_the_file_check_still_runs() {
+        let h = FakeHome::new("empty", "alias ll='ls -l'\n");
+        assert!(h.run().contains("AUTH:none"));
+    }
+}
+
+#[cfg(test)]
+mod preflight_and_signin_tests {
+    use super::{
+        is_plain_version, parse_signin_probe, remote_claude_preflight, required_claude_code,
+        version_older, REMOTE_SIGNIN_PROBE,
+    };
+    use std::path::{Path, PathBuf};
+
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("operon-pf-{}-{}", std::process::id(), tag));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("bin")).unwrap();
+            Scratch(dir)
+        }
+        fn p(&self, rel: &str) -> PathBuf {
+            self.0.join(rel)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A fake `claude` whose version lives in a file; `claude update` bumps it
+    /// to `update_to` (or fails when that is empty) and records that it ran.
+    fn fake_claude(dir: &Scratch, installed: &str, update_to: &str) {
+        std::fs::write(dir.p("version"), installed).unwrap();
+        let script = format!(
+            "#!/bin/sh\nV='{v}'\nif [ \"$1\" = update ]; then echo ran >> '{ran}'; \
+             if [ -n '{to}' ]; then printf %s '{to}' > \"$V\"; echo updated; exit 0; else echo 'EACCES' >&2; exit 1; fi; fi\n\
+             if [ \"$1\" = --version ]; then echo \"$(cat \"$V\") (Claude Code)\"; exit 0; fi\nexit 0\n",
+            v = dir.p("version").display(),
+            ran = dir.p("update-ran").display(),
+            to = update_to,
+        );
+        let bin = dir.p("bin/claude");
+        std::fs::write(&bin, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Source the fragment in `shell`, the way the run script is sourced into
+    /// the user's own shell, then print a marker to prove it did not exit.
+    fn run_fragment(shell: &str, dir: &Scratch, need: Option<&str>) -> (String, String) {
+        let out = dir.p("out.jsonl");
+        let frag = remote_claude_preflight(
+            need,
+            &out.display().to_string(),
+            &dir.p("update.log").display().to_string(),
+        );
+        let r = std::process::Command::new(shell)
+            .arg("-c")
+            .arg(format!("{frag}echo STILL-HERE"))
+            .env_clear()
+            .env("HOME", &dir.0)
+            .env("PATH", format!("{}:/usr/bin:/bin", dir.p("bin").display()))
+            .output()
+            .expect("run shell");
+        (
+            String::from_utf8_lossy(&r.stdout).into_owned(),
+            std::fs::read_to_string(&out).unwrap_or_default(),
+        )
+    }
+
+    fn shells() -> Vec<&'static str> {
+        ["/bin/bash", "/bin/zsh", "/bin/sh"]
+            .into_iter()
+            .filter(|s| Path::new(s).exists())
+            .collect()
+    }
+
+    #[test]
+    fn an_old_claude_is_updated_before_the_agent_runs() {
+        for sh in shells() {
+            let d = Scratch::new(&format!("old-{}", sh.replace('/', "")));
+            fake_claude(&d, "2.1.269", "2.1.282");
+            let (stdout, out) = run_fragment(sh, &d, Some("2.1.280"));
+            assert!(
+                stdout.contains("STILL-HERE"),
+                "{sh}: the fragment must not exit the sourcing shell"
+            );
+            assert!(
+                d.p("update-ran").exists(),
+                "{sh}: claude update did not run"
+            );
+            let lines: Vec<serde_json::Value> = out
+                .lines()
+                .map(|l| {
+                    serde_json::from_str(l).unwrap_or_else(|e| panic!("{sh}: not JSON: {l} ({e})"))
+                })
+                .collect();
+            assert_eq!(lines.len(), 2, "{sh}: {out}");
+            assert_eq!(lines[0]["kind"], "claude_update_started");
+            assert_eq!(lines[0]["from"], "2.1.269");
+            assert_eq!(lines[0]["need"], "2.1.280");
+            assert_eq!(lines[1]["kind"], "claude_update_finished");
+            assert_eq!(lines[1]["to"], "2.1.282");
+        }
+    }
+
+    #[test]
+    fn a_new_enough_claude_is_left_alone() {
+        for sh in shells() {
+            let d = Scratch::new(&format!("new-{}", sh.replace('/', "")));
+            fake_claude(&d, "2.1.282", "9.9.9");
+            let (stdout, out) = run_fragment(sh, &d, Some("2.1.280"));
+            assert!(stdout.contains("STILL-HERE"));
+            assert!(
+                !d.p("update-ran").exists(),
+                "{sh}: updated a new-enough claude"
+            );
+            assert!(out.is_empty(), "{sh}: wrote status for a no-op: {out}");
+            // Equal is new enough too.
+            let d = Scratch::new(&format!("eq-{}", sh.replace('/', "")));
+            fake_claude(&d, "2.1.280", "9.9.9");
+            run_fragment(sh, &d, Some("2.1.280"));
+            assert!(
+                !d.p("update-ran").exists(),
+                "{sh}: updated an exactly-new-enough claude"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_update_is_reported_not_hidden() {
+        let d = Scratch::new("fail");
+        fake_claude(&d, "2.1.269", "");
+        let (stdout, out) = run_fragment("/bin/sh", &d, Some("2.1.280"));
+        assert!(stdout.contains("STILL-HERE"));
+        let last: serde_json::Value = serde_json::from_str(out.lines().last().unwrap()).unwrap();
+        assert_eq!(last["kind"], "claude_update_finished");
+        assert_eq!(
+            last["to"], "2.1.269",
+            "the chat must see it is still too old"
+        );
+        assert!(std::fs::read_to_string(d.p("update.log"))
+            .unwrap()
+            .contains("EACCES"));
+    }
+
+    #[test]
+    fn with_no_floor_it_is_only_the_old_warmup() {
+        let d = Scratch::new("nofloor");
+        fake_claude(&d, "2.1.1", "9.9.9");
+        let (_, out) = run_fragment("/bin/sh", &d, None);
+        assert!(!d.p("update-ran").exists());
+        assert!(out.is_empty());
+        assert_eq!(
+            remote_claude_preflight(None, "o", "l"),
+            "(yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); "
+        );
+    }
+
+    #[test]
+    fn a_version_that_is_not_a_bare_version_never_reaches_the_shell() {
+        for bad in [
+            "2.1.280'; rm -rf ~; '",
+            "2.1",
+            "latest",
+            "",
+            "2.1.x",
+            "1.2.3.4",
+        ] {
+            assert!(!is_plain_version(bad), "{bad}");
+            assert_eq!(
+                remote_claude_preflight(Some(bad), "o", "l"),
+                "(yes y 2>/dev/null | claude --version >/dev/null 2>&1 || true); "
+            );
+        }
+        assert_eq!(
+            required_claude_code(Some("claude-sonnet-5"), Some("2.1.280'; x")),
+            None
+        );
+    }
+
+    #[test]
+    fn the_floor_is_the_higher_of_the_table_and_what_was_learned() {
+        assert_eq!(
+            required_claude_code(Some("claude-opus-5-5"), None).as_deref(),
+            Some("2.1.280")
+        );
+        assert_eq!(
+            required_claude_code(Some("claude-opus-5-5"), Some("2.1.290")).as_deref(),
+            Some("2.1.290")
+        );
+        assert_eq!(
+            required_claude_code(Some("claude-opus-5-5"), Some("2.1.200")).as_deref(),
+            Some("2.1.280")
+        );
+        assert_eq!(required_claude_code(Some("claude-opus-5"), None), None);
+        assert_eq!(
+            required_claude_code(Some("claude-fable-5-1"), Some("2.1.281")).as_deref(),
+            Some("2.1.281")
+        );
+        assert!(version_older("2.1.269", "2.1.280"));
+        assert!(!version_older("2.1.280", "2.1.280"));
+        assert!(version_older("2.1.99", "2.1.100"), "numeric, not lexical");
+    }
+
+    // ── connect-time sign-in probe ───────────────────────────────────────────
+
+    fn probe(tag: &str, files: &[(&str, &str)]) -> String {
+        let d = Scratch::new(&format!("probe-{tag}"));
+        for (rel, body) in files {
+            let f = d.p(rel);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, body).unwrap();
+        }
+        // OSTYPE is forced to Linux so the Mac running the tests exercises the
+        // same path a Linux cluster does.
+        let r = std::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!("OSTYPE=linux-gnu\n{REMOTE_SIGNIN_PROBE}"))
+            .env_clear()
+            .env("HOME", &d.0)
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .expect("bash");
+        parse_signin_probe(&String::from_utf8_lossy(&r.stdout))
+    }
+
+    #[test]
+    fn signin_probe_reads_only_what_it_must() {
+        assert_eq!(probe("none", &[]), "no");
+        assert_eq!(
+            probe(
+                "creds",
+                &[(".claude/.credentials.json", "{\"claudeAiOauth\":{}}")]
+            ),
+            "yes"
+        );
+        assert_eq!(
+            probe("emptycreds", &[(".claude/.credentials.json", "")]),
+            "no"
+        );
+        assert_eq!(
+            probe(
+                "token",
+                &[(".bashrc", "export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x\n")]
+            ),
+            "token"
+        );
+        assert_eq!(
+            probe(
+                "commented",
+                &[(".bashrc", "  # export CLAUDE_CODE_OAUTH_TOKEN=x\n")]
+            ),
+            "no"
+        );
+        assert_eq!(
+            probe("cloud", &[(".zshrc", "export CLAUDE_CODE_USE_BEDROCK=1\n")]),
+            "cloud"
+        );
+        assert_eq!(
+            probe(
+                "cloudq",
+                &[(".bashrc", "export CLAUDE_CODE_USE_VERTEX=\"true\"\n")]
+            ),
+            "cloud"
+        );
+        assert_eq!(
+            probe(
+                "cloudoff",
+                &[(".bashrc", "export CLAUDE_CODE_USE_BEDROCK=0\n")]
+            ),
+            "no"
+        );
+        assert_eq!(
+            probe("nonl", &[(".bashrc", "export CLAUDE_CODE_OAUTH_TOKEN=x")]),
+            "token",
+            "last line without newline"
+        );
+    }
+
+    #[test]
+    fn signin_probe_starts_no_process_and_names_no_claude_path_in_argv() {
+        // Everything must be a builtin: an external command would put the
+        // path in a process's argv on the login node. Only `echo`, `read`,
+        // `case`, `[`, `for` and parameter expansion are used.
+        for word in ["cat ", "grep ", "ls ", "sed ", "awk ", "head ", "claude "] {
+            assert!(
+                !REMOTE_SIGNIN_PROBE.contains(word),
+                "external command {word:?} in the probe"
+            );
+        }
+        let r = std::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg("echo SIGNIN:unknown")
+            .output()
+            .unwrap();
+        assert_eq!(
+            parse_signin_probe(&String::from_utf8_lossy(&r.stdout)),
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn signin_probe_on_a_mac_remote_says_unknown() {
+        let r = std::process::Command::new("/bin/bash")
+            .arg("-c")
+            .arg(format!("OSTYPE=darwin24\n{REMOTE_SIGNIN_PROBE}"))
+            .env_clear()
+            .env("HOME", "/nonexistent")
+            .output()
+            .unwrap();
+        assert_eq!(
+            parse_signin_probe(&String::from_utf8_lossy(&r.stdout)),
+            "unknown"
+        );
+    }
+}
+
+#[cfg(test)]
+mod session_record_tests {
+    use super::{
+        parse_session_record, read_session_file, update_session_in, write_session_file,
+        SessionMetadata,
+    };
+
+    fn sample(id: &str) -> SessionMetadata {
+        serde_json::from_value(serde_json::json!({
+            "session_id": id,
+            "claude_session_id": null,
+            "project_path": "/Users/x",
+            "profile_id": "p",
+            "remote_path": "/data/x",
+            "mode": "agent",
+            "model": "claude-opus-5-5",
+            "created_at": 1u64,
+            "last_activity": 0u64,
+            "status": "running",
+            "use_terminal": true,
+            "terminal_id": "t",
+            "name": "a chat"
+        }))
+        .expect("sample SessionMetadata")
+    }
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("operon-sessions-{}-{}", std::process::id(), tag));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_record_torn_by_the_old_race_is_recovered() {
+        // The exact shape found on disk: a whole record, then "}\n" left over
+        // from an earlier, longer write of the same file.
+        let whole = serde_json::to_string_pretty(&sample("66579e23")).unwrap();
+        let torn = format!("{whole}\n}}\n");
+        assert!(
+            serde_json::from_str::<SessionMetadata>(&torn).is_err(),
+            "precondition: strict parse fails"
+        );
+        let got = parse_session_record(&torn).expect("recovered");
+        assert_eq!(got.session_id, "66579e23");
+        assert!(parse_session_record("garbage").is_none());
+    }
+
+    #[test]
+    fn concurrent_updates_never_lose_a_change_or_tear_the_file() {
+        let dir = scratch("race");
+        write_session_file(&dir, &sample("s1")).unwrap();
+        let threads = 16u64;
+        let per = 40u64;
+        std::thread::scope(|sc| {
+            for t in 0..threads {
+                let dir = &dir;
+                sc.spawn(move || {
+                    for i in 0..per {
+                        update_session_in(dir, "s1", |m| {
+                            // A counter makes any lost update visible.
+                            m.last_activity += 1;
+                            if t % 2 == 0 {
+                                m.claude_session_id = Some(format!("c{t}-{i}"));
+                            } else {
+                                m.status = "completed".into();
+                            }
+                            true
+                        })
+                        .unwrap();
+                    }
+                });
+            }
+        });
+        let raw = std::fs::read_to_string(dir.join("s1.json")).unwrap();
+        let m: SessionMetadata = serde_json::from_str(&raw).expect("strictly valid JSON, not torn");
+        assert_eq!(m.last_activity, threads * per, "an update was lost");
+        assert_eq!(m.status, "completed");
+        assert!(m.claude_session_id.is_some());
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left behind");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_update_can_decline_and_a_missing_record_is_reported() {
+        let dir = scratch("decline");
+        write_session_file(&dir, &sample("s2")).unwrap();
+        assert!(update_session_in(&dir, "s2", |_| false).unwrap());
+        assert_eq!(
+            read_session_file(&dir, "s2").unwrap().unwrap().status,
+            "running"
+        );
+        assert!(!update_session_in(&dir, "nope", |_| true).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -114,9 +114,9 @@ fn bundled_models() -> Vec<ModelInfo> {
     };
     let no_effort = EffortCapability::default();
     vec![
-        // Anthropic's most capable widely released model, and newer than Opus
-        // 5. Operon's default deliberately stays Opus 5 (see `DEFAULT_MODEL` in
-        // settings.rs) — Fable is offered, not forced.
+        // Anthropic's most capable widely released model. Operon's default is
+        // Opus 5.5 (see `DEFAULT_MODEL` in settings.rs) — Fable is offered, not
+        // forced: it costs more than twice as much per token.
         //
         // Fable gets its own tier in the dropdowns (`tierOf` in
         // src/lib/models.ts), and both dropdowns render that tier first, so
@@ -133,14 +133,30 @@ fn bundled_models() -> Vec<ModelInfo> {
                 effort: all_effort.clone(),
             },
         },
+        // Operon's default model — see `DEFAULT_MODEL` in settings.rs. Full
+        // effort range. Its API default effort is `medium`, one level below
+        // Opus 5's; Operon always sends `--effort` explicitly, so its own
+        // `high` default is what actually runs.
+        //
+        // `created_at` must sort above Opus 5 ("2026-07-01…"): within the Opus
+        // group the dropdowns order newest first by string compare.
+        ModelInfo {
+            id: "claude-opus-5-5".to_string(),
+            display_name: "Claude Opus 5.5".to_string(),
+            created_at: "2026-09-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities {
+                effort: all_effort.clone(),
+            },
+        },
         ModelInfo {
             id: "claude-opus-5".to_string(),
             display_name: "Claude Opus 5".to_string(),
             created_at: "2026-07-01T00:00:00Z".to_string(),
             max_input_tokens: 1_000_000,
             max_tokens: 128_000,
-            // Operon's default model — see `AppSettings::default()` in
-            // settings.rs. Full effort range; the shipped default is `high`.
+            // The previous default, still shipping and selectable.
             capabilities: ModelCapabilities {
                 effort: all_effort.clone(),
             },
@@ -202,7 +218,7 @@ pub(crate) const RETIRED_MODEL_IDS: &[(&str, &str)] = &[
     // Pure rename — same model, the date suffix was never part of the id.
     ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
     // Genuinely retired; mapped to the successor in the same tier.
-    ("claude-opus-4-20250514", "claude-opus-5"),
+    ("claude-opus-4-20250514", "claude-opus-5-5"),
     ("claude-sonnet-4-20250514", "claude-sonnet-4-6"),
 ];
 
@@ -228,6 +244,13 @@ fn drop_retired_ids(models: &mut Vec<ModelInfo>, incoming: &[ModelInfo], retired
         Some((_, replacement)) => !present.contains(*replacement),
         None => true,
     });
+}
+
+/// The bundled catalog, for tests in other modules that must check an id they
+/// hardcode is one Operon actually ships.
+#[cfg(test)]
+pub(crate) fn bundled_models_for_tests() -> Vec<ModelInfo> {
+    bundled_models()
 }
 
 /// Anthropic's `GET /v1/models` returns id / display_name / created_at but NOT
@@ -434,7 +457,7 @@ mod tests {
         let o5 = models
             .iter()
             .find(|m| m.id == "claude-opus-5")
-            .expect("Opus 5 must be in the bundled catalog — it is the shipped default model");
+            .expect("Opus 5 must stay in the bundled catalog — users may have pinned it");
         assert!(o5.capabilities.effort.supported);
         // The shipped default is `high`; the rest of the range must be
         // selectable so a user pinning "max"/"xhigh" isn't silently downgraded.
@@ -508,14 +531,72 @@ mod tests {
     }
 
     #[test]
-    fn opus_5_default_still_has_every_effort_level() {
-        // Fable 5.1 shipping alongside must not disturb the default model.
+    fn opus_5_still_has_every_effort_level() {
+        // No longer the default, but still shipping: a user who pinned it must
+        // keep the full range.
         for level in ["low", "medium", "high", "xhigh", "max"] {
             assert!(
                 model_supports_effort_level("claude-opus-5", level),
                 "Opus 5 must keep {level}"
             );
         }
+    }
+
+    #[test]
+    fn opus_5_5_is_bundled_with_full_effort() {
+        let models = bundled_models();
+        let o55 = models
+            .iter()
+            .find(|m| m.id == "claude-opus-5-5")
+            .expect("Opus 5.5 must be bundled — it is the shipped default model");
+        assert_eq!(o55.display_name, "Claude Opus 5.5");
+        assert_eq!(o55.max_input_tokens, 1_000_000);
+        assert_eq!(o55.max_tokens, 128_000);
+        // Operon sends `--effort` explicitly, so every level the user can pick
+        // must be one the model accepts — otherwise the flag is silently dropped.
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            assert!(
+                model_supports_effort_level("claude-opus-5-5", level),
+                "Opus 5.5 must support {level}"
+            );
+        }
+    }
+
+    #[test]
+    fn opus_5_5_sorts_above_opus_5() {
+        // Same tier, so `created_at` decides the order: the newer model first.
+        let models = bundled_models();
+        let o55 = models.iter().find(|m| m.id == "claude-opus-5-5").unwrap();
+        let o5 = models.iter().find(|m| m.id == "claude-opus-5").unwrap();
+        assert!(
+            o55.created_at.as_str() > o5.created_at.as_str(),
+            "{} must sort above {}",
+            o55.created_at,
+            o5.created_at
+        );
+    }
+
+    #[test]
+    fn a_cache_that_predates_opus_5_5_still_offers_it() {
+        // Subscription users have no API key, so their models_cache.json never
+        // refreshes. The new default must be unioned in on read, with its
+        // capabilities, or it is missing from every dropdown and `--effort` is
+        // dropped from every command.
+        let stale = vec![ModelInfo {
+            id: "claude-opus-5".to_string(),
+            display_name: "Claude Opus 5".to_string(),
+            created_at: "2026-07-01T00:00:00Z".to_string(),
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: ModelCapabilities::default(),
+        }];
+        let enriched = enrich_fetched_models(stale);
+        let o55 = enriched
+            .iter()
+            .find(|m| m.id == "claude-opus-5-5")
+            .expect("Opus 5.5 unioned into a cache that predates it");
+        assert!(o55.capabilities.effort.high.supported);
+        assert!(o55.capabilities.effort.max.supported);
     }
 
     #[test]

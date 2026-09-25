@@ -13,7 +13,7 @@ import {
   isAnthropicPortkeyModel,
   type PortkeyPreset, type PortkeyModel,
 } from '../../lib/portkey';
-import { getApiKey, startClaudeLogin } from '../../lib/claude';
+import { getApiKey, startClaudeLogin, getClaudeUpdateChannel, setClaudeUpdateChannel, type ClaudeUpdateChannel } from '../../lib/claude';
 import type { MCPCatalogEntry, MCPServerConfig, MCPServerStatus, DependencyStatus } from '../../types/mcp';
 import { getMCPCatalog, listMCPServers, enableMCPServer, disableMCPServer, installMCPServer, removeMCPServer, addMCPServer, checkMCPDependencies, updateMCPServerEnv } from '../../lib/mcp';
 import { listInstalledExtensions, getExtensionConfigSchema, getExtensionSettings, updateExtensionSettings } from '../../lib/extensions';
@@ -596,6 +596,8 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanelProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [channelBusy, setChannelBusy] = useState(false);
+  const [channelMsg, setChannelMsg] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -689,8 +691,18 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
   useEffect(() => {
     if (isOpen) {
       invoke<AppSettings>('get_settings')
-        .then(setSettings)
+        .then(async (s) => {
+          setSettings(s);
+          // Claude Code's own setting is the truth — the user may have changed
+          // it with /config. Keep Operon's copy in step so the version hints
+          // and server installs follow it.
+          const actual = await getClaudeUpdateChannel().catch(() => null);
+          if (actual && actual !== (s.claude_update_channel || 'latest')) {
+            void saveSettings({ ...s, claude_update_channel: actual });
+          }
+        })
         .catch(() => setSettings(DEFAULT_SETTINGS));
+      setChannelMsg(null);
       invoke<string | null>('get_api_key').then((key) => setHasKey(!!key));
       refreshAuthStatus();
       refreshMCPServers();
@@ -745,6 +757,28 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
     }
     setSaving(false);
   }, []);
+
+  // Switch Claude Code's release channel on this computer, then remember it
+  // (and any version floor Operon wrote) in Operon's settings.
+  const handleChannelChange = async (next: ClaudeUpdateChannel) => {
+    setChannelBusy(true);
+    setChannelMsg(null);
+    try {
+      const floor = await setClaudeUpdateChannel(next, settings.claude_update_floor || null);
+      await saveSettings({ ...settings, claude_update_channel: next, claude_update_floor: floor ?? '' });
+      setChannelMsg(
+        next === 'stable'
+          ? floor
+            ? `Stable channel on. Claude Code stays on ${floor} until Stable reaches it — no downgrade.`
+            : 'Stable channel on.'
+          : 'Latest channel on. The next update brings the newest release.',
+      );
+    } catch (e) {
+      setChannelMsg(`Could not change the channel: ${String(e)}`);
+    } finally {
+      setChannelBusy(false);
+    }
+  };
 
   const handleSaveApiKey = async () => {
     if (!apiKey.trim()) return;
@@ -1198,7 +1232,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   Some clusters (e.g. UCI RCIC) automatically kill any Claude
                   process on a login node. With this on, Operon does not run
                   Claude auth/dependency checks on the login node — it assumes the
-                  remote is set up (install and <code>claude login</code> once
+                  remote is set up (install and <code>claude auth login</code> once
                   during setup) and runs everyday agent work on the compute node,
                   where the agent surfaces any missing-Claude or expired-login
                   problem. Manual Install / Retry / Login still use the login node.
@@ -1212,6 +1246,37 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   />
                   Restrict Claude to interactive / compute nodes (recommended for HPC)
                 </label>
+              </div>
+
+              {/* Claude Code release channel (opt-in Stable) */}
+              <div>
+                <label className="text-xs text-secondary block mb-1.5">Claude Code updates</label>
+                <div className="text-[11px] text-muted mb-2 leading-relaxed">
+                  <strong>Latest</strong> (Claude Code's default) gets each release as it ships, including
+                  support for new models and fixes. <strong>Stable</strong> runs about a week behind and skips
+                  releases with major regressions. Stable is a Claude Code setting, not just an Operon one:
+                  the <code>claude</code> command in your own terminal follows it too. Switching keeps your
+                  current version until Stable catches up instead of downgrading. Servers you set up from
+                  Operon are installed on this channel; on an existing server, run <code>/config</code> in
+                  Claude Code there.
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={settings.claude_update_channel === 'stable' ? 'stable' : 'latest'}
+                    disabled={channelBusy}
+                    onChange={(e) => void handleChannelChange(e.target.value as ClaudeUpdateChannel)}
+                    className="bg-surface border border-border-strong rounded px-2 py-1 text-xs text-primary focus:outline-none focus:border-blue-500 disabled:opacity-50"
+                  >
+                    <option value="latest">Latest (default)</option>
+                    <option value="stable">Stable (about a week behind)</option>
+                  </select>
+                  {channelBusy && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted" />}
+                </div>
+                {channelMsg && (
+                  <div className={`text-[11px] mt-1.5 ${channelMsg.startsWith('Could not') ? 'text-red-600 dark:text-red-400' : 'text-muted'}`}>
+                    {channelMsg}
+                  </div>
+                )}
               </div>
 
               {/* Light code reviewer */}
@@ -2064,7 +2129,7 @@ export function SettingsPanel({ isOpen, onClose, initialSection }: SettingsPanel
                   )}
                 </div>
                 <p className="text-[12px] text-muted mb-3">
-                  For Max, Pro &amp; Team subscribers. Runs <code className="bg-panel px-1 rounded text-secondary">claude login</code> in a terminal tab.
+                  For Max, Pro &amp; Team subscribers. Runs <code className="bg-panel px-1 rounded text-secondary">claude auth login</code> in a terminal tab.
                 </p>
 
                 <div className="flex gap-2">

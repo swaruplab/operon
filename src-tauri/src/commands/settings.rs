@@ -56,6 +56,12 @@ fn default_reviewer_effort() -> String {
     "low".to_string()
 }
 
+fn default_claude_update_channel() -> String {
+    // Claude Code's own default. "stable" is opt-in: it changes the user's
+    // Claude settings, and it delays new-model support by about a week.
+    "latest".to_string()
+}
+
 fn default_reviewer_auto_sbatch() -> bool {
     true
 }
@@ -63,14 +69,21 @@ fn default_reviewer_auto_sbatch() -> bool {
 /// Operon's default model. Kept in one place because the settings default, the
 /// stale-value migration in [`SettingsManager::load_from_disk`] and the
 /// frontend's `DEFAULT_SETTINGS` (src/lib/settings.ts) all have to agree.
-pub(crate) const DEFAULT_MODEL: &str = "claude-opus-5";
+pub(crate) const DEFAULT_MODEL: &str = "claude-opus-5-5";
 
-/// The model this release replaces as the default. Users still sitting on it
-/// never made a choice — they took whatever Operon shipped — so they get moved
-/// forward. Unlike the retired dated ids, 4.8 is still a shipping, selectable
-/// model, so this nudge is gated on [`SETTINGS_MIGRATION_VERSION`] and runs
-/// exactly once: someone who picks 4.8 back afterwards keeps it.
-const PREVIOUS_DEFAULT_MODEL: &str = "claude-opus-4-8";
+/// Every time Operon's default model changed: `(version, old default, new
+/// default)`. A user still sitting on the old default never made a choice —
+/// they took whatever Operon shipped — so they are moved forward. The old
+/// default is still a shipping, selectable model, though, so each nudge is
+/// gated on [`SETTINGS_MIGRATION_VERSION`] and runs exactly once per install:
+/// someone who picks it back afterwards keeps it.
+///
+/// Applied in order, so an install that skipped releases chains through every
+/// step (Opus 4.8 → Opus 5 → Opus 5.5) rather than stopping part-way.
+const DEFAULT_MODEL_NUDGES: &[(u32, &str, &str)] = &[
+    (1, "claude-opus-4-8", "claude-opus-5"),
+    (2, "claude-opus-5", "claude-opus-5-5"),
+];
 
 /// Bumped whenever a migration must run **once per install** rather than on
 /// every load. Persisted in settings.json; a file written before this field
@@ -78,15 +91,19 @@ const PREVIOUS_DEFAULT_MODEL: &str = "claude-opus-4-8";
 ///
 /// Version history:
 ///   1 — move the default model from Claude Opus 4.8 to Claude Opus 5.
-const SETTINGS_MIGRATION_VERSION: u32 = 1;
+///   2 — move the default model from Claude Opus 5 to Claude Opus 5.5.
+const SETTINGS_MIGRATION_VERSION: u32 = 2;
 
 fn default_model() -> String {
     DEFAULT_MODEL.to_string()
 }
 
 fn default_effort() -> String {
-    // Opus 5's default. For models that don't support `effort` at all (e.g.
-    // Haiku 4.5) the flag is simply skipped — no fallback noise.
+    // Operon's default, sent explicitly as `--effort`. Deliberately NOT Opus
+    // 5.5's own API default, which is `medium` — one level below Opus 5's —
+    // so leaving the flag off would quietly lower reasoning depth for everyone
+    // moved onto the new default. For models that take no `effort` at all
+    // (e.g. Haiku 4.5) the flag is simply skipped.
     "high".to_string()
 }
 
@@ -238,6 +255,18 @@ pub struct AppSettings {
     /// probes the login node for it again.
     #[serde(default)]
     pub remote_claude_ready: Vec<String>,
+    /// Claude Code release channel: "latest" (Claude Code's own default) or
+    /// "stable" (about a week behind, skipping releases with major
+    /// regressions). Opt-in. Locally it mirrors `autoUpdatesChannel` in
+    /// ~/.claude/settings.json (see `set_claude_update_channel`); for remote
+    /// servers it picks the channel Operon installs Claude Code with.
+    #[serde(default = "default_claude_update_channel")]
+    pub claude_update_channel: String,
+    /// The `minimumVersion` Operon wrote into ~/.claude/settings.json when the
+    /// user opted into "stable", so switching back removes only Operon's own
+    /// floor. Empty when Operon owns none.
+    #[serde(default)]
+    pub claude_update_floor: String,
 }
 
 impl Default for AppSettings {
@@ -281,6 +310,8 @@ impl Default for AppSettings {
             reviewer_auto_sbatch: default_reviewer_auto_sbatch(),
             hpc_restrict_login_node: default_hpc_restrict_login_node(),
             remote_claude_ready: Vec::new(),
+            claude_update_channel: default_claude_update_channel(),
+            claude_update_floor: String::new(),
         }
     }
 }
@@ -314,13 +345,15 @@ fn migrate_settings(settings: &mut AppSettings) -> bool {
         }
     }
 
-    // One-shot: the previous default is still a shipping, selectable model, so
-    // this must NOT re-apply. Without the version gate, a user who picks Opus
-    // 4.8 back in Settings would be silently reset to Opus 5 on every relaunch
-    // and could never pin it.
-    if settings.settings_migration_version < 1 && settings.model == PREVIOUS_DEFAULT_MODEL {
-        settings.model = DEFAULT_MODEL.to_string();
-        changed = true;
+    // One-shot default nudges. Each old default is still a shipping, selectable
+    // model, so these must NOT re-apply: without the version gate a user who
+    // picks Opus 5 back in Settings would be reset to Opus 5.5 on every
+    // relaunch and could never pin it.
+    for (version, old_default, new_default) in DEFAULT_MODEL_NUDGES {
+        if settings.settings_migration_version < *version && settings.model == *old_default {
+            settings.model = (*new_default).to_string();
+            changed = true;
+        }
     }
 
     // Provider/model mismatch: `model` is only ever consulted for the Anthropic
@@ -619,33 +652,83 @@ mod migration_tests {
         }
     }
 
+    /// A settings.json last written by v1.0.1–v1.0.6: the Opus 4.8 → Opus 5
+    /// nudge has already run, the Opus 5 → Opus 5.5 one has not.
+    fn version_1(model: &str) -> AppSettings {
+        AppSettings {
+            model: model.to_string(),
+            settings_migration_version: 1,
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn previous_default_moves_to_current_default() {
-        let mut s = pre_versioning(PREVIOUS_DEFAULT_MODEL);
+    fn the_last_release_default_moves_to_opus_5_5() {
+        // The common upgrade: v1.0.6 shipped Opus 5 as the default and the user
+        // never changed it.
+        let mut s = version_1("claude-opus-5");
+        assert!(migrate_settings(&mut s));
+        assert_eq!(s.model, "claude-opus-5-5");
+        assert_eq!(s.model, DEFAULT_MODEL);
+        assert_eq!(s.settings_migration_version, SETTINGS_MIGRATION_VERSION);
+    }
+
+    #[test]
+    fn an_install_that_skipped_releases_chains_to_the_current_default() {
+        // Never upgraded past the Opus 4.8 era: both nudges apply in order,
+        // landing on the current default rather than stopping at Opus 5.
+        let mut s = pre_versioning("claude-opus-4-8");
         assert!(migrate_settings(&mut s));
         assert_eq!(s.model, DEFAULT_MODEL);
         assert_eq!(s.settings_migration_version, SETTINGS_MIGRATION_VERSION);
     }
 
     #[test]
+    fn opus_4_8_re_picked_after_the_first_nudge_is_left_alone() {
+        // Version 1 means the 4.8 nudge already ran, so 4.8 here is a
+        // deliberate choice made since — the new nudge only concerns Opus 5.
+        let mut s = version_1("claude-opus-4-8");
+        let migrated = migrate_settings(&mut s);
+        assert_eq!(s.model, "claude-opus-4-8");
+        assert!(migrated, "only the version stamp advances");
+        assert_eq!(s.settings_migration_version, SETTINGS_MIGRATION_VERSION);
+    }
+
+    #[test]
     fn the_default_nudge_runs_exactly_once() {
-        // Upgrade moves them to Opus 5...
-        let mut s = pre_versioning(PREVIOUS_DEFAULT_MODEL);
+        // Upgrade moves them to Opus 5.5...
+        let mut s = version_1("claude-opus-5");
         assert!(migrate_settings(&mut s));
         assert_eq!(s.model, DEFAULT_MODEL);
 
-        // ...then the user deliberately picks Opus 4.8 back in Settings.
-        s.model = PREVIOUS_DEFAULT_MODEL.to_string();
+        // ...then the user deliberately picks Opus 5 back in Settings.
+        s.model = "claude-opus-5".to_string();
 
         // Every subsequent launch must leave that choice alone. Without the
-        // version gate this reverts to Opus 5 forever and 4.8 can't be pinned.
+        // version gate this reverts to Opus 5.5 forever and 5 can't be pinned.
         for _ in 0..3 {
             assert!(
                 !migrate_settings(&mut s),
                 "a re-picked previous default must not be migrated again"
             );
-            assert_eq!(s.model, PREVIOUS_DEFAULT_MODEL);
+            assert_eq!(s.model, "claude-opus-5");
         }
+    }
+
+    #[test]
+    fn every_nudge_lands_on_a_bundled_model() {
+        // A typo'd target would move users onto a model no dropdown offers.
+        let bundled = super::super::models::bundled_models_for_tests();
+        for (_, old, new) in DEFAULT_MODEL_NUDGES {
+            assert!(bundled.iter().any(|m| m.id == *old), "{old} not bundled");
+            assert!(bundled.iter().any(|m| m.id == *new), "{new} not bundled");
+        }
+        let (last_version, _, last_target) = DEFAULT_MODEL_NUDGES.last().unwrap();
+        assert_eq!(
+            *last_target, DEFAULT_MODEL,
+            "the last nudge targets the default"
+        );
+        assert_eq!(*last_version, SETTINGS_MIGRATION_VERSION);
     }
 
     #[test]
@@ -722,22 +805,26 @@ mod migration_tests {
     }
 
     #[test]
-    fn opus_5_remains_the_default_at_high_effort() {
-        // Claude Fable 5.1 is newer and tops the dropdown, but Operon's shipped
-        // default deliberately stays Opus 5.
-        assert_eq!(DEFAULT_MODEL, "claude-opus-5");
-        assert_eq!(default_model(), "claude-opus-5");
+    fn opus_5_5_is_the_default_at_high_effort() {
+        // Claude Fable 5.1 tops the dropdown, but the shipped default is Opus
+        // 5.5. Effort stays `high` even though Opus 5.5's own API default is
+        // `medium`: Operon sends the flag explicitly.
+        assert_eq!(DEFAULT_MODEL, "claude-opus-5-5");
+        assert_eq!(default_model(), "claude-opus-5-5");
         assert_eq!(default_effort(), "high");
         let s = AppSettings::default();
-        assert_eq!(s.model, "claude-opus-5");
+        assert_eq!(s.model, "claude-opus-5-5");
         assert_eq!(s.effort, "high");
     }
 
     #[test]
     fn a_deliberate_choice_is_left_alone() {
         // Anything that isn't the superseded default is the user's call.
+        // On a current file the old defaults are ordinary choices too.
         for id in [
             "claude-fable-5-1",
+            "claude-opus-5",
+            "claude-opus-4-8",
             "claude-sonnet-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",

@@ -85,6 +85,12 @@ const sections: HelpSection[] = [
         content: 'If you need to reconfigure authentication or review the onboarding tour, you can relaunch the setup wizard from settings.',
         action: { label: 'Open Settings', view: 'settings' },
       },
+      {
+        title: 'Keeping Claude Code up to date',
+        content: 'The chat panel shows which Claude Code version you have. When a newer one is out, click Update next to it (this runs `claude update`).\n\nSettings → Claude → "Claude Code updates" picks the release channel. Latest, Claude Code\'s default, gets every release as it ships, including support for new models. Stable runs about a week behind and skips releases with major regressions. Stable is Claude Code\'s own setting, so the `claude` command in your terminal follows it too. Switching to Stable keeps your current version until Stable catches up rather than downgrading.',
+        tip: 'Stay on Latest if you want new models the day they launch. Choose Stable if an update has ever broken a run for you.',
+        action: { label: 'Open Settings', view: 'settings' },
+      },
     ],
   },
   {
@@ -509,6 +515,15 @@ const sections: HelpSection[] = [
       {
         title: 'HPC tips',
         content: 'Claude can submit Slurm/PBS jobs, check queue status, parse log files, and process results on your cluster. Try: "Submit a STAR alignment job for the samples in /data/fastq/" or "Check the status of my running jobs".',
+      },
+      {
+        title: 'Signing in to Claude on a server',
+        content: 'Operon\'s "Login on Server" button runs "claude auth login" in the server\'s terminal and opens the sign-in link in your browser. After you sign in, the browser shows a code. Paste it at Claude Code\'s "Paste code here" prompt in the terminal, or into the box Operon shows and Operon types it into that terminal for you.\n\nIf a chat reports that the sign-in expired, click "Sign in again" on the notice that appears. Your conversation is kept.',
+      },
+      {
+        title: 'Sign-in keeps expiring on a server',
+        content: 'You can give Claude Code on a server a token that lasts a year instead of signing in again and again. It needs a Pro, Max, Team or Enterprise plan.\n\n1. In a terminal on the server, run "claude setup-token". On clusters that stop Claude on login nodes, run it from an interactive compute-node session (for example "srun --pty bash").\n2. Open the link it shows and sign in. It then prints the token.\n3. Add "export CLAUDE_CODE_OAUTH_TOKEN=<the token>" to ~/.bashrc on the server, then reconnect.\n\nOperon never asks for, stores or copies this token; it stays in your file on the server. While it is set, Claude Code uses it instead of your sign-in. To go back, delete that line. The token covers chats only: a few account features still need a normal sign-in.',
+        tip: 'Treat the token like a password: anyone who has it can use your plan. Keep ~/.bashrc private with "chmod 600 ~/.bashrc".',
       },
     ],
   },
