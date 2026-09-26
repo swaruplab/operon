@@ -820,11 +820,20 @@ fn write_session_file(dir: &std::path::Path, meta: &SessionMetadata) -> Result<(
         std::process::id()
     ));
     let data = serde_json::to_string_pretty(meta).map_err(|e| e.to_string())?;
-    std::fs::write(&tmp, data).map_err(|e| format!("Failed to save session: {}", e))?;
-    std::fs::rename(&tmp, &path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("Failed to save session: {}", e)
-    })
+    std::fs::write(&tmp, &data).map_err(|e| format!("Failed to save session: {}", e))?;
+    // On Windows a virus scanner or the search indexer can hold the target
+    // open for a moment, and the rename then fails with a sharing violation.
+    // Retry briefly; if it is still refused, write in place — the lock above
+    // already rules out the tearing the rename protects against, so that is
+    // only less crash-safe, never worse than before.
+    for attempt in 1..=5u64 {
+        if std::fs::rename(&tmp, &path).is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15 * attempt));
+    }
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::write(&path, &data).map_err(|e| format!("Failed to save session: {}", e))
 }
 
 fn save_session_to_disk(meta: &SessionMetadata) -> Result<(), String> {
@@ -7080,13 +7089,8 @@ mod session_status_tests {
 
 #[cfg(test)]
 mod auth_and_update_tests {
-    use super::{
-        apply_update_channel, parse_auth_env_probe, parse_cli_version, ClaudeAuthEnv,
-        AUTH_ENV_PROBE, REMOTE_AUTH_CHECK_SCRIPT,
-    };
+    use super::{apply_update_channel, parse_cli_version};
     use serde_json::json;
-
-    const SECRET: &str = "sk-ant-oat01-DO-NOT-PRINT-THIS-VALUE";
 
     // ── release channel ──────────────────────────────────────────────────────
 
@@ -7165,121 +7169,138 @@ mod auth_and_update_tests {
         assert_eq!(parse_cli_version("2..1"), None);
     }
 
-    // ── local environment probe ──────────────────────────────────────────────
+    // These run the probe and the remote auth script through a real POSIX
+    // shell with a controlled PATH and HOME — what a Unix server does. That
+    // cannot be reproduced on a Windows runner, and the scripts only ever run
+    // on Unix, so Linux and macOS CI cover them.
+    #[cfg(unix)]
+    mod through_a_real_shell {
+        use super::super::{
+            parse_auth_env_probe, ClaudeAuthEnv, AUTH_ENV_PROBE, REMOTE_AUTH_CHECK_SCRIPT,
+        };
 
-    fn run_probe(vars: &[(&str, &str)]) -> String {
-        let mut c = std::process::Command::new("sh");
-        c.arg("-c")
-            .arg(AUTH_ENV_PROBE)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin");
-        for (k, v) in vars {
-            c.env(k, v);
-        }
-        let out = c.output().expect("run sh");
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    }
+        const SECRET: &str = "sk-ant-oat01-DO-NOT-PRINT-THIS-VALUE";
 
-    #[test]
-    fn the_probe_reports_names_and_never_values() {
-        let out = run_probe(&[("CLAUDE_CODE_OAUTH_TOKEN", SECRET)]);
-        assert!(!out.contains(SECRET), "a token value leaked: {out}");
-        assert_eq!(
-            parse_auth_env_probe(&out),
-            ClaudeAuthEnv {
-                oauth_token: true,
-                cloud_provider: None
-            }
-        );
-    }
+        // ── local environment probe ──────────────────────────────────────────────
 
-    #[test]
-    fn the_probe_sees_cloud_switches_and_ignores_off_values() {
-        let on = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_VERTEX", "1")]));
-        assert_eq!(on.cloud_provider.as_deref(), Some("vertex"));
-        let off = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_BEDROCK", "0")]));
-        assert_eq!(off, ClaudeAuthEnv::default());
-        assert_eq!(
-            parse_auth_env_probe(&run_probe(&[])),
-            ClaudeAuthEnv::default()
-        );
-    }
-
-    // ── remote auth check, run as the remote shell would run it ──────────────
-
-    struct FakeHome(std::path::PathBuf);
-    impl FakeHome {
-        fn new(tag: &str, bashrc: &str) -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "operon-authcheck-{}-{}",
-                std::process::id(),
-                tag
-            ));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(dir.join(".bashrc"), bashrc).unwrap();
-            FakeHome(dir)
-        }
-        fn run(&self) -> String {
-            let out = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(REMOTE_AUTH_CHECK_SCRIPT)
+        fn run_probe(vars: &[(&str, &str)]) -> String {
+            let mut c = std::process::Command::new("sh");
+            c.arg("-c")
+                .arg(AUTH_ENV_PROBE)
                 .env_clear()
-                .env("HOME", &self.0)
-                .env("PATH", "/usr/bin:/bin")
-                .output()
-                .expect("run sh");
+                .env("PATH", "/usr/bin:/bin");
+            for (k, v) in vars {
+                c.env(k, v);
+            }
+            let out = c.output().expect("run sh");
             String::from_utf8_lossy(&out.stdout).into_owned()
         }
-    }
-    impl Drop for FakeHome {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+
+        #[test]
+        fn the_probe_reports_names_and_never_values() {
+            let out = run_probe(&[("CLAUDE_CODE_OAUTH_TOKEN", SECRET)]);
+            assert!(!out.contains(SECRET), "a token value leaked: {out}");
+            assert_eq!(
+                parse_auth_env_probe(&out),
+                ClaudeAuthEnv {
+                    oauth_token: true,
+                    cloud_provider: None
+                }
+            );
         }
-    }
 
-    #[test]
-    fn a_setup_token_in_the_profile_counts_as_signed_in() {
-        let h = FakeHome::new(
-            "token",
-            &format!("export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
-        );
-        let out = h.run();
-        assert!(out.contains("AUTH:token"), "{out}");
-        assert!(
-            !out.contains(SECRET),
-            "the token value must never be printed: {out}"
-        );
-    }
+        #[test]
+        fn the_probe_sees_cloud_switches_and_ignores_off_values() {
+            let on = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_VERTEX", "1")]));
+            assert_eq!(on.cloud_provider.as_deref(), Some("vertex"));
+            let off = parse_auth_env_probe(&run_probe(&[("CLAUDE_CODE_USE_BEDROCK", "0")]));
+            assert_eq!(off, ClaudeAuthEnv::default());
+            assert_eq!(
+                parse_auth_env_probe(&run_probe(&[])),
+                ClaudeAuthEnv::default()
+            );
+        }
 
-    #[test]
-    fn a_commented_out_token_does_not_count() {
-        let h = FakeHome::new(
-            "commented",
-            &format!("# export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
-        );
-        let out = h.run();
-        assert!(!out.contains("AUTH:token"), "{out}");
-        assert!(out.contains("AUTH:none"), "{out}");
-        assert!(!out.contains(SECRET), "{out}");
-    }
+        // ── remote auth check, run as the remote shell would run it ──────────────
 
-    #[test]
-    fn a_cloud_switch_counts_only_when_on() {
-        let on = FakeHome::new("cloud-on", "export CLAUDE_CODE_USE_BEDROCK=1\n");
-        assert!(on.run().contains("AUTH:cloud"));
-        let off = FakeHome::new("cloud-off", "export CLAUDE_CODE_USE_BEDROCK=0\n");
-        assert!(!off.run().contains("AUTH:cloud"));
-    }
+        struct FakeHome(std::path::PathBuf);
+        impl FakeHome {
+            fn new(tag: &str, bashrc: &str) -> Self {
+                let dir = std::env::temp_dir().join(format!(
+                    "operon-authcheck-{}-{}",
+                    std::process::id(),
+                    tag
+                ));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join(".bashrc"), bashrc).unwrap();
+                FakeHome(dir)
+            }
+            fn run(&self) -> String {
+                let out = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(REMOTE_AUTH_CHECK_SCRIPT)
+                    .env_clear()
+                    .env("HOME", &self.0)
+                    .env("PATH", "/usr/bin:/bin")
+                    .output()
+                    .expect("run sh");
+                String::from_utf8_lossy(&out.stdout).into_owned()
+            }
+        }
+        impl Drop for FakeHome {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
 
-    #[test]
-    fn with_nothing_configured_the_file_check_still_runs() {
-        let h = FakeHome::new("empty", "alias ll='ls -l'\n");
-        assert!(h.run().contains("AUTH:none"));
+        #[test]
+        fn a_setup_token_in_the_profile_counts_as_signed_in() {
+            let h = FakeHome::new(
+                "token",
+                &format!("export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
+            );
+            let out = h.run();
+            assert!(out.contains("AUTH:token"), "{out}");
+            assert!(
+                !out.contains(SECRET),
+                "the token value must never be printed: {out}"
+            );
+        }
+
+        #[test]
+        fn a_commented_out_token_does_not_count() {
+            let h = FakeHome::new(
+                "commented",
+                &format!("# export CLAUDE_CODE_OAUTH_TOKEN={SECRET}\n"),
+            );
+            let out = h.run();
+            assert!(!out.contains("AUTH:token"), "{out}");
+            assert!(out.contains("AUTH:none"), "{out}");
+            assert!(!out.contains(SECRET), "{out}");
+        }
+
+        #[test]
+        fn a_cloud_switch_counts_only_when_on() {
+            let on = FakeHome::new("cloud-on", "export CLAUDE_CODE_USE_BEDROCK=1\n");
+            assert!(on.run().contains("AUTH:cloud"));
+            let off = FakeHome::new("cloud-off", "export CLAUDE_CODE_USE_BEDROCK=0\n");
+            assert!(!off.run().contains("AUTH:cloud"));
+        }
+
+        #[test]
+        fn with_nothing_configured_the_file_check_still_runs() {
+            let h = FakeHome::new("empty", "alias ll='ls -l'\n");
+            assert!(h.run().contains("AUTH:none"));
+        }
     }
 }
 
-#[cfg(test)]
+// Unix only: these run the remote run-script fragment and the sign-in probe
+// through /bin/sh, /bin/bash and /bin/zsh with a fake `claude` made executable
+// via Unix permissions — the servers they target are Unix. The version logic
+// they also cover is platform-independent and runs on Linux and macOS CI.
+#[cfg(all(test, unix))]
 mod preflight_and_signin_tests {
     use super::{
         is_plain_version, parse_signin_probe, remote_claude_preflight, required_claude_code,

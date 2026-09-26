@@ -4885,6 +4885,10 @@ mod remote_path_escaping_tests {
         }
     }
 
+    // Unix only: the tilde assertions compare against $HOME, which Windows does
+    // not set (the Windows runner failed here on `HOME`, not on the escaping).
+    // The script only ever runs in a remote Unix shell.
+    #[cfg(unix)]
     #[test]
     fn expansion_keeps_variables_but_kills_command_substitution() {
         // The whole point: `$VAR` must still expand, `$(...)` and backticks must not.
