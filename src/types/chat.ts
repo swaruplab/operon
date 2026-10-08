@@ -57,10 +57,12 @@ export interface ClaudeSystemEvent {
  *  Code) when it updates Claude Code on the node before starting the agent. */
 export interface ClaudeOperonStatusEvent {
   type: 'operon_status';
-  kind: 'claude_update_started' | 'claude_update_finished';
+  kind: 'claude_update_started' | 'claude_update_finished' | 'login_node_refused';
   from?: string;
   to?: string;
   need?: string;
+  /** login_node_refused: the short hostname the terminal's shell is on. */
+  host?: string;
 }
 
 export interface ClaudeMessageUsage {

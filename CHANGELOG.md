@@ -4,6 +4,41 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.8] — 2026-10-08
+
+### Fixed
+- **Operon never starts Claude on an HPC login node.** Clusters such as UCI
+  RCIC now kill any process named `claude` on a login node within seconds. A
+  chat's agent runs in whatever shell its terminal holds, and nothing checked
+  where that was. A computer whose server profile had no interactive-node
+  command kept its terminal on the login node, and every chat there was killed.
+  The run script now checks on the machine where the agent would run. It counts
+  as a compute node only if `SLURMD_NODENAME` is set or `sinfo` lists the host;
+  a plain `salloc` shell is still on the login node. On a login node it starts
+  nothing, not even the version check, and the chat says which login node the
+  terminal is on and offers to move it to a compute node. It applies only with
+  the HPC login-node policy on and SLURM present.
+- **The chat checks where the terminal is before sending.** It asks over the
+  terminal's own SSH connection, so the same login node, which processes are in
+  the foreground of the terminal's tmux pane. If the terminal is on a login
+  node, Send keeps your message and offers "Move this terminal to a compute
+  node". The header shows "compute node" or "login node".
+- **Connecting never attaches to a stale login-shell session.** `tmux -A`
+  attaches an existing `operon-node` session and skips the interactive-node
+  command, so a session left holding a plain shell put the terminal on the login
+  node. Connect now attaches only to a session that still has `srun` in a
+  window's foreground (and selects that window); otherwise it starts a fresh
+  one. It never ends a session it cannot inspect.
+- **Setup actions no longer run Claude on the login node.** On a restricted
+  cluster, Install, Login on Server and Update run in the terminal and only on a
+  compute node, and Re-check and Retry use a check that starts no program.
+- **Every computer gets the interactive-node command.** These settings are
+  saved per computer, so one correctly set computer did not protect another.
+  The command is now also kept on the server, in `~/.operon/server_config.json`
+  in your home directory there. A computer without one adopts it on connect and
+  says so. If none exists anywhere on a SLURM cluster, the chat warns that chats
+  would run on the login node and offers `srun --pty bash -i`.
+
 ## [1.0.7] — 2026-09-25
 
 ### Changed

@@ -23,6 +23,27 @@ export interface SSHProfile {
 }
 
 /** Well-known server config keys with labels and placeholders for the UI */
+/** The server settings kept on the server itself (~/.operon/server_config.json
+ *  in the shared home), so every computer connecting to it agrees. */
+export const SERVER_SYNCED_KEYS = ['interactive_cmd', 'interactive_account', 'interactive_auto'] as const;
+
+export function pickServerSynced(cfg: Record<string, string> | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of SERVER_SYNCED_KEYS) {
+    const v = (cfg?.[k] || '').trim();
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
+export async function readRemoteServerConfig(profileId: string): Promise<Record<string, string>> {
+  return invoke('read_remote_server_config', { profileId });
+}
+
+export async function writeRemoteServerConfig(profileId: string, config: Record<string, string>): Promise<void> {
+  return invoke('write_remote_server_config', { profileId, config });
+}
+
 export const SERVER_CONFIG_FIELDS: Array<{
   key: string;
   label: string;

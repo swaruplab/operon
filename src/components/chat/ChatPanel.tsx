@@ -132,7 +132,16 @@ const CLOUD_PROVIDER_LABEL: Record<NonNullable<ClaudeAuthEnv['cloud_provider']>,
 const cloudNoticeKey = (provider: string) => `operon.cloudProviderNotice.dismissed.${provider}`;
 import { getCachedModels, groupAndSort, supportedEffortLevels, clampEffort, type ModelInfo, type EffortLevel } from '../../lib/models';
 import { parsePortkeySlug, familyLabel } from '../../lib/portkey';
-import { listRemoteDirectoryCached } from '../../lib/ssh';
+import {
+  listRemoteDirectoryCached,
+  listSSHProfiles,
+  saveSSHProfile,
+  pickServerSynced,
+  readRemoteServerConfig,
+  writeRemoteServerConfig,
+  type SSHProfile,
+} from '../../lib/ssh';
+import { injectAccount } from '../sidebar/SSHView';
 import { copyText } from '../../lib/clipboard';
 import {
   CLEAR_AUTH_ENV_PREFIX,
@@ -143,6 +152,9 @@ import {
   detectClaudeAuthEnv,
   claudeCodeMinVersion,
   probeRemoteClaudeSignin,
+  probeTerminalNode,
+  remoteIsSlurmLogin,
+  type TerminalNode,
   type ClaudeAuthEnv,
 } from '../../lib/claude';
 import {
@@ -1511,6 +1523,22 @@ export function ChatPanel() {
     need: string | null;
   }>({ state: 'idle', attempts: 0, updatedThisRun: false, have: null, need: null });
   const runHealRetryRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Where the chat's terminal shell is (HPC login-node policy). The remote run
+  // script refuses to start Claude on a login node whatever happens here; this
+  // lets Operon say so BEFORE sending, and offer to move the terminal.
+  const sshTmuxRef = useRef<string | null>(null);
+  const slurmLoginRef = useRef<{ profileId: string; value: boolean } | null>(null);
+  const remoteProfileRef = useRef<SSHProfile | null>(null);
+  const loginRefusedRef = useRef(false);
+  const moveTokenRef = useRef(0);
+  const [terminalNode, setTerminalNode] = useState<TerminalNode | null>(null);
+  const [loginNodeNotice, setLoginNodeNotice] = useState<{ host: string | null; refused: boolean } | null>(null);
+  const [movingToNode, setMovingToNode] = useState<'idle' | 'waiting' | 'ready' | 'timeout'>('idle');
+  // This computer's profile has no interactive-node command: either one was
+  // found on the server and adopted, or none exists and chats would run on the
+  // login node.
+  const [interactiveSetup, setInteractiveSetup] = useState<{ kind: 'adopted' | 'missing'; cmd: string } | null>(null);
   const [claudeTooOld, setClaudeTooOld] = useState<{
     have: string;
     need: string;
@@ -1870,9 +1898,11 @@ export function ChatPanel() {
       terminalId: string;
       profileId?: string;
       profileName?: string;
+      tmuxSession?: string | null;
     }>('open-ssh-terminal', (event) => {
-      const { terminalId, profileId, profileName } = event.payload;
+      const { terminalId, profileId, profileName, tmuxSession } = event.payload;
       if (profileId && profileName) {
+        sshTmuxRef.current = tmuxSession || null;
         setRemoteInfo((prev) => ({
           profileId,
           profileName,
@@ -2197,6 +2227,181 @@ export function ChatPanel() {
     }
   }, [remoteInfo, authEnv?.oauth_token]);
 
+  const pushSystemNotice = useCallback((text: string) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: 'system' as const, content: [{ type: 'text' as const, text }], timestamp: Date.now() },
+    ]);
+  }, []);
+
+  /** True when this server is a SLURM cluster reached through a login node.
+   *  Cached per profile; the backend caches it for the app's lifetime too. */
+  const isSlurmLoginServer = useCallback(async (profileId: string): Promise<boolean> => {
+    const c = slurmLoginRef.current;
+    if (c && c.profileId === profileId) return c.value;
+    const value = await remoteIsSlurmLogin(profileId).catch(() => false);
+    slurmLoginRef.current = { profileId, value };
+    return value;
+  }, []);
+
+  /** The command that moves a terminal onto a compute node: this computer's
+   *  interactive-node command for the server, or a plain `srun` with the
+   *  account it knows. */
+  const interactiveCommandFor = (profile: SSHProfile | null): string => {
+    const sc = profile?.server_config || {};
+    const configured = (sc.interactive_cmd || '').trim();
+    return injectAccount(configured || 'srun --pty bash -i', sc.interactive_account || sc.slurm_account || '');
+  };
+
+  // Before typing anything that starts Claude into the terminal: on a SLURM
+  // cluster with the login-node policy on, the terminal must not be on a login
+  // node, where the cluster kills any process named claude. "unknown" (no
+  // shared SSH connection, no tmux) lets it through — the run script's own
+  // check still refuses there.
+  const ensureComputeTerminal = useCallback(async (): Promise<boolean> => {
+    const ri = remoteInfoRef.current;
+    if (!ri || !restrictLoginNode || !sshTerminalId) return true;
+    if (!(await isSlurmLoginServer(ri.profileId))) return true;
+    const node = await probeTerminalNode(ri.profileId, sshTmuxRef.current).catch(() => 'unknown' as const);
+    setTerminalNode(node);
+    if (node === 'login') {
+      setLoginNodeNotice({ host: null, refused: false });
+      setMovingToNode('idle');
+      return false;
+    }
+    return true;
+  }, [restrictLoginNode, sshTerminalId, isSlurmLoginServer]);
+
+  // Type the interactive-node command into the terminal, then watch until the
+  // terminal is on a compute node (allocations can queue; ~3 minutes max).
+  const moveTerminalToComputeNode = useCallback(async () => {
+    const ri = remoteInfoRef.current;
+    if (!ri || !sshTerminalId) return;
+    const token = ++moveTokenRef.current;
+    const cmd = interactiveCommandFor(remoteProfileRef.current);
+    await invoke('write_terminal', {
+      terminalId: sshTerminalId,
+      data: Array.from(new TextEncoder().encode(cmd + '\n')),
+    }).catch(() => {});
+    setMovingToNode('waiting');
+    for (let i = 0; i < 36; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      if (moveTokenRef.current !== token) return;
+      const node = await probeTerminalNode(ri.profileId, sshTmuxRef.current).catch(() => 'unknown' as const);
+      if (moveTokenRef.current !== token) return;
+      if (node !== 'login') {
+        setTerminalNode(node);
+        setMovingToNode('ready');
+        return;
+      }
+    }
+    setMovingToNode('timeout');
+  }, [sshTerminalId]);
+
+  // After a refused run: send the same request again, now that the terminal is
+  // on a compute node. No second copy of the user's message is added.
+  const resendLast = useCallback(async () => {
+    const last = lastSendRef.current;
+    setLoginNodeNotice(null);
+    setMovingToNode('idle');
+    if (!last) return;
+    seenMsgIds.current.clear();
+    lastEventTime.current = Date.now();
+    lastContentTime.current = Date.now();
+    setIsStreaming(true);
+    try {
+      await invoke('start_claude_session', last.invokeArgs);
+    } catch (e) {
+      setIsStreaming(false);
+      pushSystemNotice(`Error: ${e}`);
+    }
+  }, [pushSystemNotice]);
+
+  // "Use this command" on the missing-interactive-command notice: save it for
+  // this computer and on the server, then move this terminal now.
+  const adoptSuggestedInteractive = useCallback(async () => {
+    const ri = remoteInfoRef.current;
+    const profile = remoteProfileRef.current;
+    setInteractiveSetup(null);
+    if (!ri || !profile) return;
+    const updated: SSHProfile = {
+      ...profile,
+      server_config: { ...profile.server_config, interactive_cmd: 'srun --pty bash -i' },
+    };
+    try {
+      await saveSSHProfile(updated);
+      remoteProfileRef.current = updated;
+      emit('ssh-profiles-changed', {}).catch(() => {});
+      writeRemoteServerConfig(ri.profileId, pickServerSynced(updated.server_config)).catch(() => {});
+    } catch (e) {
+      pushSystemNotice(`Couldn't save the interactive-node command: ${e}`);
+      return;
+    }
+    setLoginNodeNotice({ host: null, refused: false });
+    void moveTerminalToComputeNode();
+  }, [moveTerminalToComputeNode, pushSystemNotice]);
+
+  // On connect: keep the server's copy of the interactive-node command in step
+  // with this computer; adopt it when this computer has none (set on another
+  // computer); and when there is none anywhere on a SLURM cluster, say up front
+  // that chats would run on the login node.
+  useEffect(() => {
+    const pid = remoteInfo?.profileId;
+    setInteractiveSetup(null);
+    setTerminalNode(null);
+    setLoginNodeNotice(null);
+    setMovingToNode('idle');
+    remoteProfileRef.current = null;
+    if (!pid) return;
+    let cancelled = false;
+    (async () => {
+      const profiles = await listSSHProfiles().catch(() => [] as SSHProfile[]);
+      const profile = profiles.find((p) => p.id === pid) || null;
+      if (cancelled || !profile) return;
+      remoteProfileRef.current = profile;
+      const local = pickServerSynced(profile.server_config);
+      const remote = await readRemoteServerConfig(pid).catch(() => null);
+      if (cancelled) return;
+      if (local.interactive_cmd) {
+        if (remote && JSON.stringify(pickServerSynced(remote)) !== JSON.stringify(local)) {
+          writeRemoteServerConfig(pid, local).catch(() => {});
+        }
+        return;
+      }
+      if (profile.server_config?.interactive_auto === '0') return; // explicitly opted out
+      if (remote?.interactive_cmd) {
+        const updated: SSHProfile = {
+          ...profile,
+          server_config: { ...profile.server_config, ...pickServerSynced(remote) },
+        };
+        await saveSSHProfile(updated).catch(() => {});
+        if (cancelled) return;
+        remoteProfileRef.current = updated;
+        emit('ssh-profiles-changed', {}).catch(() => {});
+        setInteractiveSetup({ kind: 'adopted', cmd: interactiveCommandFor(updated) });
+        return;
+      }
+      if (restrictLoginNode && (await isSlurmLoginServer(pid)) && !cancelled) {
+        setInteractiveSetup({ kind: 'missing', cmd: interactiveCommandFor(profile) });
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteInfo?.profileId, restrictLoginNode]);
+
+  // Shortly after a terminal opens, look where it landed (the interactive
+  // command needs a moment), so the header can say "compute node"/"login node".
+  useEffect(() => {
+    const pid = remoteInfo?.profileId;
+    if (!pid || !sshTerminalId || !restrictLoginNode) return;
+    const t = setTimeout(async () => {
+      if (!(await isSlurmLoginServer(pid))) return;
+      const node = await probeTerminalNode(pid, sshTmuxRef.current).catch(() => 'unknown' as const);
+      setTerminalNode(node);
+    }, 10000);
+    return () => clearTimeout(t);
+  }, [remoteInfo?.profileId, sshTerminalId, restrictLoginNode, isSlurmLoginServer]);
+
   // Update Claude Code where the last run happened, then send the same request
   // again. Called from the done handler (so the failed run is fully over)
   // after Claude Code said it is too old for the model. On a server in
@@ -2253,6 +2458,7 @@ export function ChatPanel() {
         setRemoteUpdateMsg('Open a terminal on the server, then run: claude update');
         return;
       }
+      if (!(await ensureComputeTerminal())) return;
       invoke('write_terminal', {
         terminalId: sshTerminalId,
         data: Array.from(new TextEncoder().encode('claude update\n')),
@@ -2271,7 +2477,7 @@ export function ChatPanel() {
     } finally {
       setUpdatingRemote(false);
     }
-  }, [remoteInfo?.profileId, runRemoteCheck, restrictLoginNode, sshTerminalId]);
+  }, [remoteInfo?.profileId, runRemoteCheck, restrictLoginNode, sshTerminalId, ensureComputeTerminal]);
 
   // Auto-check remote server for Claude Code + auth when connecting
   useEffect(() => {
@@ -2318,8 +2524,12 @@ export function ChatPanel() {
       let cancelledProbe = false;
       probeRemoteClaudeSignin(remoteInfo.profileId)
         .then((r) => {
-          if (cancelledProbe || r !== 'no') return;
-          setRemoteDeps((prev) => (prev && prev.status === 'ok' ? { ...prev, hasAuth: false } : prev));
+          if (cancelledProbe) return;
+          if (r.installed === false) {
+            setRemoteDeps((prev) => (prev ? { ...prev, status: 'install-needed', hasClaude: false, hasAuth: null } : prev));
+          } else if (r.signin === 'no') {
+            setRemoteDeps((prev) => (prev && prev.status === 'ok' ? { ...prev, hasAuth: false } : prev));
+          }
         })
         .catch(() => { /* unknown: stay quiet; the first run reports it */ });
       return () => { cancelledProbe = true; };
@@ -2590,6 +2800,15 @@ export function ChatPanel() {
         // Status lines Operon's run script writes while it updates Claude Code
         // on the server's node, before the agent starts.
         if (data.type === 'operon_status') {
+          if (data.kind === 'login_node_refused') {
+            // The run script found the terminal on a login node and started
+            // nothing. Say where, and offer to move the terminal.
+            loginRefusedRef.current = true;
+            setTerminalNode('login');
+            setLoginNodeNotice({ host: data.host || null, refused: true });
+            setMovingToNode('idle');
+            return;
+          }
           if (data.kind === 'claude_update_started') {
             healRef.current.updatedThisRun = true;
             pushNotice(
@@ -2924,6 +3143,14 @@ export function ChatPanel() {
         return;
       }
       if (healRef.current.state === 'retrying') healRef.current.state = 'idle';
+      if (loginRefusedRef.current) {
+        // Refused on a login node: the notice explains it; skip the generic
+        // "no response — fetching the output file" diagnosis.
+        loginRefusedRef.current = false;
+        setIsStreaming(false);
+        invoke('update_session_status', { sessionId, status: 'completed' }).catch(() => {});
+        return;
+      }
       setIsStreaming(false);
 
       // Capture whether silent-failure fired so we can follow up with a remote
@@ -3372,6 +3599,22 @@ export function ChatPanel() {
   // Install Claude Code on the remote server
   const installRemoteClaude = async () => {
     if (!remoteInfo?.profileId) return;
+    // Restricted cluster: the installer runs `claude install`, which the
+    // cluster kills on a login node. Install in the terminal, on a compute node.
+    if (restrictLoginNode) {
+      if (!sshTerminalId) {
+        setRemoteDeps((prev) => prev ? { ...prev, error: 'Open a terminal on the server first, then click Install again.' } : prev);
+        return;
+      }
+      if (!(await ensureComputeTerminal())) return;
+      const stable = updateChannel === 'stable' ? ' -s stable' : '';
+      invoke('write_terminal', {
+        terminalId: sshTerminalId,
+        data: Array.from(new TextEncoder().encode(`curl -fsSL https://claude.ai/install.sh | bash${stable}\n`)),
+      }).catch(() => {});
+      setRemoteDeps((prev) => prev ? { ...prev, installing: false, error: 'Installing in the terminal below. When it finishes, click Re-check.' } : prev);
+      return;
+    }
     setRemoteDeps((prev) => prev ? { ...prev, installing: true, error: null } : prev);
     try {
       await invoke('install_remote_claude', { profileId: remoteInfo.profileId });
@@ -3405,8 +3648,28 @@ export function ChatPanel() {
 
   // Manual retry from the new "unreachable" / "check-error" banners.
   // Re-runs the same classified check used by the auto-effect.
+  // Restricted cluster: decide installed / signed in with shell builtins only,
+  // never `claude --version` on the login node.
+  const restrictedRemoteCheck = async (profileId: string) => {
+    try {
+      const r = await probeRemoteClaudeSignin(profileId);
+      setRemoteDeps({
+        checked: true,
+        status: r.installed === false ? 'install-needed' : 'ok',
+        hasNode: true,
+        hasClaude: r.installed !== false,
+        hasAuth: r.installed === false ? null : r.signin !== 'no',
+        installing: false,
+        error: null,
+      });
+    } catch (e) {
+      setRemoteDeps((prev) => prev ? { ...prev, installing: false, error: `${e}` } : prev);
+    }
+  };
+
   const retryRemoteCheck = async () => {
     if (!remoteInfo?.profileId) return;
+    if (restrictLoginNode) { await restrictedRemoteCheck(remoteInfo.profileId); return; }
     setRemoteDeps((prev) => prev ? { ...prev, installing: true, error: null } : prev);
     const result = await runRemoteCheck(remoteInfo.profileId);
     setRemoteDeps(result);
@@ -3415,6 +3678,7 @@ export function ChatPanel() {
   // Re-check remote dependencies (manual trigger)
   const recheckRemoteDeps = async () => {
     if (!remoteInfo?.profileId) return;
+    if (restrictLoginNode) { await restrictedRemoteCheck(remoteInfo.profileId); return; }
     setRemoteDeps((prev) => prev ? { ...prev, error: null, installing: true } : prev);
     try {
       const result = await fullRemoteCheck(remoteInfo.profileId);
@@ -3575,6 +3839,11 @@ export function ChatPanel() {
     // is done even if the done-event was missed over SSH.
     if (!textToSend) return;
     if (isStreaming && !overrideText) return;
+    // On a cluster that stops Claude on login nodes, don't type the agent into
+    // a terminal that is on one. The message stays in the box; the notice offers
+    // to move the terminal to a compute node.
+    if (remoteInfo && useTerminal && sshTerminalId && !(await ensureComputeTerminal())) return;
+    loginRefusedRef.current = false;
 
     const rawText = textToSend;
     // Each send is a fresh attempt: the sign-in banner comes back if Claude
@@ -4093,7 +4362,7 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
   // NOTE: projectPath is intentionally excluded from deps — we use
   // sessionProjectPath (pinned on first message) so that sidebar folder
   // navigation does not break an active streaming session.
-  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady, localClaudeVersion]);
+  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady, localClaudeVersion, ensureComputeTerminal]);
 
   // Report mode: user clicks "Generate Report" button during clarify phase.
   // Calls sendMessage with an override string, which bypasses the isStreaming
@@ -4434,6 +4703,20 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <TerminalSquare className="w-3 h-3" />
             {useTerminal && sshTerminalId ? 'Terminal' : 'Direct'}
           </button>
+          {useTerminal && sshTerminalId && restrictLoginNode && terminalNode === 'compute' && (
+            <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0" title="The terminal is on a compute node">
+              compute node
+            </span>
+          )}
+          {useTerminal && sshTerminalId && restrictLoginNode && terminalNode === 'login' && (
+            <button
+              onClick={() => setLoginNodeNotice((n) => n ?? { host: null, refused: false })}
+              className="text-[10px] text-red-600 dark:text-red-400 hover:underline shrink-0"
+              title="The terminal is on a login node, where your cluster stops Claude"
+            >
+              login node
+            </button>
+          )}
         </div>
       )}
 
@@ -4531,6 +4814,119 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
         );
       })()}
 
+      {/* The chat's terminal is on a login node (found before sending, or the run
+          script refused there). Anthropic or not, the cluster kills claude. */}
+      {remoteInfo && loginNodeNotice && (
+        <div className="px-3 py-2 border-b border-red-800/30 shrink-0 bg-red-950/20">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5 pointer-events-none" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-red-700 dark:text-red-300 font-medium">
+                {loginNodeNotice.refused ? "Claude didn't start: your terminal is on a login node" : 'Your terminal is on a login node'}
+              </p>
+              <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                {loginNodeNotice.host ? <><span className="font-mono">{loginNodeNotice.host}</span> is a login node of {remoteInfo.profileName}. </> : <>The terminal for {remoteInfo.profileName} is on a login node. </>}
+                Your cluster stops Claude there, so Operon only runs the agent on a compute node.
+                {!(remoteProfileRef.current?.server_config?.interactive_cmd || '').trim() && (
+                  <> This computer has no interactive-node command for {remoteInfo.profileName}, so connecting leaves the terminal on the login node.</>
+                )}
+              </p>
+              {movingToNode === 'waiting' && (
+                <p className="text-[10px] text-secondary mt-1 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin pointer-events-none" /> Waiting for a compute node (it can queue on a busy partition)…
+                </p>
+              )}
+              {movingToNode === 'timeout' && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                  Still no compute node after 3 minutes. Check the terminal: the request may be queued or refused.
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {movingToNode !== 'ready' && (
+                  <button
+                    onClick={() => void moveTerminalToComputeNode()}
+                    disabled={movingToNode === 'waiting'}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[11px] text-white font-medium transition-colors"
+                    title={`Types this into the terminal: ${interactiveCommandFor(remoteProfileRef.current)}`}
+                  >
+                    <TerminalSquare className="w-3 h-3 pointer-events-none" /> Move this terminal to a compute node
+                  </button>
+                )}
+                {movingToNode === 'ready' && loginNodeNotice.refused && (
+                  <button
+                    onClick={() => void resendLast()}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-green-600 hover:bg-green-500 text-[11px] text-white font-medium transition-colors"
+                  >
+                    <Send className="w-3 h-3 pointer-events-none" /> On a compute node — send again
+                  </button>
+                )}
+                {movingToNode === 'ready' && !loginNodeNotice.refused && (
+                  <span className="text-[10px] text-green-600 dark:text-green-400">On a compute node — press Send.</span>
+                )}
+                <code className="text-[10px] text-subtle font-mono truncate">{interactiveCommandFor(remoteProfileRef.current)}</code>
+              </div>
+            </div>
+            <button
+              onClick={() => { moveTokenRef.current++; setLoginNodeNotice(null); setMovingToNode('idle'); }}
+              className="text-muted hover:text-secondary shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-3.5 h-3.5 pointer-events-none" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* No interactive-node command on this computer: one was adopted from the
+          server (set on another computer), or none exists anywhere. */}
+      {remoteInfo && interactiveSetup && !loginNodeNotice && (
+        <div className={`px-3 py-2 border-b shrink-0 ${interactiveSetup.kind === 'missing' ? 'border-amber-800/30 bg-amber-950/20' : 'border-blue-800/30 bg-blue-950/20'}`}>
+          <div className="flex items-start gap-2">
+            <Server className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5 pointer-events-none" />
+            <div className="flex-1 min-w-0">
+              {interactiveSetup.kind === 'adopted' ? (
+                <>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 font-medium">Using {remoteInfo.profileName}'s interactive-node command</p>
+                  <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                    This computer had none, so Operon is using the one saved on the server by your other computer:{' '}
+                    <code className="font-mono">{interactiveSetup.cmd}</code>. From the next connection, the terminal opens on a compute node.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">Chats on {remoteInfo.profileName} would run on a login node</p>
+                  <p className="text-[10px] text-secondary mt-0.5 leading-relaxed">
+                    This computer has no interactive-node command for {remoteInfo.profileName}, so connecting leaves the terminal on a login
+                    node, where your cluster stops Claude. Set one so Operon opens the terminal on a compute node, here and on your other computers.
+                  </p>
+                </>
+              )}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {interactiveSetup.kind === 'missing' ? (
+                  <button
+                    onClick={() => void adoptSuggestedInteractive()}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-[11px] text-white font-medium transition-colors"
+                  >
+                    Use <code className="font-mono">{interactiveSetup.cmd}</code>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setInteractiveSetup(null); setLoginNodeNotice({ host: null, refused: false }); void moveTerminalToComputeNode(); }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-[11px] text-white font-medium transition-colors"
+                  >
+                    <TerminalSquare className="w-3 h-3 pointer-events-none" /> Move this terminal to a compute node now
+                  </button>
+                )}
+                <span className="text-[10px] text-subtle">You can change it in SSH → edit server → Interactive Node.</span>
+              </div>
+            </div>
+            <button onClick={() => setInteractiveSetup(null)} className="text-muted hover:text-secondary shrink-0" title="Dismiss">
+              <X className="w-3.5 h-3.5 pointer-events-none" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Claude Code is too old for the model and the automatic update didn't fix it */}
       {claudeTooOld && (
         <div className="px-3 py-2 border-b border-amber-800/30 shrink-0 bg-amber-950/20">
@@ -4550,7 +4946,8 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
               <div className="flex items-center gap-2 mt-1.5">
                 {claudeTooOld.remote && sshTerminalId && (
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!(await ensureComputeTerminal())) return;
                       invoke('write_terminal', {
                         terminalId: sshTerminalId,
                         data: Array.from(new TextEncoder().encode('claude update\n')),
@@ -4848,6 +5245,9 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
                           setLoginStatus('error');
                           return;
                         }
+                        // `claude auth login` is a claude process: never type it
+                        // into a terminal that is on a login node.
+                        if (!(await ensureComputeTerminal())) return;
                         setLoginStatus('fetching');
                         setLoginError(null);
                         setLoginUrl(null);

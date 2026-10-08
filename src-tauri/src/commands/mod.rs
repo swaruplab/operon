@@ -28,11 +28,13 @@ pub use claude::{
     get_claude_update_channel, get_latest_claude_code_version, install_all_dependencies,
     install_claude, install_node, install_phase_claude, install_phase_tools, install_phase_xcode,
     install_remote_claude, install_xcode_cli, launch_claude_login, list_plan_history,
-    list_sessions, probe_remote_claude_signin, read_plan_history_entry, read_session_output,
-    reconnect_session, reconnect_tail, refresh_environment, remote_claude_login, rename_session,
+    list_sessions, probe_remote_claude_signin, probe_terminal_node, read_plan_history_entry,
+    read_remote_server_config, read_session_output, reconnect_session, reconnect_tail,
+    refresh_environment, remote_claude_login, remote_is_slurm_login, rename_session,
     save_session_metadata, scan_remote_footprint, set_claude_update_channel, start_claude_session,
     stop_claude_session, store_api_key, teardown_remote_footprint, update_local_claude,
     update_remote_claude, update_session_claude_id, update_session_status,
+    write_remote_server_config,
 };
 pub use extensions::{
     browse_extensions_by_category, check_extension_compatibility, check_extension_updates,

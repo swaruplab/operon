@@ -2327,13 +2327,57 @@ fn remote_claude_preflight(need: Option<&str>, out_q: &str, log_q: &str) -> Stri
     )
 }
 
+/// Shell test, for the remote run script, that sets `_oln=1` when the shell it
+/// runs in is a SLURM cluster's LOGIN node and `_oh` to the short hostname.
+///
+/// The terminal-mode agent runs in whatever shell the chat's terminal holds, so
+/// this is the only check made where the agent would actually run — a probe
+/// over a new SSH connection always lands on a login node and says nothing
+/// about the terminal. Compute means: `SLURMD_NODENAME` is set (slurmd sets it
+/// for every task step, so an `srun --pty` shell has it) or the host is one of
+/// the nodes `sinfo` lists (an SSH straight into an allocated node has no step
+/// variables). `SLURM_JOB_ID` is deliberately NOT accepted: a plain `salloc`
+/// sets it in a shell that is still on the login node. Hosts without SLURM, and
+/// an unknown hostname, never count as login nodes. Must not `exit` (sourced).
+const LOGIN_NODE_TEST: &str = r#"_oh=$(hostname -s 2>/dev/null || hostname 2>/dev/null | cut -d. -f1); _oh=$(printf %s "$_oh" | tr -cd 'A-Za-z0-9._-'); _oln=0; if [ -z "${SLURMD_NODENAME:-}" ] && [ -n "$_oh" ] && { command -v sbatch >/dev/null 2>&1 || command -v squeue >/dev/null 2>&1; }; then _oln=1; if command -v sinfo >/dev/null 2>&1 && sinfo -h -N -o '%N' 2>/dev/null | grep -qxF "$_oh"; then _oln=0; fi; fi; "#;
+
+/// The part of the remote run script that starts the agent. With `guard`
+/// (Settings → HPC login-node policy), a run on a SLURM login node starts no
+/// Claude process at all — not even the version check — and instead writes an
+/// `operon_status` line naming the host, which the chat turns into "your
+/// terminal is on the login node". Clusters such as UCI RCIC kill any process
+/// named `claude` on a login node within seconds.
+fn remote_run_body(
+    guard: bool,
+    preflight: &str,
+    claude_cmd: &str,
+    out_q: &str,
+    done_q: &str,
+) -> String {
+    let run = format!("{preflight}{claude_cmd} >> '{out_q}' 2>&1; echo $? > '{done_q}'");
+    if !guard {
+        return run;
+    }
+    format!(
+        "{test}if [ \"$_oln\" = 1 ]; then printf '{{\"type\":\"operon_status\",\"kind\":\"login_node_refused\",\"host\":\"%s\"}}\\n' \"$_oh\" >> '{out_q}'; echo 126 > '{done_q}'; else {run}; fi; unset _oh _oln",
+        test = LOGIN_NODE_TEST,
+    )
+}
+
 /// Is Claude Code signed in on this server? Decided with shell BUILTINS ONLY:
 /// no child process is started, so nothing on a login node ever has "claude"
 /// in its command line (clusters such as UCI RCIC kill those). Sent base64-
-/// wrapped for the same reason. Prints one `SIGNIN:` marker: yes, token,
-/// cloud, no, or unknown (macOS keeps the sign-in in the Keychain, which a
-/// builtin cannot see).
-const REMOTE_SIGNIN_PROBE: &str = r#"case "${OSTYPE:-}" in darwin*) echo "SIGNIN:unknown"; exit 0 ;; esac
+/// wrapped for the same reason. Prints `INSTALLED:yes|no` (a file test on the
+/// usual install locations plus the `command -v` builtin), then one `SIGNIN:`
+/// marker: yes, token, cloud, no, or unknown (macOS keeps the sign-in in the
+/// Keychain, which a builtin cannot see).
+const REMOTE_SIGNIN_PROBE: &str = r#"_oi=no
+for d in "$HOME/.local/bin" "$HOME/.claude/local" "$HOME/.npm-global/bin" "$HOME/bin" /usr/local/bin /opt/homebrew/bin; do
+    if [ -x "$d/claude" ]; then _oi=yes; break; fi
+done
+if [ "$_oi" = no ] && command -v claude >/dev/null 2>&1; then _oi=yes; fi
+echo "INSTALLED:$_oi"
+case "${OSTYPE:-}" in darwin*) echo "SIGNIN:unknown"; exit 0 ;; esac
 for rc in .bashrc .bash_profile .profile .zshrc .zprofile .zshenv; do
     f="$HOME/$rc"
     [ -f "$f" ] || continue
@@ -2362,13 +2406,43 @@ fn parse_signin_probe(out: &str) -> String {
     "unknown".to_string()
 }
 
-/// Login-node-safe sign-in check for connect time (see [`REMOTE_SIGNIN_PROBE`]).
-/// Returns "yes", "token", "cloud", "no" or "unknown".
+fn parse_installed_probe(out: &str) -> Option<bool> {
+    if out.contains("INSTALLED:yes") {
+        Some(true)
+    } else if out.contains("INSTALLED:no") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Result of the login-node-safe probe: whether Claude Code is installed
+/// (`None` = couldn't tell) and its sign-in state ("yes", "token", "cloud",
+/// "no", "unknown").
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RemoteClaudeProbe {
+    pub installed: Option<bool>,
+    pub signin: String,
+}
+
+fn find_ssh_profile(
+    ssh_state: &super::ssh::SSHManager,
+    profile_id: &str,
+) -> Result<super::ssh::SSHProfile, String> {
+    let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
+    profiles
+        .iter()
+        .find(|p| p.id == profile_id)
+        .cloned()
+        .ok_or_else(|| format!("SSH profile {} not found", profile_id))
+}
+
+/// Login-node-safe install + sign-in check (see [`REMOTE_SIGNIN_PROBE`]).
 #[tauri::command]
 pub async fn probe_remote_claude_signin(
     ssh_state: tauri::State<'_, super::ssh::SSHManager>,
     profile_id: String,
-) -> Result<String, String> {
+) -> Result<RemoteClaudeProbe, String> {
     let profile = {
         let profiles = ssh_state.profiles.lock().map_err(|e| e.to_string())?;
         profiles
@@ -2381,7 +2455,194 @@ pub async fn probe_remote_claude_signin(
     let out = super::ssh::ssh_exec_async(profile, format!("printf %s {} | base64 -d | bash", b64))
         .await
         .map_err(|e| format!("SSH sign-in check failed: {}", e))?;
-    Ok(parse_signin_probe(&out))
+    Ok(RemoteClaudeProbe {
+        installed: parse_installed_probe(&out),
+        signin: parse_signin_probe(&out),
+    })
+}
+
+/// Where a tmux pane's shell is, from the processes in the pane's FOREGROUND
+/// process group (`OPERON_FG:<name>` lines, from `ps` on the pane's tty).
+///
+/// Not `#{pane_current_command}`: Operon's auto-route pane runs a non-
+/// interactive `bash -c` startup with `srun` as its child in the SAME process
+/// group, so tmux names the pane "bash" while it is on a compute node (seen on
+/// UCI HPC3). tmux and `ps` only see the login node: `srun` in the foreground
+/// is the doorway to a compute-node shell, `ssh`/`mosh` lead somewhere unknown,
+/// and anything else (a shell, an editor, `claude`) runs on the login node.
+/// No foreground lines (no such session, `ps` unusable) → "unknown".
+fn classify_pane_probe(out: &str) -> &'static str {
+    if out.lines().any(|l| l.trim() == "OPERON_PANE:none") {
+        return "unknown";
+    }
+    let fg: Vec<&str> = out
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("OPERON_FG:"))
+        .map(|c| c.trim().trim_start_matches('-'))
+        .filter(|c| !c.is_empty())
+        .collect();
+    if fg.is_empty() {
+        "unknown"
+    } else if fg.contains(&"srun") {
+        "compute"
+    } else if fg
+        .iter()
+        .any(|c| matches!(*c, "ssh" | "mosh" | "mosh-client"))
+    {
+        "unknown"
+    } else {
+        "login"
+    }
+}
+
+/// The remote command behind [`probe_terminal_node`]: the pane's tty, then
+/// every process in its foreground process group (see classify_pane_probe).
+fn terminal_probe_command(session: &str) -> String {
+    format!(
+        "t=$(tmux display-message -p -t '{session}' '#{{pane_tty}}' 2>/dev/null); if [ -z \"$t\" ]; then echo OPERON_PANE:none; else ps -t \"${{t#/dev/}}\" -o pgid=,tpgid=,comm= 2>/dev/null | awk '$1==$2 {{ n=$3; sub(\".*/\",\"\",n); print \"OPERON_FG:\" n }}'; echo OPERON_PANE:done; fi"
+    )
+}
+
+fn is_tmux_session_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Is the chat's terminal on a compute node? "compute", "login" or "unknown".
+///
+/// Asks tmux what the terminal's pane is running, over the terminal's OWN
+/// ControlMaster socket — the same TCP connection, so the same login node.
+/// Operon's persistent exec channel is a separate connection, and HPC login
+/// addresses are round-robin: it can land on another login node and see a
+/// different tmux. No live master (Windows, multiplexing off) or no tmux
+/// session name → "unknown"; the run script's own check is the backstop.
+#[tauri::command]
+pub async fn probe_terminal_node(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+    tmux_session: Option<String>,
+) -> Result<String, String> {
+    let Some(session) = tmux_session.filter(|s| is_tmux_session_name(s)) else {
+        return Ok("unknown".to_string());
+    };
+    let profile = find_ssh_profile(&ssh_state, &profile_id)?;
+    let probe_profile = profile.clone();
+    let sock = tokio::task::spawn_blocking(move || super::ssh::live_control_socket(&probe_profile))
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(sock) = sock else {
+        return Ok("unknown".to_string());
+    };
+    let remote = terminal_probe_command(&session);
+    let mut cmd = tokio::process::Command::new("ssh");
+    cmd.args([
+        "-o",
+        &format!("ControlPath={}", sock.display()),
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-p",
+        &profile.port.to_string(),
+        &format!("{}@{}", profile.user, profile.host),
+        "--",
+        &remote,
+    ]);
+    cmd.stdin(std::process::Stdio::null());
+    match tokio::time::timeout(std::time::Duration::from_secs(8), cmd.output()).await {
+        Ok(Ok(out)) => Ok(classify_pane_probe(&String::from_utf8_lossy(&out.stdout)).to_string()),
+        _ => Ok("unknown".to_string()),
+    }
+}
+
+/// Is this server a SLURM cluster reached through a login node? Cached per
+/// profile for the app's lifetime (see `remote_is_slurm_login_node`).
+#[tauri::command]
+pub async fn remote_is_slurm_login(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<bool, String> {
+    let profile = find_ssh_profile(&ssh_state, &profile_id)?;
+    tokio::task::spawn_blocking(move || remote_is_slurm_login_node(&profile))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Server settings kept ON the server, in `~/.operon/server_config.json` in the
+/// shared home, so every computer connecting to it agrees. Only the
+/// interactive-node keys: a computer with no interactive-node command used to
+/// run every chat on the login node, while another computer of the same user
+/// was correctly configured.
+const REMOTE_SERVER_CONFIG_KEYS: &[&str] =
+    &["interactive_cmd", "interactive_account", "interactive_auto"];
+const REMOTE_SERVER_CONFIG_PATH: &str = "$HOME/.operon/server_config.json";
+
+fn sanitize_server_config(
+    cfg: &HashMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    cfg.iter()
+        .filter(|(k, _)| REMOTE_SERVER_CONFIG_KEYS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.trim().replace('\0', "")))
+        .filter(|(_, v)| !v.is_empty() && v.len() <= 2000)
+        .collect()
+}
+
+/// Pull the JSON object out of command output that may carry MOTD lines.
+fn parse_server_config_output(out: &str) -> HashMap<String, String> {
+    let (Some(a), Some(b)) = (out.find('{'), out.rfind('}')) else {
+        return HashMap::new();
+    };
+    if b < a {
+        return HashMap::new();
+    }
+    let parsed: HashMap<String, serde_json::Value> =
+        serde_json::from_str(&out[a..=b]).unwrap_or_default();
+    let strings: HashMap<String, String> = parsed
+        .into_iter()
+        .filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_string())))
+        .collect();
+    sanitize_server_config(&strings).into_iter().collect()
+}
+
+#[tauri::command]
+pub async fn read_remote_server_config(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+) -> Result<HashMap<String, String>, String> {
+    let profile = find_ssh_profile(&ssh_state, &profile_id)?;
+    let out = super::ssh::ssh_exec_async(
+        profile,
+        format!("f=\"{REMOTE_SERVER_CONFIG_PATH}\"; if [ -f \"$f\" ]; then cat \"$f\"; fi"),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(parse_server_config_output(&out))
+}
+
+#[tauri::command]
+pub async fn write_remote_server_config(
+    ssh_state: tauri::State<'_, super::ssh::SSHManager>,
+    profile_id: String,
+    config: HashMap<String, String>,
+) -> Result<(), String> {
+    let profile = find_ssh_profile(&ssh_state, &profile_id)?;
+    let clean = sanitize_server_config(&config);
+    let json = serde_json::to_string_pretty(&clean).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(json.as_bytes());
+    // Decode to a sibling, then rename: a failed decode never truncates the
+    // file another computer reads. `base64 -d` reads stdin (BSD and GNU).
+    let cmd = format!(
+        "mkdir -p \"$HOME/.operon\" && printf %s {b64} | base64 -d > \"{p}.tmp\" && mv -f \"{p}.tmp\" \"{p}\"",
+        p = REMOTE_SERVER_CONFIG_PATH
+    );
+    super::ssh::ssh_exec_checked_async(profile, cmd)
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Install Claude Code on a remote server via SSH.
@@ -4259,18 +4520,28 @@ pub async fn start_claude_session(
                 &output_file.replace('\'', "'\\''"),
                 &update_log.replace('\'', "'\\''"),
             );
+            // On a SLURM login node (HPC login-node policy on) the body starts
+            // nothing and reports the host instead — see remote_run_body.
+            let restrict_login_node = {
+                let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
+                s.hpc_restrict_login_node
+            };
+            let run_body = remote_run_body(
+                restrict_login_node,
+                &preflight,
+                &claude_cmd,
+                &output_file.replace('\'', "'\\''"),
+                &done_file.replace('\'', "'\\''"),
+            );
             let script_content = format!(
-                "{}{}{}cd '{}' && rm -f '{}' '{}'; {}{} >> '{}' 2>&1; echo $? > '{}'{}",
+                "{}{}{}cd '{}' && rm -f '{}' '{}'; {}{}",
                 REMOTE_PATH_PREFIX,
                 api_key_line,
                 guard_block,
                 ctx.remote_path.replace('\'', "'\\''"),
                 output_file.replace('\'', "'\\''"),
                 done_file.replace('\'', "'\\''"),
-                preflight,
-                claude_cmd,
-                output_file.replace('\'', "'\\''"),
-                done_file.replace('\'', "'\\''"),
+                run_body,
                 prompt_cleanup,
             );
 
@@ -4665,8 +4936,8 @@ pub async fn start_claude_session(
         // the probe on the terminal path — the probe goes through `ssh_exec`,
         // i.e. a NEW connection to profile.host, which is always the login node,
         // so it would refuse every Terminal session including correctly
-        // allocated ones. Real enforcement needs an in-pane `$SLURM_JOB_ID`
-        // check, which is a feature rather than a fix.
+        // allocated ones. Terminal mode is enforced in the pane itself instead:
+        // the run script's LOGIN_NODE_TEST (see remote_run_body).
         let restrict_login_node = {
             let s = settings_state.settings.lock().map_err(|e| e.to_string())?;
             s.hpc_restrict_login_node
@@ -6997,13 +7268,16 @@ mod terminal_mode_protocol_tests {
         // finished" and exit instantly, so the new agent streamed nothing at all.
         // The run script owns .done, so it owns clearing it.
         let c = code();
-        let start = c
-            .find("cd '{}' && rm -f '{}' '{}';")
-            .expect("run script no longer clears stale out/done before the agent starts");
-        let claude_at = c[start..]
-            .find("{}{} >> '{}' 2>&1; echo $? > '{}'")
-            .expect("run script shape changed");
-        assert!(claude_at > 0, "the clear must precede the agent invocation");
+        // The clear comes first in the script, and the agent (inside the run
+        // body, possibly behind the login-node guard) only after it.
+        assert!(
+            c.contains("\"{}{}{}cd '{}' && rm -f '{}' '{}'; {}{}\""),
+            "run script no longer clears stale out/done before the agent starts"
+        );
+        assert!(
+            c.contains("run_body,\n                prompt_cleanup,"),
+            "run script shape changed: the run body must follow the clear"
+        );
     }
 
     #[test]
@@ -7583,12 +7857,23 @@ mod preflight_and_signin_tests {
         // Everything must be a builtin: an external command would put the
         // path in a process's argv on the login node. Only `echo`, `read`,
         // `case`, `[`, `for` and parameter expansion are used.
-        for word in ["cat ", "grep ", "ls ", "sed ", "awk ", "head ", "claude "] {
+        for word in ["cat ", "grep ", "ls ", "sed ", "awk ", "head "] {
             assert!(
                 !REMOTE_SIGNIN_PROBE.contains(word),
                 "external command {word:?} in the probe"
             );
         }
+        // "claude" may appear only as a path being tested or as the argument
+        // of the `command -v` builtin — never as a command that is run.
+        let stripped = REMOTE_SIGNIN_PROBE
+            .replace("command -v claude", "")
+            .replace("/claude\"", "")
+            .replace("CLAUDE_", "")
+            .replace("/.claude", "");
+        assert!(
+            !stripped.contains("claude"),
+            "the probe runs or names claude: {stripped}"
+        );
         let r = std::process::Command::new("/bin/bash")
             .arg("-c")
             .arg("echo SIGNIN:unknown")
@@ -7598,6 +7883,32 @@ mod preflight_and_signin_tests {
             parse_signin_probe(&String::from_utf8_lossy(&r.stdout)),
             "unknown"
         );
+    }
+
+    #[test]
+    fn signin_probe_reports_whether_claude_is_installed() {
+        let run = |tag: &str, exe: bool| {
+            let d = Scratch::new(&format!("inst-{tag}"));
+            if exe {
+                let f = d.p(".local/bin/claude");
+                std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+                std::fs::write(&f, "#!/bin/sh\n").unwrap();
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let r = std::process::Command::new("/bin/bash")
+                .arg("-c")
+                .arg(format!("OSTYPE=linux-gnu\n{REMOTE_SIGNIN_PROBE}"))
+                .env_clear()
+                .env("HOME", &d.0)
+                .env("PATH", "/usr/bin:/bin")
+                .output()
+                .unwrap();
+            super::parse_installed_probe(&String::from_utf8_lossy(&r.stdout))
+        };
+        assert_eq!(run("yes", true), Some(true));
+        assert_eq!(run("no", false), Some(false));
+        assert_eq!(super::parse_installed_probe("garbage"), None);
     }
 
     #[test]
@@ -7716,5 +8027,301 @@ mod session_record_tests {
         );
         assert!(!update_session_in(&dir, "nope", |_| true).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod remote_config_and_pane_tests {
+    use super::{
+        classify_pane_probe, is_tmux_session_name, parse_server_config_output,
+        sanitize_server_config,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn srun_in_the_foreground_group_is_a_compute_node() {
+        // Exactly what HPC3 reported for a live auto-route pane: the startup
+        // bash leads the group and srun runs in it.
+        let hpc3 = "OPERON_FG:bash\nOPERON_FG:srun\nOPERON_FG:srun\nOPERON_PANE:done\n";
+        assert_eq!(classify_pane_probe(hpc3), "compute");
+        assert_eq!(
+            classify_pane_probe("motd\nOPERON_FG:srun\nOPERON_PANE:done"),
+            "compute"
+        );
+        for login in ["bash", "-bash", "zsh", "vim", "python3", "claude", "squeue"] {
+            assert_eq!(
+                classify_pane_probe(&format!("OPERON_FG:{login}\nOPERON_PANE:done")),
+                "login",
+                "{login}"
+            );
+        }
+        assert_eq!(
+            classify_pane_probe("OPERON_FG:bash\nOPERON_FG:ssh\nOPERON_PANE:done"),
+            "unknown"
+        );
+        // No such session, or ps printed nothing: never claim "login".
+        assert_eq!(classify_pane_probe("OPERON_PANE:none"), "unknown");
+        assert_eq!(classify_pane_probe("OPERON_PANE:done"), "unknown");
+        assert_eq!(classify_pane_probe(""), "unknown");
+    }
+
+    #[test]
+    fn the_terminal_probe_is_the_command_verified_on_hpc3() {
+        // Byte-for-byte the command run against a live auto-route pane on UCI
+        // HPC3 (it printed OPERON_FG:bash, srun, srun). Escaping drift in the
+        // format! string would silently turn every pane "unknown".
+        assert_eq!(
+            super::terminal_probe_command("operon-node"),
+            r#"t=$(tmux display-message -p -t 'operon-node' '#{pane_tty}' 2>/dev/null); if [ -z "$t" ]; then echo OPERON_PANE:none; else ps -t "${t#/dev/}" -o pgid=,tpgid=,comm= 2>/dev/null | awk '$1==$2 { n=$3; sub(".*/","",n); print "OPERON_FG:" n }'; echo OPERON_PANE:done; fi"#
+        );
+    }
+
+    #[test]
+    fn only_plain_tmux_session_names_are_queried() {
+        assert!(is_tmux_session_name("operon-node"));
+        assert!(is_tmux_session_name("operon_main2"));
+        let long = "x".repeat(65);
+        for bad in ["", "a b", "x'; rm -rf ~", "s:1", "$(id)", long.as_str()] {
+            assert!(!is_tmux_session_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_server_copy_keeps_only_interactive_node_settings() {
+        let mut cfg = HashMap::new();
+        cfg.insert(
+            "interactive_cmd".to_string(),
+            "  srun -A lab --pty bash -i ".to_string(),
+        );
+        cfg.insert("interactive_account".to_string(), "lab".to_string());
+        cfg.insert("interactive_auto".to_string(), String::new());
+        cfg.insert("slurm_account".to_string(), "not synced".to_string());
+        cfg.insert("api_key".to_string(), "sk-ant-never".to_string());
+        let clean = sanitize_server_config(&cfg);
+        assert_eq!(
+            clean.get("interactive_cmd").map(String::as_str),
+            Some("srun -A lab --pty bash -i")
+        );
+        assert_eq!(
+            clean.get("interactive_account").map(String::as_str),
+            Some("lab")
+        );
+        assert!(
+            !clean.contains_key("interactive_auto"),
+            "empty values are dropped"
+        );
+        assert!(!clean.contains_key("slurm_account") && !clean.contains_key("api_key"));
+        let mut huge = HashMap::new();
+        huge.insert("interactive_cmd".to_string(), "x".repeat(5000));
+        assert!(
+            sanitize_server_config(&huge).is_empty(),
+            "oversized values are dropped"
+        );
+    }
+
+    #[test]
+    fn reading_the_server_copy_tolerates_motd_noise_and_junk() {
+        let out = "Welcome to HPC3\n{\n  \"interactive_cmd\": \"srun --pty bash -i\",\n  \"other\": \"x\",\n  \"interactive_auto\": 1\n}\n";
+        let cfg = parse_server_config_output(out);
+        assert_eq!(
+            cfg.get("interactive_cmd").map(String::as_str),
+            Some("srun --pty bash -i")
+        );
+        assert_eq!(
+            cfg.len(),
+            1,
+            "unknown keys and non-strings are ignored: {cfg:?}"
+        );
+        assert!(parse_server_config_output("").is_empty());
+        assert!(parse_server_config_output("cat: no such file").is_empty());
+        assert!(parse_server_config_output("} junk {").is_empty());
+    }
+}
+
+// Unix only: runs the run-script body through real shells with fake SLURM
+// tools; the script only ever runs on Unix servers.
+#[cfg(all(test, unix))]
+mod login_node_guard_tests {
+    use super::remote_run_body;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::{Path, PathBuf};
+
+    struct Sandbox(PathBuf);
+    impl Sandbox {
+        fn new(tag: &str) -> Self {
+            let d = std::env::temp_dir().join(format!("operon-lng-{}-{}", std::process::id(), tag));
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(d.join("bin")).unwrap();
+            Sandbox(d)
+        }
+        fn p(&self, rel: &str) -> PathBuf {
+            self.0.join(rel)
+        }
+        fn tool(&self, dir: &str, name: &str, body: &str) {
+            let f = self.p(&format!("{dir}/{name}"));
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(&f, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    impl Drop for Sandbox {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn short_host() -> String {
+        let o = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("hostname -s 2>/dev/null || hostname | cut -d. -f1")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&o.stdout)
+            .trim()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c))
+            .collect()
+    }
+
+    /// A cluster sandbox: `claude` records that it ran; `sbatch` exists;
+    /// `sinfo` lists the given nodes. `plain/` holds only the fake claude,
+    /// for a server without SLURM.
+    fn cluster(tag: &str, sinfo_nodes: &str) -> Sandbox {
+        let b = Sandbox::new(tag);
+        let ran = format!("echo ran >> '{}'", b.p("claude-ran").display());
+        b.tool("bin", "claude", &ran);
+        b.tool("plain", "claude", &ran);
+        b.tool("bin", "sbatch", "exit 0");
+        b.tool("bin", "sinfo", &format!("printf '%s\\n' {sinfo_nodes}"));
+        b
+    }
+
+    /// Source the body in `shell`, as the run script is sourced into the
+    /// user's shell. Returns (stdout, output file, .done contents).
+    fn run(
+        shell: &str,
+        b: &Sandbox,
+        guard: bool,
+        env: &[(&str, &str)],
+        slurm: bool,
+    ) -> (String, String, String) {
+        let out = b.p("out.jsonl");
+        let done = b.p("done");
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&done);
+        let body = remote_run_body(
+            guard,
+            "",
+            "claude -p hi",
+            &out.display().to_string(),
+            &done.display().to_string(),
+        );
+        let dir = if slurm { "bin" } else { "plain" };
+        let mut c = std::process::Command::new(shell);
+        c.arg("-c")
+            .arg(format!("{body}; echo STILL-HERE"))
+            .env_clear()
+            .env("PATH", format!("{}:/usr/bin:/bin", b.p(dir).display()))
+            .env("HOME", &b.0);
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        let r = c.output().expect("shell");
+        (
+            String::from_utf8_lossy(&r.stdout).into_owned(),
+            std::fs::read_to_string(&out).unwrap_or_default(),
+            std::fs::read_to_string(&done)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        )
+    }
+
+    fn shells() -> Vec<&'static str> {
+        ["/bin/bash", "/bin/zsh", "/bin/sh"]
+            .into_iter()
+            .filter(|s| Path::new(s).exists())
+            .collect()
+    }
+
+    #[test]
+    fn on_a_login_node_nothing_named_claude_starts_and_the_host_is_reported() {
+        let host = short_host();
+        assert!(!host.is_empty(), "test needs a hostname");
+        for sh in shells() {
+            let b = cluster(
+                &format!("login-{}", sh.replace('/', "")),
+                "hpc3-14-00 hpc3-14-01",
+            );
+            let (stdout, out, done) = run(sh, &b, true, &[], true);
+            assert!(
+                stdout.contains("STILL-HERE"),
+                "{sh}: must not exit the sourcing shell"
+            );
+            assert!(
+                !b.p("claude-ran").exists(),
+                "{sh}: claude started on a login node"
+            );
+            let v: serde_json::Value =
+                serde_json::from_str(out.trim()).unwrap_or_else(|e| panic!("{sh}: {out:?} {e}"));
+            assert_eq!(v["kind"], "login_node_refused");
+            assert_eq!(v["host"], host.as_str());
+            assert_eq!(done, "126", "{sh}: the tail needs a .done to stop");
+        }
+    }
+
+    #[test]
+    fn salloc_on_the_login_node_still_counts_as_the_login_node() {
+        // salloc sets SLURM_JOB_ID in a shell that is still on the login node.
+        let b = cluster("salloc", "hpc3-14-00");
+        let (_, out, _) = run(
+            "/bin/sh",
+            &b,
+            true,
+            &[("SLURM_JOB_ID", "123"), ("SLURM_NODELIST", "hpc3-14-00")],
+            true,
+        );
+        assert!(!b.p("claude-ran").exists());
+        assert!(out.contains("login_node_refused"));
+    }
+
+    #[test]
+    fn a_compute_node_runs_the_agent() {
+        for sh in shells() {
+            // An srun --pty shell: slurmd sets SLURMD_NODENAME.
+            let b = cluster(&format!("srun-{}", sh.replace('/', "")), "other");
+            let (stdout, out, done) = run(sh, &b, true, &[("SLURMD_NODENAME", "hpc3-14-00")], true);
+            assert!(stdout.contains("STILL-HERE"));
+            assert!(
+                b.p("claude-ran").exists(),
+                "{sh}: agent did not start on a compute node"
+            );
+            assert!(!out.contains("login_node_refused"));
+            assert_eq!(done, "0");
+        }
+        // SSH straight into an allocated node: no step variables, but sinfo
+        // lists this host.
+        let host = short_host();
+        let b = cluster("ssh-node", &host);
+        run("/bin/sh", &b, true, &[], true);
+        assert!(
+            b.p("claude-ran").exists(),
+            "a host sinfo lists is a compute node"
+        );
+    }
+
+    #[test]
+    fn servers_without_slurm_and_the_policy_off_are_unaffected() {
+        let b = cluster("plain", "other");
+        run("/bin/sh", &b, true, &[], false);
+        assert!(
+            b.p("claude-ran").exists(),
+            "a server without SLURM must run the agent"
+        );
+        let b = cluster("off", "other");
+        let (_, out, done) = run("/bin/sh", &b, false, &[], true);
+        assert!(b.p("claude-ran").exists(), "policy off must run the agent");
+        assert!(!out.contains("login_node_refused"));
+        assert_eq!(done, "0");
     }
 }

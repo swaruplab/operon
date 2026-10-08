@@ -80,10 +80,28 @@ export async function claudeCodeMinVersion(model: string): Promise<string | null
   return invoke('claude_code_min_version', { model });
 }
 
-/** Login-node-safe check of whether Claude Code is signed in on a server:
- *  'yes' | 'token' | 'cloud' | 'no' | 'unknown'. Runs no Claude process. */
-export async function probeRemoteClaudeSignin(profileId: string): Promise<string> {
+/** Login-node-safe check of a server: is Claude Code installed (null = can't
+ *  tell), and is it signed in. Runs no Claude process — shell builtins only. */
+export interface RemoteClaudeProbe {
+  installed: boolean | null;
+  signin: 'yes' | 'token' | 'cloud' | 'no' | 'unknown';
+}
+
+export async function probeRemoteClaudeSignin(profileId: string): Promise<RemoteClaudeProbe> {
   return invoke('probe_remote_claude_signin', { profileId });
+}
+
+/** Where the chat's terminal shell is, from what its tmux pane runs, asked over
+ *  the terminal's own SSH connection (so the same login node). */
+export type TerminalNode = 'compute' | 'login' | 'unknown';
+
+export async function probeTerminalNode(profileId: string, tmuxSession: string | null): Promise<TerminalNode> {
+  return invoke('probe_terminal_node', { profileId, tmuxSession });
+}
+
+/** True when the server is a SLURM cluster reached through a login node. */
+export async function remoteIsSlurmLogin(profileId: string): Promise<boolean> {
+  return invoke('remote_is_slurm_login', { profileId });
 }
 
 /** Run `claude update` on this computer; resolves with Claude Code's output. */

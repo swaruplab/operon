@@ -30,6 +30,8 @@ import {
   hasKeyPassphrase,
   keyNeedsPassphrase,
   addKeyPassphrase,
+  pickServerSynced,
+  writeRemoteServerConfig,
 } from '../../lib/ssh';
 import { getSettings } from '../../lib/settings';
 import { cleanupLegacyWatchdog } from '../../lib/watchdog';
@@ -50,7 +52,7 @@ function shSingleQuote(s: string): string {
 /** Inject the preferred allocation into an srun/salloc command that doesn't
  *  already name one. Leaves sinteractive / qsub / custom commands untouched —
  *  the user's command wins there. Account is sanitised to a shell-safe token. */
-function injectAccount(cmd: string, account: string): string {
+export function injectAccount(cmd: string, account: string): string {
   const c = cmd.trim();
   const acct = account.replace(/[^A-Za-z0-9_.-]/g, '');
   if (!acct) return c;
@@ -236,6 +238,13 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
     setShowConfigPicker(false);
   }, []);
 
+  // The chat adopts an interactive-node command saved on the server and writes
+  // it into this computer's profile; reload so the next connect uses it.
+  useEffect(() => {
+    const p = listen('ssh-profiles-changed', () => { loadProfiles(); });
+    return () => { p.then((u) => u()); };
+  }, [loadProfiles]);
+
   useEffect(() => {
     loadProfiles();
   }, [loadProfiles]);
@@ -342,6 +351,14 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
 
     try {
       await invoke('save_ssh_profile', { profile });
+      // Keep the copy on the server current, so the user's other computers pick
+      // up the same interactive-node command. Best effort, in the background —
+      // it needs a working connection and must never block or fail the save.
+      const before = JSON.stringify(pickServerSynced(editProfile?.server_config));
+      const after = pickServerSynced(cleanConfig);
+      if (JSON.stringify(after) !== before) {
+        writeRemoteServerConfig(profile.id, after).catch(() => {});
+      }
       if (keyFile && keyEncrypted && keyPass) {
         // Verifies the passphrase against the key, then stores it in the OS keychain.
         await setKeyPassphrase(profile.id, keyPass, profile.key_file);
@@ -567,8 +584,23 @@ export function SSHView({ onConnectSSH, connectedProfileId }: SSHViewProps) {
         // starts with 'operon' so watchdog / footprint teardown still detect it.
         // `-t -t` forces a tty; `-A` reattaches a still-live acquire session.
         tmuxSession = startup ? 'operon-node' : base;
+        // `-A` attaches an existing session and then IGNORES the startup — so an
+        // 'operon-node' left holding a plain shell (an older Operon fell back to
+        // `exec bash -l` when the node ended; a second window the user opened)
+        // would put this terminal, and every chat typed into it, on the login
+        // node. Attach only if some window still has `srun` in its FOREGROUND
+        // process group (select that one); otherwise end the session and acquire
+        // afresh. Not #{pane_current_command}: the startup's `bash -c` leads the
+        // group with srun as its child, so tmux names a live compute pane "bash".
+        // Fail-safe by construction: the session is ended ONLY when every
+        // pane's foreground group was read and none holds srun. Any pane that
+        // can't be read (no ps, odd ps, awk error) means attach as before —
+        // ending a live compute session on a guess would be far worse.
+        const heal = startup
+          ? `if tmux has-session -t ${tmuxSession} 2>/dev/null; then _osel=''; _okill=1; _oseen=0; for _op in $(tmux list-panes -s -t ${tmuxSession} -F '#{window_index}:#{pane_tty}' 2>/dev/null); do _ot=\${_op#*:}; _ofg=$(ps -t "\${_ot#/dev/}" -o pgid=,tpgid=,comm= 2>/dev/null | awk '$1==$2 { n=$3; sub(".*/","",n); printf "%s ", n }'); if [ -z "$_ofg" ]; then _okill=0; continue; fi; _oseen=1; case " $_ofg" in *' srun '*) _osel=\${_op%%:*}; break;; esac; done; if [ -n "$_osel" ]; then tmux select-window -t "${tmuxSession}:$_osel" 2>/dev/null; elif [ "$_okill" = 1 ] && [ "$_oseen" = 1 ]; then tmux kill-session -t ${tmuxSession} 2>/dev/null; fi; fi; `
+          : '';
         const remote = startup
-          ? `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} ${shSingleQuote(startup)} || { ${startup} ; }`
+          ? `if command -v tmux >/dev/null 2>&1; then ${heal}exec tmux new-session -A -s ${tmuxSession} ${shSingleQuote(startup)}; else ${startup} ; fi`
           : `command -v tmux >/dev/null 2>&1 && exec tmux new-session -A -s ${tmuxSession} || exec "$SHELL" -l`;
         sshArgs.push('-t', '-t', remote);
         usedTmux = true;
