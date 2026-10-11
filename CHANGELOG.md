@@ -4,6 +4,27 @@ All notable changes to Operon are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 follows [Semantic Versioning](https://semver.org/).
 
+## [1.0.9] — 2026-10-10
+
+### Fixed
+- **Chats on a remote server no longer freeze after Enter, and no longer send
+  twice.** v1.0.8 checked where the terminal was before every send, and that
+  check opened a new SSH session. On clusters whose `~/.bashrc` does heavy
+  setup (on UCI HPC3, `conda init` makes every new session take about 7
+  seconds) the message did not appear until the check finished. Pressing Enter
+  again in the meantime sent the message again: two or three copies, each
+  starting an agent run. The job card's Resume button waited the same way.
+  Now a send never waits on the network:
+  - Your message appears at once.
+  - Only one send can be in progress, so an extra Enter or Resume is ignored.
+  - Operon checks where the terminal is in the background (after connecting and
+    after "Move this terminal"). Every agent start also confirms it is on a
+    compute node.
+  - A terminal already known to be on a login node is still stopped before
+    sending, and the run script still refuses on a login node either way.
+  - The setup buttons reuse a recent answer, and the header shows "checking…"
+    when they have to look.
+
 ## [1.0.8] — 2026-10-08
 
 ### Fixed

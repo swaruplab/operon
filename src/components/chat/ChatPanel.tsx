@@ -1532,7 +1532,21 @@ export function ChatPanel() {
   const remoteProfileRef = useRef<SSHProfile | null>(null);
   const loginRefusedRef = useRef(false);
   const moveTokenRef = useRef(0);
-  const [terminalNode, setTerminalNode] = useState<TerminalNode | null>(null);
+  const [terminalNode, setTerminalNodeState] = useState<TerminalNode | null>(null);
+  // The send path reads these synchronously. It must never wait on the network:
+  // on HPC3 every NEW SSH session costs ~7 s of the user's shell startup (conda
+  // init in ~/.bashrc) before it runs anything, and v1.0.8 made each Send wait
+  // for one before the message even appeared — so people pressed Enter again
+  // and the same message went out two or three times.
+  const terminalNodeRef = useRef<{ node: TerminalNode; at: number } | null>(null);
+  const setTerminalNode = useCallback((node: TerminalNode | null) => {
+    terminalNodeRef.current = node ? { node, at: Date.now() } : null;
+    setTerminalNodeState(node);
+  }, []);
+  const [terminalChecking, setTerminalChecking] = useState(false);
+  // Set synchronously at the top of every send, so a second Enter while the
+  // first is still being prepared is ignored instead of sending a copy.
+  const sendingRef = useRef(false);
   const [loginNodeNotice, setLoginNodeNotice] = useState<{ host: string | null; refused: boolean } | null>(null);
   const [movingToNode, setMovingToNode] = useState<'idle' | 'waiting' | 'ready' | 'timeout'>('idle');
   // This computer's profile has no interactive-node command: either one was
@@ -2258,19 +2272,35 @@ export function ChatPanel() {
   // node, where the cluster kills any process named claude. "unknown" (no
   // shared SSH connection, no tmux) lets it through — the run script's own
   // check still refuses there.
+  // Used by the setup buttons (Login on Server, Install, Update), which type a
+  // claude command straight into the terminal — no run script guards those. A
+  // recent answer (connect-time probe, a successful agent start) is used as is;
+  // otherwise this probes, which takes a new SSH session (~7 s on HPC3), so the
+  // header shows "checking…" meanwhile.
   const ensureComputeTerminal = useCallback(async (): Promise<boolean> => {
     const ri = remoteInfoRef.current;
     if (!ri || !restrictLoginNode || !sshTerminalId) return true;
     if (!(await isSlurmLoginServer(ri.profileId))) return true;
-    const node = await probeTerminalNode(ri.profileId, sshTmuxRef.current).catch(() => 'unknown' as const);
-    setTerminalNode(node);
+    const known = terminalNodeRef.current;
+    let node: TerminalNode;
+    if (known && known.node === 'compute' && Date.now() - known.at < 5 * 60_000) {
+      node = 'compute';
+    } else {
+      setTerminalChecking(true);
+      try {
+        node = await probeTerminalNode(ri.profileId, sshTmuxRef.current).catch(() => 'unknown' as const);
+      } finally {
+        setTerminalChecking(false);
+      }
+      setTerminalNode(node);
+    }
     if (node === 'login') {
       setLoginNodeNotice({ host: null, refused: false });
       setMovingToNode('idle');
       return false;
     }
     return true;
-  }, [restrictLoginNode, sshTerminalId, isSlurmLoginServer]);
+  }, [restrictLoginNode, sshTerminalId, isSlurmLoginServer, setTerminalNode]);
 
   // Type the interactive-node command into the terminal, then watch until the
   // terminal is on a compute node (allocations can queue; ~3 minutes max).
@@ -2296,7 +2326,7 @@ export function ChatPanel() {
       }
     }
     setMovingToNode('timeout');
-  }, [sshTerminalId]);
+  }, [sshTerminalId, setTerminalNode]);
 
   // After a refused run: send the same request again, now that the terminal is
   // on a compute node. No second copy of the user's message is added.
@@ -2396,11 +2426,13 @@ export function ChatPanel() {
     if (!pid || !sshTerminalId || !restrictLoginNode) return;
     const t = setTimeout(async () => {
       if (!(await isSlurmLoginServer(pid))) return;
+      setTerminalChecking(true);
       const node = await probeTerminalNode(pid, sshTmuxRef.current).catch(() => 'unknown' as const);
+      setTerminalChecking(false);
       setTerminalNode(node);
     }, 10000);
     return () => clearTimeout(t);
-  }, [remoteInfo?.profileId, sshTerminalId, restrictLoginNode, isSlurmLoginServer]);
+  }, [remoteInfo?.profileId, sshTerminalId, restrictLoginNode, isSlurmLoginServer, setTerminalNode]);
 
   // Update Claude Code where the last run happened, then send the same request
   // again. Called from the done handler (so the failed run is fully over)
@@ -2838,6 +2870,12 @@ export function ChatPanel() {
           const v = data.claude_code_version;
           if (remoteInfoRef.current) setRemoteDeps((prev) => (prev ? { ...prev, claudeVersion: v } : prev));
           else setLocalClaudeVersion(parseClaudeVersion(v));
+        }
+        // Claude started from the terminal. With the login-node policy on, the
+        // run script only lets it start on a compute node — a free, current
+        // answer to "where is the terminal?" for the next send.
+        if (data.type === 'system' && data.subtype === 'init' && remoteInfoRef.current && lastSendRef.current?.target === 'remote-terminal') {
+          setTerminalNode('compute');
         }
 
         if (data.type === 'system' && 'session_id' in data && data.session_id) {
@@ -3831,7 +3869,7 @@ export function ChatPanel() {
     }
   }, [planConflict, existingPlan, projectPath, remoteInfo]);
 
-  const sendMessage = useCallback(async (overrideTextOrEvent?: string | React.MouseEvent) => {
+  const sendMessageInner = useCallback(async (overrideTextOrEvent?: string | React.MouseEvent) => {
     const overrideText = typeof overrideTextOrEvent === 'string' ? overrideTextOrEvent : undefined;
     const textToSend = overrideText || input.trim();
     // When called with an explicit override string (e.g. from "Generate Report"
@@ -3840,9 +3878,18 @@ export function ChatPanel() {
     if (!textToSend) return;
     if (isStreaming && !overrideText) return;
     // On a cluster that stops Claude on login nodes, don't type the agent into
-    // a terminal that is on one. The message stays in the box; the notice offers
-    // to move the terminal to a compute node.
-    if (remoteInfo && useTerminal && sshTerminalId && !(await ensureComputeTerminal())) return;
+    // a terminal KNOWN to be on one: the message stays in the box and the notice
+    // offers to move the terminal. This reads the last known location only —
+    // never a network round trip (see terminalNodeRef). If the terminal turns
+    // out to be on a login node anyway, the run script refuses there and the
+    // same notice appears.
+    if (
+      remoteInfo && useTerminal && sshTerminalId && restrictLoginNode &&
+      terminalNodeRef.current?.node === 'login'
+    ) {
+      setLoginNodeNotice((n) => n ?? { host: null, refused: false });
+      return;
+    }
     loginRefusedRef.current = false;
 
     const rawText = textToSend;
@@ -4362,7 +4409,21 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
   // NOTE: projectPath is intentionally excluded from deps — we use
   // sessionProjectPath (pinned on first message) so that sidebar folder
   // navigation does not break an active streaming session.
-  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady, localClaudeVersion, ensureComputeTerminal]);
+  }, [input, isStreaming, sessionId, model, claudeSessionId, mode, remoteInfo, useTerminal, sshTerminalId, mentions, activeProtocols, protocolContents, existingPlan, pubmedEnabled, reportPhase, reportSelectedFiles, reportMethodsInfo, reportScope, reportSelectedPlan, planConflict, planReady, localClaudeVersion, restrictLoginNode]);
+
+  // One send at a time. The lock is taken synchronously, before anything is
+  // awaited, so a second Enter (or Resume) while this send is still being
+  // prepared is dropped rather than sending a second copy. It is released once
+  // the session has been started (from then on isStreaming guards).
+  const sendMessage = useCallback(async (overrideTextOrEvent?: string | React.MouseEvent) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      await sendMessageInner(overrideTextOrEvent);
+    } finally {
+      sendingRef.current = false;
+    }
+  }, [sendMessageInner]);
 
   // Report mode: user clicks "Generate Report" button during clarify phase.
   // Calls sendMessage with an override string, which bypasses the isStreaming
@@ -4703,12 +4764,15 @@ You are running on an HPC cluster via an SSH connection. Follow these rules stri
             <TerminalSquare className="w-3 h-3" />
             {useTerminal && sshTerminalId ? 'Terminal' : 'Direct'}
           </button>
-          {useTerminal && sshTerminalId && restrictLoginNode && terminalNode === 'compute' && (
+          {useTerminal && sshTerminalId && restrictLoginNode && terminalChecking && (
+            <span className="text-[10px] text-subtle shrink-0" title="Checking where the terminal is">checking…</span>
+          )}
+          {useTerminal && sshTerminalId && restrictLoginNode && !terminalChecking && terminalNode === 'compute' && (
             <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0" title="The terminal is on a compute node">
               compute node
             </span>
           )}
-          {useTerminal && sshTerminalId && restrictLoginNode && terminalNode === 'login' && (
+          {useTerminal && sshTerminalId && restrictLoginNode && !terminalChecking && terminalNode === 'login' && (
             <button
               onClick={() => setLoginNodeNotice((n) => n ?? { host: null, refused: false })}
               className="text-[10px] text-red-600 dark:text-red-400 hover:underline shrink-0"
